@@ -1,7 +1,7 @@
 /**
  * The flowform importer, end to end on a fixture backup in flowform's real
  * formats: room documents written by flowform's own card writers
- * (Yjs v2 snapshot + u32-LE update log, test/fixtures/flowform/gen) and a
+ * (Yjs v2 snapshot + u32-LE update log, test/fixtures/flowform/data) and a
  * flowform.db holding the tables the importer reads (fixtures/flowform/backup.ts).
  *
  * Checks: the mapping, members and the access gate, media bytes, re-runs
