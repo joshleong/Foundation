@@ -189,10 +189,81 @@ export function watchFactoryForm() {
   void connect();
 }
 
+interface DataRoomBomform {
+  fetchedAt: string;
+  lastSync: string | null;
+  counts: { reviews: number; itemsOpen: number; itemsWithUs: number; todosOpen: number; testsPassed: number; testsPlanned: number; testsFailed: number; criticalTotal: number; criticalDocumented: number };
+  certProjects: Array<{ code: string; name: string; agency: string | null; stage: string | null; itemsTotal: number; itemsResolved: number; itemsOpen: number }>;
+  critical: { total: number; documented: number; undocumented: Array<{ partNumber: string; name: string; vendor: string | null; docStatus: string }> };
+  costs: Array<{ code: string; partCount: number; pricedPartCount: number; missingPriceCount: number }>;
+  submissions: Array<{ vendor: string | null; title: string | null; shippedAt: string | null }>;
+}
+
+/**
+ * BomForm, read two ways: directly over its MCP when this server holds a
+ * BomForm key, otherwise from the copy the Airform Data Room syncs daily
+ * (its read-only /api/foundation/bomform digest). The copy says how old it is.
+ */
 async function bomform(): Promise<ConnectorState> {
   const url = process.env.BOMFORM_MCP_URL;
   const key = process.env.BOMFORM_API_KEY;
-  if (!url || !key) throw new Error("BOMFORM_MCP_URL / BOMFORM_API_KEY not set (private CA: point NODE_EXTRA_CA_CERTS at BomForm's CA)");
+  if (url && key) return bomformDirect(url, key);
+  const roomUrl = process.env.DATAROOM_BOMFORM_URL;
+  const roomToken = process.env.DATAROOM_READ_TOKEN;
+  if (!roomUrl || !roomToken) throw new Error("no BomForm key here and no Data Room copy configured (SPEC §6.5)");
+  const res = await timed(fetch(roomUrl, { headers: { authorization: `Bearer ${roomToken}` } }), 20_000);
+  if (res.status === 404) throw new Error("the Data Room hasn't stored a BomForm snapshot yet");
+  if (!res.ok) throw new Error(`the Data Room answered ${res.status}`);
+  const d = (await res.json()) as DataRoomBomform;
+  const c = d.counts;
+  const items = d.certProjects.reduce((a, p) => a + p.itemsTotal, 0);
+  const resolved = d.certProjects.reduce((a, p) => a + p.itemsResolved, 0);
+  const missingPrice = d.costs.reduce((a, p) => a + p.missingPriceCount, 0);
+  const syncedAt = d.lastSync ?? d.fetchedAt;
+  const ageDays = Math.floor((Date.now() - Date.parse(syncedAt)) / 864e5);
+  const when = new Date(syncedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const stale = ageDays >= 2;
+  return {
+    id: "bomform",
+    name: "BomForm",
+    ok: true,
+    url: roomUrl.replace(/\/api\/foundation\/bomform$/, "/admin"),
+    provenance: `Airform Data Room's copy, synced ${when} (${ageDays === 0 ? "today" : `${ageDays} day${ageDays === 1 ? "" : "s"} ago`})${stale ? " — the daily sync has stopped; check BOMFORM_API_KEY and CRON_SECRET on the Data Room" : ""}`,
+    provenanceLabel: stale ? `copy · ${ageDays}d old` : "Data Room copy",
+    summary: `${d.certProjects.length} cert programs · ${c.itemsOpen} items open (${c.itemsWithUs} with us) · ${c.criticalDocumented}/${c.criticalTotal} critical parts documented`,
+    metrics: [
+      { label: "Cert items resolved", value: items ? `${Math.round((resolved / items) * 100)}%` : "unknown" },
+      { label: "Open items with us", value: c.itemsWithUs, tone: c.itemsWithUs ? "warn" : "ok" },
+      { label: "Critical parts documented", value: `${c.criticalDocumented}/${c.criticalTotal}`, tone: c.criticalDocumented < c.criticalTotal ? "warn" : "ok" },
+      { label: "Tests passed", value: `${c.testsPassed}/${c.testsPassed + c.testsPlanned + c.testsFailed}`, tone: c.testsFailed ? "bad" : undefined },
+      { label: "Parts missing a price", value: missingPrice, tone: missingPrice ? "warn" : "ok" },
+      { label: "Open to-dos", value: c.todosOpen },
+    ],
+    strips: d.certProjects.length
+      ? [
+          {
+            label: "Cert items",
+            dots: d.certProjects.flatMap((p) => {
+              // one dot per tenth of a program's items: resolved green, open amber
+              const n = Math.max(1, Math.round(p.itemsTotal / 10));
+              const done = Math.round((p.itemsResolved / Math.max(1, p.itemsTotal)) * n);
+              return Array.from({ length: n }, (_, i) => ({ name: `${p.code} · ${p.agency ?? ""} · ${p.stage ?? ""} · ${p.itemsResolved}/${p.itemsTotal}`, tone: (i < done ? "ok" : "warn") as "ok" | "warn" }));
+            }),
+          },
+        ]
+      : undefined,
+    lists: [
+      {
+        title: "Certification",
+        items: d.certProjects.map((p) => ({ text: `${p.code} · ${p.agency ?? "—"} · ${(p.stage ?? "").replace(/_/g, " ")} · ${p.itemsResolved}/${p.itemsTotal}`, tone: p.itemsOpen ? ("warn" as const) : ("ok" as const) })),
+      },
+    ],
+    detail: d,
+    checkedAt: Date.now(),
+  };
+}
+
+async function bomformDirect(url: string, key: string): Promise<ConnectorState> {
   const headers = { authorization: `Bearer ${key}` };
   const certs = await timed(callMcpTool(url, "list_cert_projects", {}, headers), 6000);
   const critical = await timed(callMcpTool(url, "list_critical_components", {}, headers), 6000).catch(() => null);

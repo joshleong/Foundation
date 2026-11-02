@@ -36,6 +36,16 @@
         "creation-hub"
       ],
       "port": 4317
+    },
+    {
+      "name": "dataroom",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/sibling.mjs",
+        "dataroom",
+        "AirformDataRoom-foundation"
+      ],
+      "port": 3010
     }
   ]
 }

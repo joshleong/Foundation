@@ -6,6 +6,7 @@
  *   node scripts/sibling.mjs factoryform     FactoryForm API + app   :3001
  *   node scripts/sibling.mjs creation        Creation (Vite)          :5173  (its config says 1420 — Vision's port)
  *   node scripts/sibling.mjs creation-hub    Creation Hub             :4317
+ *   node scripts/sibling.mjs dataroom [dir]  Airform Data Room (Next) :3010  (dir: a worktree, default AirformDataRoom)
  *   node scripts/sibling.mjs all             all of the above (npm run services)
  *
  * Sibling folders are found next to this repo (../FactoryForm, ../Creation),
@@ -23,6 +24,8 @@ const SERVICES = {
   factoryform: { dir: "FactoryForm", cmd: "npm", args: ["start"], env: { PORT: "3001", HOST: "127.0.0.1" } },
   creation: { dir: "Creation", cmd: "npx", args: ["vite", "--host", "127.0.0.1", "--port", "5173", "--strictPort"], env: {} },
   "creation-hub": { dir: "Creation", cmd: "npm", args: ["run", "hub"], env: { CREATION_HUB_PORT: "4317" } },
+  // webpack, not Turbopack: a worktree shares node_modules by symlink, which Turbopack refuses
+  dataroom: { dir: process.argv[3] ?? process.env.DATAROOM_DIR ?? "AirformDataRoom", cmd: "npx", args: ["next", "dev", "--webpack", "-p", "3010"], env: {} },
 };
 
 const which = process.argv[2] ?? "all";
