@@ -1060,9 +1060,30 @@ body.rewiring {
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-card);
   transform-origin: center;
-  transition: box-shadow 0.3s ease;
+  transition:
+    box-shadow 0.3s ease,
+    rotate var(--dur-lift) var(--ease-settle),
+    scale var(--dur-lift) var(--ease-settle);
   will-change: transform;
   overflow: visible;
+}
+.frame-anchor.dragging .frame-card {
+  /* follow the lean live; the settle transition applies on release */
+  transition: box-shadow 0.3s ease, scale var(--dur-quick) var(--ease-out-soft);
+}
+
+.grid-viewport.space-pan,
+.grid-viewport.space-pan * {
+  cursor: grab !important;
+}
+.grid-viewport.space-pan.panning,
+.grid-viewport.space-pan.panning * {
+  cursor: grabbing !important;
+}
+.zoom-readout {
+  min-width: 56px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
 }
 
 .frame-header {

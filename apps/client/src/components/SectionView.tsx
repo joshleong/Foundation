@@ -201,10 +201,15 @@ export const SectionView = memo(function SectionView({
       if (e.ctrlKey || e.metaKey) return; // viewport zoom
       if (getScale() < 0.55) return; // zoomed way out → viewport pan
       if ((e.target as HTMLElement).closest(".map-body")) return;
-      e.stopPropagation();
       const m = maxScroll();
-      scroll.x.to(Math.max(0, Math.min(m.x, scroll.x.goal + e.deltaX)));
-      scroll.y.to(Math.max(0, Math.min(m.y, scroll.y.goal + e.deltaY)));
+      const nx = Math.max(0, Math.min(m.x, scroll.x.goal + e.deltaX));
+      const ny = Math.max(0, Math.min(m.y, scroll.y.goal + e.deltaY));
+      // a section that can't scroll this way hands the gesture to the grid,
+      // so two-finger panning never dead-ends on a section
+      if (Math.abs(nx - scroll.x.goal) < 0.5 && Math.abs(ny - scroll.y.goal) < 0.5) return;
+      e.stopPropagation();
+      scroll.x.to(nx);
+      scroll.y.to(ny);
       scheduleCommit();
     },
     [scroll, maxScroll, getScale, scheduleCommit],

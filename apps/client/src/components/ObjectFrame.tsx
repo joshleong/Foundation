@@ -75,7 +75,15 @@ export function ObjectFrame({
     if (!dragRef.current.active) spring.to(pos.x, pos.y);
   }, [pos.x, pos.y, spring]);
 
-  const dragRef = useRef({ active: false, startX: 0, startY: 0, origX: 0, origY: 0 });
+  const dragRef = useRef({ active: false, startX: 0, startY: 0, origX: 0, origY: 0, lastX: 0, lastT: 0, lean: 0 });
+
+  /** the held card lifts and leans into its motion (DESIGN.md §6: lean ≤ 6°) */
+  const setLean = (deg: number, lifted: boolean) => {
+    const card = rootRef.current?.querySelector<HTMLElement>(".frame-card");
+    if (!card) return;
+    card.style.rotate = `${deg.toFixed(2)}deg`;
+    card.style.scale = lifted ? "1.015" : "";
+  };
 
   const onHeaderDown = useCallback(
     (e: React.PointerEvent) => {
@@ -89,7 +97,11 @@ export function ObjectFrame({
       d.startY = e.clientY;
       d.origX = spring.x.goal;
       d.origY = spring.y.goal;
+      d.lastX = e.clientX;
+      d.lastT = performance.now();
+      d.lean = 0;
       rootRef.current?.classList.add("dragging");
+      setLean(0, true);
       try {
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       } catch { /* synthetic */ }
@@ -106,6 +118,12 @@ export function ObjectFrame({
         Math.max(0, d.origX + (e.clientX - d.startX) / s),
         Math.max(0, d.origY + (e.clientY - d.startY) / s),
       );
+      const now = performance.now();
+      const vx = (e.clientX - d.lastX) / Math.max(1, now - d.lastT); // px/ms
+      d.lastX = e.clientX;
+      d.lastT = now;
+      d.lean = d.lean * 0.8 + Math.max(-6, Math.min(6, vx * 4)) * 0.2;
+      setLean(d.lean, true);
     },
     [spring, getScale],
   );
@@ -115,6 +133,7 @@ export function ObjectFrame({
     if (!d.active) return;
     d.active = false;
     rootRef.current?.classList.remove("dragging");
+    setLean(0, false);
     onMove(spring.x.goal, spring.y.goal);
   }, [spring, onMove]);
 

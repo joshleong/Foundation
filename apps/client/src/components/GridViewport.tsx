@@ -14,6 +14,7 @@ import {
   gridSize,
   neighborSection,
   objectWorldRect,
+  objectsInSection,
   requestSnap,
   resizeCol,
   resizeRow,
@@ -44,6 +45,37 @@ function colName(col: number): string {
 const MIN_SCALE = 0.12;
 const MAX_SCALE = 1.6;
 const FIT_MARGIN = 0.92;
+/** chrome the framing keeps clear of: the capsule above, the HUD below */
+const SAFE_TOP = 72;
+const SAFE_BOTTOM = 76;
+/** how close (in snap-score units) a framing must be before the camera settles into it */
+const MAGNET = 0.5;
+
+/**
+ * What "frame this section" should show: the cards it holds (plus its header)
+ * when they're a small part of it, the middle of it when it's empty, the whole
+ * card otherwise — so sparse sections come up close enough to read.
+ */
+function sectionFocusRect(grid: Parameters<typeof sectionCardRect>[0], s: Parameters<typeof sectionCardRect>[1]): Rect {
+  const card = sectionCardRect(grid, s);
+  const objs = objectsInSection(s.id)
+    .map((o) => objectWorldRect(o))
+    .filter((r): r is Rect => Boolean(r));
+  if (objs.length === 0) {
+    const w = Math.min(card.w, 1000);
+    const h = Math.min(card.h, 700);
+    return { x: card.x + (card.w - w) / 2, y: card.y + (card.h - h) / 2, w, h };
+  }
+  let x0 = card.x;
+  let y0 = card.y;
+  let x1 = Math.max(...objs.map((r) => r.x + r.w)) + 40;
+  let y1 = Math.max(...objs.map((r) => r.y + r.h)) + 40;
+  x1 = Math.min(card.x + card.w, Math.max(x1, card.x + 640));
+  y1 = Math.min(card.y + card.h, Math.max(y1, card.y + 420));
+  const rect = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  // only tighten when it actually helps
+  return rect.w * rect.h < card.w * card.h * 0.7 ? rect : card;
+}
 
 interface Rect {
   x: number;
@@ -133,14 +165,15 @@ export function GridViewport() {
     (rect: Rect, cap: number) => {
       const vp = viewportRect();
       if (!vp) return null;
+      const availH = Math.max(120, vp.h - SAFE_TOP - SAFE_BOTTOM);
       const s = Math.max(
         MIN_SCALE,
-        Math.min(cap, (vp.w * FIT_MARGIN) / rect.w, (vp.h * FIT_MARGIN) / rect.h),
+        Math.min(cap, (vp.w * FIT_MARGIN) / rect.w, (availH * FIT_MARGIN) / rect.h),
       );
       return {
         scale: s,
         x: vp.w / 2 - (rect.x + rect.w / 2) * s,
-        y: vp.h / 2 - (rect.y + rect.h / 2) * s,
+        y: SAFE_TOP + availH / 2 - (rect.y + rect.h / 2) * s,
       };
     },
     [viewportRect],
@@ -183,7 +216,7 @@ export function GridViewport() {
     }
     for (const s of sections) {
       out.push({
-        rect: sectionCardRect(st.grid, s),
+        rect: sectionFocusRect(st.grid, s),
         cap: 1.05,
         penalty: 0,
         target: { kind: "section", id: s.id },
@@ -205,7 +238,7 @@ export function GridViewport() {
 
   /** spring the camera to the framing nearest the (projected) camera state */
   const snapToNearest = useCallback(
-    (fromX?: number, fromY?: number, fromS?: number) => {
+    (fromX?: number, fromY?: number, fromS?: number, force = false) => {
       const vp = viewportRect();
       if (!vp) return;
       const cx = fromX ?? camera.x.goal;
@@ -221,9 +254,12 @@ export function GridViewport() {
           Math.abs(Math.log(frame.scale / cs)) * 1.3 + dist + cand.penalty;
         if (!best || score < best.score) best = { score, frame };
       }
-      if (best) {
+      // magnetic, not forced: settle only when a framing is close; otherwise rest where the person left it
+      if (best && (force || best.score < MAGNET)) {
         zoom.to(best.frame.scale);
         camera.to(best.frame.x, best.frame.y);
+      } else {
+        camera.to(cx, cy);
       }
     },
     [camera, zoom, candidates, frameOf, viewportRect],
@@ -239,7 +275,7 @@ export function GridViewport() {
         rect = { x: 0, y: 0, w: size.w, h: size.h };
       } else if (target.kind === "section") {
         const s = st.sections[target.id];
-        if (s) rect = sectionCardRect(st.grid, s);
+        if (s) rect = sectionFocusRect(st.grid, s);
         cap = 1.05;
       } else {
         const obj =
@@ -293,6 +329,41 @@ export function GridViewport() {
         focusUp();
         return;
       }
+      // view keys (Figma-style): 0 / ⇧1 fit all · ⇧2 or F frame the focus · 1 = 100% · + / − zoom
+      if (!e.metaKey && !e.ctrlKey && !e.altKey) {
+        const st0 = getState();
+        const frameFocus = () =>
+          requestSnap(
+            st0.focusLevel === "object" && st0.activeObjectId
+              ? { kind: "object", id: st0.activeObjectId }
+              : { kind: "section", id: st0.activeSectionId },
+          );
+        if (e.code === "Digit0" || (e.shiftKey && e.code === "Digit1")) {
+          e.preventDefault();
+          requestSnap({ kind: "all" });
+          return;
+        }
+        if ((e.shiftKey && e.code === "Digit2") || e.key === "f" || e.key === "F") {
+          e.preventDefault();
+          frameFocus();
+          return;
+        }
+        if (e.code === "Digit1" && !e.shiftKey) {
+          e.preventDefault();
+          zoomAroundCenter(1 / zoom.goal);
+          return;
+        }
+        if (e.key === "=" || e.key === "+") {
+          e.preventDefault();
+          zoomAroundCenter(1.25);
+          return;
+        }
+        if (e.key === "-" || e.key === "_") {
+          e.preventDefault();
+          zoomAroundCenter(1 / 1.25);
+          return;
+        }
+      }
       const dir = (
         {
           ArrowLeft: "left",
@@ -329,9 +400,35 @@ export function GridViewport() {
 
   const panDrag = useRef({ active: false, lastX: 0, lastY: 0, vx: 0, vy: 0, lastT: 0 });
 
+  // hold Space to pan from anywhere — over cards, frames and sections too
+  const spaceHeld = useRef(false);
+  useEffect(() => {
+    const typingTarget = (t: EventTarget | null) => {
+      const el = t as HTMLElement | null;
+      return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+    };
+    const down = (e: KeyboardEvent) => {
+      if (e.code !== "Space" || e.repeat || typingTarget(e.target)) return;
+      e.preventDefault();
+      spaceHeld.current = true;
+      containerRef.current?.classList.add("space-pan");
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code !== "Space") return;
+      spaceHeld.current = false;
+      containerRef.current?.classList.remove("space-pan");
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, []);
+
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     const target = e.target as HTMLElement;
-    if (target.closest(".section-card, button, input, select, .viewport-toolbar, .gutter")) return;
+    if (!spaceHeld.current && target.closest(".section-card, button, input, select, .viewport-toolbar, .gutter")) return;
     if (e.button !== 0 && e.button !== 1) return;
     setFocusGrid(); // clicking the void addresses the grid level
     const d = panDrag.current;
@@ -408,16 +505,24 @@ export function GridViewport() {
       if (e.ctrlKey || e.metaKey) {
         const cx = e.clientX - r.left;
         const cy = e.clientY - r.top;
-        const oldS = zoom.goal;
-        const factor = Math.exp(-e.deltaY * 0.0022);
+        // trackpad pinch arrives as small ctrl-wheel deltas: follow the fingers 1:1;
+        // a mouse wheel with ⌘/ctrl takes bigger steps on the spring
+        const pinch = e.deltaMode === 0 && Math.abs(e.deltaY) < 40;
+        const oldS = pinch ? zoom.value : zoom.goal;
+        const factor = Math.exp(-e.deltaY * (pinch ? 0.011 : 0.0022));
         const newS = Math.max(MIN_SCALE, Math.min(MAX_SCALE, oldS * factor));
         const ratio = newS / oldS;
-        zoom.to(newS);
-        camera.to(cx - (cx - camera.x.goal) * ratio, cy - (cy - camera.y.goal) * ratio);
+        if (pinch) {
+          zoom.set(newS);
+          camera.set(cx - (cx - camera.x.value) * ratio, cy - (cy - camera.y.value) * ratio);
+        } else {
+          zoom.to(newS);
+          camera.to(cx - (cx - camera.x.goal) * ratio, cy - (cy - camera.y.goal) * ratio);
+        }
         armWheelSnap();
-      } else if (!(e.target as HTMLElement).closest(".section-card")) {
-        // wheel over the void pans the grid; sections own their scroll
-        camera.to(camera.x.goal - e.deltaX, camera.y.goal - e.deltaY);
+      } else {
+        // two-finger / wheel pans the grid wherever a section didn't consume it
+        camera.set(camera.x.value - e.deltaX, camera.y.value - e.deltaY);
         armWheelSnap();
       }
     },
@@ -436,6 +541,16 @@ export function GridViewport() {
   }, []);
 
   const getScale = useCallback(() => zoom.value, [zoom]);
+
+  // live zoom readout, written straight to the DOM (no re-render per frame)
+  const zoomLabel = useRef<HTMLSpanElement>(null);
+  useEffect(
+    () =>
+      zoom.onChange((v: number) => {
+        if (zoomLabel.current) zoomLabel.current.textContent = `${Math.round(v * 100)}%`;
+      }),
+    [zoom],
+  );
 
   const zoomAroundCenter = useCallback(
     (factor: number) => {
@@ -531,6 +646,13 @@ export function GridViewport() {
       ref={containerRef}
       className={`grid-viewport ctx-${state.focusLevel}`}
       onPointerDown={onPointerDown}
+      onPointerDownCapture={(e) => {
+        // Space held: the grid takes the pointer before any card can
+        if (spaceHeld.current) {
+          e.stopPropagation();
+          onPointerDown(e);
+        }
+      }}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
@@ -752,7 +874,7 @@ export function GridViewport() {
           whileHover={{ scale: 1.08, y: -2 }}
           whileTap={{ scale: 0.88, y: 1 }}
           transition={spring}
-          title="Zoom out"
+          title="Zoom out (−)"
           onClick={() => {
             zoomAroundCenter(1 / 1.3);
             armWheelSnap();
@@ -760,12 +882,19 @@ export function GridViewport() {
         >
           −
         </motion.button>
+        <button
+          className="tb-btn zoom-readout"
+          title="Zoom — click for 100% (1) · 0 fits all · F frames the focus"
+          onClick={() => zoomAroundCenter(1 / zoom.goal)}
+        >
+          <span ref={zoomLabel}>50%</span>
+        </button>
         <motion.button
           className="tb-btn"
           whileHover={{ scale: 1.08, y: -2 }}
           whileTap={{ scale: 0.88, y: 1 }}
           transition={spring}
-          title="Zoom in"
+          title="Zoom in (+)"
           onClick={() => {
             zoomAroundCenter(1.3);
             armWheelSnap();
