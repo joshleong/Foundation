@@ -111,6 +111,8 @@ export function StageBody({ panel }: { panel: PanelMeta }) {
     >
       <div className="stage-head">
         <span className="stage-glyph">{def.glyph}</span>
+        {/* the card rests without a bar, so the stage names itself */}
+        <span className="stage-name">{panel.name}</span>
         <span className={`stage-status is-${status.tone}`}>{status.label}</span>
         {panel.assignee && <span className="stage-owner" title="Owner">{panel.assignee}</span>}
         <span className="stage-progress" title="Checklist">

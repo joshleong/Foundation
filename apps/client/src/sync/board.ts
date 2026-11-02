@@ -206,7 +206,7 @@ class BoardSync {
       if (next.sections !== prev.sections) {
         for (const [id, s] of Object.entries(next.sections)) {
           const p = prev.sections[id];
-          if (!p || p.name !== s.name || p.c0 !== s.c0 || p.c1 !== s.c1 || p.r0 !== s.r0 || p.r1 !== s.r1) m.sections.set(id, toSectionDoc(s));
+          if (!p || p.name !== s.name || p.c0 !== s.c0 || p.c1 !== s.c1 || p.r0 !== s.r0 || p.r1 !== s.r1 || p.host !== s.host) m.sections.set(id, toSectionDoc(s));
         }
         for (const id of Object.keys(prev.sections)) if (!next.sections[id]) m.sections.delete(id);
       }
@@ -364,7 +364,9 @@ function sameRecord(a: Record<string, string>, b: Record<string, string>) {
 }
 
 function toSectionDoc(s: Section): SectionDoc {
-  return { id: s.id, name: s.name, c0: s.c0, r0: s.r0, c1: s.c1, r1: s.r1 };
+  const doc: SectionDoc = { id: s.id, name: s.name, c0: s.c0, r0: s.r0, c1: s.c1, r1: s.r1 };
+  if (s.host) doc.host = s.host;
+  return doc;
 }
 
 function toObjectDoc(o: AnyObject): ObjectDoc {

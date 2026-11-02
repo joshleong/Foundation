@@ -17,6 +17,16 @@ export interface UiState {
   /** a card whose app frame is "engaged" (live input); others show a still */
   engaged: string | null;
   toast: { text: string; tone?: "ok" | "warn" | "bad" | "agent"; at: number } | null;
+  /** the side pane (boards, tools, activity, settings): open or folded away */
+  pane: boolean;
+}
+
+function storedPane() {
+  try {
+    return localStorage.getItem("foundation-pane") === "open";
+  } catch {
+    return false;
+  }
 }
 
 let ui: UiState = {
@@ -28,6 +38,7 @@ let ui: UiState = {
   view: "grid",
   engaged: null,
   toast: null,
+  pane: storedPane(),
 };
 const listeners = new Set<() => void>();
 
@@ -35,6 +46,11 @@ export function getUi() {
   return ui;
 }
 export function setUi(patch: Partial<UiState>) {
+  if (patch.pane !== undefined && patch.pane !== ui.pane) {
+    try {
+      localStorage.setItem("foundation-pane", patch.pane ? "open" : "closed");
+    } catch { /* private window */ }
+  }
   ui = { ...ui, ...patch };
   for (const fn of listeners) fn();
 }

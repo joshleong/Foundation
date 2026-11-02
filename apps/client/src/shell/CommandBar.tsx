@@ -292,7 +292,7 @@ async function startPipeline(name: string) {
   }
 }
 
-async function copyMcpCommand() {
+export async function copyMcpCommand() {
   try {
     const { token, mcp } = await api<{ token: string; mcp: string }>("/api/agent/token", { method: "POST" });
     const board = activeBoard()?.boardId ?? "company";

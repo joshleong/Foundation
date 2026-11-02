@@ -10,7 +10,7 @@
  */
 
 import { useSyncExternalStore } from "react";
-import type { LinkDoc, PanelDoc } from "@foundation/protocol";
+import { isHostable, type LinkDoc, type PanelDoc } from "@foundation/protocol";
 import { workbook } from "../engine/workbook";
 
 let idCounter = 0;
@@ -77,12 +77,17 @@ export interface Section {
   c1: number;
   r1: number;
   scroll: { x: number; y: number };
+  /** the app this section hosts (schema 2): it fills the section, its ports sit on the section's edges */
+  host?: string;
 }
 
 export interface GridTracks {
   cols: number[]; // track widths, world px
   rows: number[]; // track heights
 }
+
+/** a side of the whole board — dropping a section there appends a track for it */
+export type BoardEdge = "left" | "right" | "top" | "bottom";
 
 export type SnapTarget =
   | { kind: "all" }
@@ -104,8 +109,8 @@ export interface AppState {
   focusLevel: "grid" | "section" | "object";
   activeObjectId: string | null;
   snapRequest: (SnapTarget & { nonce: number }) | null;
-  /** cell highlighted while a section is being dragged to a new home */
-  sectionDragTarget: { sectionId: string; c: number; r: number } | null;
+  /** cell (or board edge) highlighted while a section is being dragged to a new home */
+  sectionDragTarget: { sectionId: string; c: number; r: number; edge?: BoardEdge } | null;
   /** section awaiting the remove-confirmation popover (e.g. via context menu) */
   pendingRemoval: string | null;
 }
@@ -123,7 +128,8 @@ export const DEFAULT_ROW_H = 1160;
 export const MIN_COL_W = 420;
 export const MIN_ROW_H = 340;
 export const SECTION_HEADER = 42;
-export const SECTION_INSET = 12; // visual gap between section card and its cell
+/** half the gap between sections: wide enough (40 px) for a road of wires between apps */
+export const SECTION_INSET = 20;
 export const CONTENT_PAD = 28;
 
 export function tablePixelSize(t: { cols: number; rows: number }) {
@@ -133,12 +139,13 @@ export function tablePixelSize(t: { cols: number; rows: number }) {
   };
 }
 
+/** height of a card's hover bar (it overlays the card; it adds nothing to the size) */
 export const MINI_HEADER = 34;
 
 export function objectPixelSize(obj: AnyObject): { w: number; h: number } {
   if ("cols" in obj) return tablePixelSize(obj);
   if ("sourceTableId" in obj) return { w: obj.w, h: obj.h + HEADER_H };
-  return { w: obj.w, h: obj.h + MINI_HEADER };
+  return { w: obj.w, h: obj.h }; // cards rest without a header bar; it overlays on hover
 }
 
 /** every primitive living in a section */
@@ -195,7 +202,7 @@ function computeSectionLayout(st: AppState, sectionId: string): Map<string, { x:
   if (!sec) return out;
   const card = sectionCardRect(st.grid, sec);
   const availW = Math.max(360, card.w - CONTENT_PAD * 2);
-  const all = objectsInSection(sectionId);
+  const all = objectsInSection(sectionId).filter((o) => o.id !== sec.host); // the hosted app isn't in the flow
   const docked = all.filter((o) => !o.float).sort((a, b) => a.bornAt - b.bornAt);
   const floaters = all
     .filter((o) => o.float)
@@ -337,18 +344,39 @@ export function emptyCells(): Array<{ c: number; r: number }> {
   return out;
 }
 
+/** the app a section hosts, if it still lives there */
+export function hostOf(sectionId: string): PanelMeta | null {
+  const st = getState();
+  const id = st.sections[sectionId]?.host;
+  const p = id ? st.panels[id] : undefined;
+  return p && p.sectionId === sectionId ? p : null;
+}
+
+export function isHosted(obj: AnyObject): boolean {
+  return getState().sections[obj.sectionId]?.host === obj.id;
+}
+
+/** the part of a section below its header — where a hosted app lives */
+export function sectionBodyRect(grid: GridTracks, s: Section) {
+  const card = sectionCardRect(grid, s);
+  return { x: card.x, y: card.y + SECTION_HEADER, w: card.w, h: card.h - SECTION_HEADER };
+}
+
 /** world-space rect of an object (accounts for section position + scroll) */
 export function objectWorldRect(obj: AnyObject) {
   const st = getState();
   const sec = st.sections[obj.sectionId];
   if (!sec) return null;
+  if (sec.host === obj.id) return sectionBodyRect(st.grid, sec); // a hosted app is the section
   const card = sectionCardRect(st.grid, sec);
   const scroll = getLiveScroll(sec.id);
   const { w, h } = objectPixelSize(obj);
   const pos = liveObjPos.get(obj.id) ?? effectivePos(obj);
+  // + the section card's 1 px border: its body is laid out inside it, and wires
+  // must land where the DOM puts the card (ports sit on this rect's edges)
   return {
-    x: card.x + CONTENT_PAD + pos.x - scroll.x,
-    y: card.y + SECTION_HEADER + CONTENT_PAD + pos.y - scroll.y,
+    x: card.x + 1 + CONTENT_PAD + pos.x - scroll.x,
+    y: card.y + 1 + SECTION_HEADER + CONTENT_PAD + pos.y - scroll.y,
     w,
     h,
   };
@@ -412,6 +440,9 @@ export function applyRemote(partial: Partial<AppState>) {
 function emit() {
   for (const fn of listeners) fn();
 }
+
+// dev: let the browser console (and headless checks) read the live model
+if (import.meta.env?.DEV && typeof window !== "undefined") (window as unknown as { __foundation: unknown }).__foundation = { getState: () => state, setState: (p: Partial<AppState>) => set(p) };
 
 export function getState(): AppState {
   return state;
@@ -746,7 +777,8 @@ export function setSectionDragTarget(target: AppState["sectionDragTarget"]) {
   if (
     a?.sectionId === target?.sectionId &&
     a?.c === target?.c &&
-    a?.r === target?.r
+    a?.r === target?.r &&
+    a?.edge === target?.edge
   )
     return;
   set({ sectionDragTarget: target });
@@ -769,6 +801,66 @@ export function moveSectionTo(id: string, c: number, r: number) {
     sections[id] = { ...s, c0: c, c1: c, r0: r, r1: r };
   }
   const grid: GridTracks = { cols: [...state.grid.cols], rows: [...state.grid.rows] };
+  pruneEmptyTracks(grid, sections);
+  set({ grid, sections, activeSectionId: id });
+}
+
+/** which side of the board a world point lies beyond (null when inside the grid) */
+export function edgeAtWorld(x: number, y: number): BoardEdge | null {
+  const size = gridSize(getState().grid);
+  const out = { left: -x, right: x - size.w, top: -y, bottom: y - size.h };
+  let best: BoardEdge | null = null;
+  let d = 0;
+  for (const k of Object.keys(out) as BoardEdge[]) {
+    if (out[k] > d) {
+      d = out[k];
+      best = k;
+    }
+  }
+  return best;
+}
+
+/**
+ * Move a section off its cell and append it along a whole side of the board:
+ * a new track opens on that side and the section spans the full board beside
+ * it. The hole it leaves is absorbed by an aligned neighbour, and tracks
+ * nothing spans any more are pruned.
+ */
+export function moveSectionToEdge(id: string, edge: BoardEdge) {
+  const s = state.sections[id];
+  if (!s) return;
+  const grid: GridTracks = { cols: [...state.grid.cols], rows: [...state.grid.rows] };
+  const sections: Record<string, Section> = { ...state.sections };
+  delete sections[id];
+  const others = Object.values(sections);
+  const above = others.find((o) => o.c0 === s.c0 && o.c1 === s.c1 && o.r1 === s.r0 - 1);
+  const below = others.find((o) => o.c0 === s.c0 && o.c1 === s.c1 && o.r0 === s.r1 + 1);
+  const left = others.find((o) => o.r0 === s.r0 && o.r1 === s.r1 && o.c1 === s.c0 - 1);
+  const right = others.find((o) => o.r0 === s.r0 && o.r1 === s.r1 && o.c0 === s.c1 + 1);
+  if (above) sections[above.id] = { ...above, r1: s.r1 };
+  else if (below) sections[below.id] = { ...below, r0: s.r0 };
+  else if (left) sections[left.id] = { ...left, c1: s.c1 };
+  else if (right) sections[right.id] = { ...right, c0: s.c0 };
+  const xo = trackOffsets(grid.cols);
+  const yo = trackOffsets(grid.rows);
+  // the new track takes the section's own size, within a normal track's
+  const width = Math.min(DEFAULT_COL_W, Math.max(MIN_COL_W, xo[s.c1 + 1] - xo[s.c0]));
+  const height = Math.min(DEFAULT_ROW_H, Math.max(MIN_ROW_H, yo[s.r1 + 1] - yo[s.r0]));
+  if (edge === "left" || edge === "right") {
+    if (edge === "left") {
+      grid.cols.unshift(width);
+      for (const o of Object.values(sections)) sections[o.id] = { ...o, c0: o.c0 + 1, c1: o.c1 + 1 };
+    } else grid.cols.push(width);
+    const c = edge === "left" ? 0 : grid.cols.length - 1;
+    sections[id] = { ...s, c0: c, c1: c, r0: 0, r1: grid.rows.length - 1 };
+  } else {
+    if (edge === "top") {
+      grid.rows.unshift(height);
+      for (const o of Object.values(sections)) sections[o.id] = { ...o, r0: o.r0 + 1, r1: o.r1 + 1 };
+    } else grid.rows.push(height);
+    const r = edge === "top" ? 0 : grid.rows.length - 1;
+    sections[id] = { ...s, r0: r, r1: r, c0: 0, c1: grid.cols.length - 1 };
+  }
   pruneEmptyTracks(grid, sections);
   set({ grid, sections, activeSectionId: id });
 }
@@ -1176,6 +1268,9 @@ export function addPanel(
   opts: { focus?: boolean } = {},
 ): PanelMeta {
   const [w, h] = PANEL_SIZE[p.panel];
+  // an app opened into an empty section becomes that section's app
+  const sec = state.sections[sectionId];
+  const hosts = Boolean(sec) && objectsInSection(sectionId).length === 0 && isHostable(p.panel);
   const meta: PanelMeta = {
     id: uid("pnl"),
     sectionId,
@@ -1190,6 +1285,7 @@ export function addPanel(
   };
   set({
     panels: { ...state.panels, [meta.id]: meta },
+    ...(hosts ? { sections: { ...state.sections, [sectionId]: { ...sec, host: meta.id, name: meta.name } } } : {}),
     activeSectionId: sectionId,
     ...(opts.focus === false ? {} : { snapRequest: { kind: "object" as const, id: meta.id, nonce: Math.random() } }),
   });
@@ -1206,7 +1302,20 @@ export function removePanel(id: string) {
   const { [id]: gone, ...rest } = state.panels;
   if (!gone) return;
   const links = Object.fromEntries(Object.entries(state.links).filter(([, l]) => l.from.panel !== id && l.to.panel !== id));
-  set({ panels: rest, links, ...focusCleanup(id) });
+  const sec = state.sections[gone.sectionId];
+  const sections = sec?.host === id ? { sections: { ...state.sections, [sec.id]: { ...sec, host: undefined } } } : {};
+  set({ panels: rest, links, ...sections, ...focusCleanup(id) });
+}
+
+/** Host an app in its section (it fills it, ports on the section's edges), or let it go back to being a card. */
+export function setSectionHost(sectionId: string, panelId: string | null) {
+  const sec = state.sections[sectionId];
+  if (!sec) return;
+  const p = panelId ? state.panels[panelId] : null;
+  set({
+    sections: { ...state.sections, [sectionId]: { ...sec, host: p ? p.id : undefined, ...(p ? { name: p.name } : {}) } },
+    ...(p ? { panels: { ...state.panels, [p.id]: { ...p, sectionId, float: false, x: 0, y: 0 } } } : {}),
+  });
 }
 
 export function movePanel(id: string, x: number, y: number) {

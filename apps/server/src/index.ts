@@ -25,6 +25,7 @@ import { runAgent, runtimes } from "./agent.ts";
 import { runTool, TOOLS } from "./tools.ts";
 import { handleMcp } from "./mcp.ts";
 import { seedCompanyBoard } from "./seed.ts";
+import { migrateAllBoards } from "./migrate.ts";
 
 const r = new Router();
 
@@ -270,6 +271,7 @@ server.on("upgrade", (rawReq, socket, head) => {
 
 reindexFilesIfNeeded();
 seedCompanyBoard();
+migrateAllBoards();
 startHermes();
 
 server.listen(config.port, config.host, () => {

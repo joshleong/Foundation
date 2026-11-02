@@ -7,7 +7,7 @@
  */
 
 import type { LinkDoc } from "@foundation/protocol";
-import { allObjects, getState, objectWorldRect, type PanelMeta } from "../state/store";
+import { allObjects, getState, objectWorldRect, sectionCardRect, type PanelMeta } from "../state/store";
 import type { Rect } from "./wireGeometry";
 import { pipeIntake, pipeMetrics } from "./wireGeometry";
 
@@ -95,9 +95,25 @@ export function cardRects(): Map<string, Rect> {
   return out;
 }
 
-/** the cards a wire between `from` and `to` must avoid */
+/** what a wire treats as its own ends: a card, or for a hosted app its whole section (header included) */
+export function endRect(rects: Map<string, Rect>, panelId: string): Rect | undefined {
+  const st = getState();
+  const p = st.panels[panelId];
+  const sec = p && st.sections[p.sectionId];
+  if (sec && sec.host === p.id) return sectionCardRect(st.grid, sec);
+  return rects.get(panelId);
+}
+
+/**
+ * What a wire between `from` and `to` must go round: every other card, and
+ * every section neither end lives in — so wires between apps run section to
+ * section through the gaps, never across another app.
+ */
 export function obstaclesFor(rects: Map<string, Rect>, from: string, to: string): Rect[] {
+  const st = getState();
   const out: Rect[] = [];
   for (const [id, r] of rects) if (id !== from && id !== to) out.push(r);
+  const homes = new Set([st.panels[from]?.sectionId, st.panels[to]?.sectionId]);
+  for (const sec of Object.values(st.sections)) if (!homes.has(sec.id)) out.push(sectionCardRect(st.grid, sec));
   return out;
 }

@@ -1,5 +1,4 @@
 import { memo, useEffect, useRef } from "react";
-import { motion } from "motion/react";
 import {
   MediaMeta,
   moveMedia,
@@ -20,8 +19,6 @@ interface Props {
   getScale(): number;
 }
 
-const iconSpring = { type: "spring", stiffness: 500, damping: 22 } as const;
-
 export const MediaView = memo(function MediaView({ item, pos, isActive, getScale }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -37,31 +34,17 @@ export const MediaView = memo(function MediaView({ item, pos, isActive, getScale
     }
   }, [item.autoplay, item.muted]);
 
-  const extras =
+  // the chrome is a couple of round icons that slide out from behind the card on hover
+  const icons =
     item.media === "video" ? (
-      <>
-        <motion.button
-          className={"icon-btn media-flag" + (item.autoplay ? " on" : "")}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.85 }}
-          transition={iconSpring}
-          title={item.autoplay ? "Autoplay on — click to pause" : "Autoplay off — click to play"}
-          onClick={() => setMediaFlag(item.id, { autoplay: !item.autoplay })}
-        >
-          {item.autoplay ? "❚❚" : "▶"}
-        </motion.button>
-        <motion.button
-          className={"icon-btn media-flag" + (item.muted ? "" : " on")}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.85 }}
-          transition={iconSpring}
-          title={item.muted ? "Sound off" : "Sound on"}
-          onClick={() => setMediaFlag(item.id, { muted: !item.muted })}
-        >
-          {item.muted ? "🔇" : "🔊"}
-        </motion.button>
-      </>
-    ) : undefined;
+      <button
+        className={"frame-icon" + (item.muted ? "" : " is-on")}
+        title={item.muted ? "Sound off — click for sound" : "Sound on — click to mute"}
+        onClick={() => setMediaFlag(item.id, { muted: !item.muted })}
+      >
+        {item.muted ? <SoundGlyph off /> : <SoundGlyph />}
+      </button>
+    ) : null;
 
   return (
     <ObjectFrame
@@ -75,7 +58,9 @@ export const MediaView = memo(function MediaView({ item, pos, isActive, getScale
       onMove={(x, y) => moveMedia(item.id, x, y)}
       onResize={(dw, dh) => resizeMedia(item.id, item.w + dw, item.h + dh)}
       onRemove={() => removeMedia(item.id)}
-      headerExtras={extras}
+      chrome="icons"
+      icons={icons}
+      onTap={item.media === "video" ? () => setMediaFlag(item.id, { autoplay: !item.autoplay }) : undefined}
       bodyClass="media-body"
     >
       {item.media === "image" ? (
@@ -94,9 +79,17 @@ export const MediaView = memo(function MediaView({ item, pos, isActive, getScale
           autoPlay={item.autoplay}
           loop
           playsInline
-          controls={!item.autoplay}
         />
       )}
     </ObjectFrame>
   );
 });
+
+function SoundGlyph({ off }: { off?: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M2.5 6h2.5l3.5-3v10l-3.5-3h-2.5z" />
+      {off ? <path d="M11 6l3.5 4M14.5 6L11 10" /> : <path d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.5a6 6 0 0 1 0 9" />}
+    </svg>
+  );
+}

@@ -9,7 +9,6 @@ import { editBoard, getBoard } from "./boards.ts";
 import { COMPANY_FLOWS, CONNECTORS } from "./connectors.ts";
 import { saveApp } from "./apps.ts";
 
-const SCHEMA_VERSION = 1;
 
 export function seedCompanyBoard() {
   const board = getBoard("company");
@@ -18,7 +17,7 @@ export function seedCompanyBoard() {
 
   editBoard("company", "seed", (doc) => {
     const maps = boardMaps(doc);
-    maps.meta.set("schema", SCHEMA_VERSION);
+    maps.meta.set("schema", 1); // laid out as cards, then migrated (migrate.ts) like any board
     maps.meta.set("name", "Form Industries");
     maps.grid.set("tracks", { cols: [2280, DEFAULT_COL_W * 0.75], rows: [900, DEFAULT_ROW_H * 0.8] });
 

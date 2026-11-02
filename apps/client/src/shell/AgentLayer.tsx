@@ -20,7 +20,7 @@ import { useBoardTick } from "./Presence";
 import { toWorld, camera } from "../state/camera";
 import { polyline, route, routeAvoiding, tunnelGeometry, typesCompatible, type P } from "./wireGeometry";
 import { allCrossings, publishRoutes, routesVersion, unpublishRoutes } from "./routeRegistry";
-import { cardRects, describeValue, obstaclesFor, portLayout, portPoint, toneOf } from "./ports";
+import { cardRects, describeValue, endRect, obstaclesFor, portLayout, portPoint, toneOf } from "./ports";
 
 const SNAP_RADIUS = 32;
 
@@ -197,8 +197,8 @@ function routesFor(links: LinkDoc[]): Map<string, Frame> {
     const pb = portPoint(b, l.to.port, l.id, links);
     if (!pa || !pb) continue;
     const pts = routeAvoiding(pa, pb, {
-      src: rects.get(a.id),
-      dst: rects.get(b.id),
+      src: endRect(rects, a.id),
+      dst: endRect(rects, b.id),
       lane: laneOf.get(l.id) ?? 0,
       srcLane: srcLaneOf.get(l.id) ?? 0,
       obstacles: obstaclesFor(rects, a.id, b.id),

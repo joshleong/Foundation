@@ -4,9 +4,14 @@ import { MINI_HEADER, liveObjPos, setActiveObject, setObjectFloat } from "../sta
 import { Spring2D, presets } from "../physics/spring";
 
 /**
- * Shared card frame for the lightweight primitives (notes, images, videos):
- * spring drag (auto-floats when grabbed), pin/dock toggle, resize handle,
- * remove button, springy entrance.
+ * Shared card frame for the lightweight primitives (notes, images, videos,
+ * panels): spring drag (auto-floats when grabbed), pin/dock toggle, resize
+ * handle, remove button, springy entrance.
+ *
+ * Cards rest clean — no menu bar. Their chrome is called by the pointer:
+ * `bar` (default) slides a glass bar in over the card's top edge on hover;
+ * `icons` (images, video) slides a few round buttons out from behind the
+ * card's right edge, and the card itself is the drag handle.
  */
 interface Props {
   id: string;
@@ -28,6 +33,12 @@ interface Props {
   data?: Record<string, string>;
   /** rendered outside the clipped body, positioned against the card (ports) */
   overlay?: ReactNode;
+  /** how the card's chrome appears on hover (see above) */
+  chrome?: "bar" | "icons";
+  /** for `icons` chrome: the buttons that slide out (remove is added last) */
+  icons?: ReactNode;
+  /** for `icons` chrome: a press on the card that didn't become a drag */
+  onTap?(): void;
 }
 
 export function ObjectFrame({
@@ -47,6 +58,9 @@ export function ObjectFrame({
   cardClass,
   data,
   overlay,
+  chrome = "bar",
+  icons,
+  onTap,
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -75,7 +89,7 @@ export function ObjectFrame({
     if (!dragRef.current.active) spring.to(pos.x, pos.y);
   }, [pos.x, pos.y, spring]);
 
-  const dragRef = useRef({ active: false, startX: 0, startY: 0, origX: 0, origY: 0, lastX: 0, lastT: 0, lean: 0 });
+  const dragRef = useRef({ active: false, moved: false, startX: 0, startY: 0, origX: 0, origY: 0, lastX: 0, lastT: 0, lean: 0 });
 
   /** the held card lifts and leans into its motion (DESIGN.md §6: lean ≤ 6°) */
   const setLean = (deg: number, lifted: boolean) => {
@@ -90,8 +104,9 @@ export function ObjectFrame({
       if (e.button !== 0) return;
       if ((e.target as HTMLElement).closest("button, input, select")) return;
       e.stopPropagation();
-      if (!float) setObjectFloat(id, true); // grabbing undocks it from the flow
+      setActiveObject(id);
       const d = dragRef.current;
+      d.moved = false;
       d.active = true;
       d.startX = e.clientX;
       d.startY = e.clientY;
@@ -113,6 +128,11 @@ export function ObjectFrame({
     (e: React.PointerEvent) => {
       const d = dragRef.current;
       if (!d.active) return;
+      if (!d.moved) {
+        if (Math.hypot(e.clientX - d.startX, e.clientY - d.startY) < 4) return; // still a tap
+        d.moved = true;
+        if (!float) setObjectFloat(id, true); // grabbing undocks it from the flow
+      }
       const s = getScale();
       spring.to(
         Math.max(0, d.origX + (e.clientX - d.startX) / s),
@@ -125,7 +145,7 @@ export function ObjectFrame({
       d.lean = d.lean * 0.8 + Math.max(-6, Math.min(6, vx * 4)) * 0.2;
       setLean(d.lean, true);
     },
-    [spring, getScale],
+    [spring, getScale, float, id],
   );
 
   const onHeaderUp = useCallback(() => {
@@ -134,8 +154,9 @@ export function ObjectFrame({
     d.active = false;
     rootRef.current?.classList.remove("dragging");
     setLean(0, false);
-    onMove(spring.x.goal, spring.y.goal);
-  }, [spring, onMove]);
+    if (d.moved) onMove(spring.x.goal, spring.y.goal);
+    else onTap?.();
+  }, [spring, onMove, onTap]);
 
   // ----- resize -----
   const resizeRef = useRef({ active: false, startX: 0, startY: 0 });
@@ -166,13 +187,28 @@ export function ObjectFrame({
 
   const iconSpring = { type: "spring", stiffness: 500, damping: 22 } as const;
 
+  const dragHandlers = {
+    onPointerDown: onHeaderDown,
+    onPointerMove: onHeaderMove,
+    onPointerUp: onHeaderUp,
+    onPointerCancel: onHeaderUp,
+  };
+
   return (
     <div
       ref={rootRef}
-      className="frame-anchor"
+      className={`frame-anchor chrome-${chrome}`}
       style={{ width }}
       {...Object.fromEntries(Object.entries(data ?? {}).map(([k, v]) => [`data-${k}`, v]))}
     >
+      {chrome === "icons" && (
+        <div className="frame-icons">
+          {icons}
+          <button className="frame-icon is-remove" title="Remove" onClick={onRemove}>
+            ✕
+          </button>
+        </div>
+      )}
       <motion.div
         className={"frame-card" + (isActive ? " ctx-active" : "") + (cardClass ? ` ${cardClass}` : "")}
         initial={{ scale: 0.55, opacity: 0, y: 50 }}
@@ -180,44 +216,41 @@ export function ObjectFrame({
         transition={{ type: "spring", stiffness: 240, damping: 20 }}
         onPointerDown={() => setActiveObject(id)}
       >
-        <div
-          className="frame-header"
-          style={{ height: MINI_HEADER }}
-          onPointerDown={onHeaderDown}
-          onPointerMove={onHeaderMove}
-          onPointerUp={onHeaderUp}
-          onPointerCancel={onHeaderUp}
-        >
-          <div className="grip mini">
-            <span />
-            <span />
+        {chrome === "bar" && (
+          <div className="frame-header" style={{ height: MINI_HEADER - 4 }} {...dragHandlers}>
+            <div className="grip mini">
+              <span />
+              <span />
+            </div>
+            <span className="frame-title">{title}</span>
+            <div className="header-actions">
+              {headerExtras}
+              <motion.button
+                className={"icon-btn float-btn" + (float ? " floating" : "")}
+                whileHover={{ scale: 1.12 }}
+                whileTap={{ scale: 0.82 }}
+                transition={iconSpring}
+                title={float ? "Dock into the section grid" : "Floating off — drag to float"}
+                onClick={() => setObjectFloat(id, !float)}
+              >
+                {float ? "✥" : "⌗"}
+              </motion.button>
+              <motion.button
+                className="icon-btn"
+                whileHover={{ scale: 1.12 }}
+                whileTap={{ scale: 0.82 }}
+                transition={iconSpring}
+                title="Remove"
+                onClick={onRemove}
+              >
+                ✕
+              </motion.button>
+            </div>
           </div>
-          <span className="frame-title">{title}</span>
-          <div className="header-actions">
-            {headerExtras}
-            <motion.button
-              className={"icon-btn float-btn" + (float ? " floating" : "")}
-              whileHover={{ scale: 1.12 }}
-              whileTap={{ scale: 0.82 }}
-              transition={iconSpring}
-              title={float ? "Dock into the section grid" : "Floating off — drag to float"}
-              onClick={() => setObjectFloat(id, !float)}
-            >
-              {float ? "✥" : "⌗"}
-            </motion.button>
-            <motion.button
-              className="icon-btn"
-              whileHover={{ scale: 1.12 }}
-              whileTap={{ scale: 0.82 }}
-              transition={iconSpring}
-              title="Remove"
-              onClick={onRemove}
-            >
-              ✕
-            </motion.button>
-          </div>
+        )}
+        <div className={"frame-body " + (bodyClass ?? "")} {...(chrome === "icons" ? dragHandlers : {})}>
+          {children}
         </div>
-        <div className={"frame-body " + (bodyClass ?? "")}>{children}</div>
         {overlay}
         {onResize && (
           <div

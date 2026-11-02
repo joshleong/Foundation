@@ -35,6 +35,22 @@ export interface SectionDoc {
   r0: number;
   c1: number;
   r1: number;
+  /**
+   * A section can host one app (schema 2): that panel fills the section, the
+   * section's header is the app's, and the app's ports sit on the section's
+   * edges, so data flows section to section.
+   */
+  host?: string;
+}
+
+/** The board document's schema version (`meta.schema`). 2: sections host apps. */
+export const BOARD_SCHEMA = 2;
+
+/** Panel kinds a section can host — whole apps, not artifacts. */
+export const HOSTABLE_KINDS = ["app", "link", "machine", "connector"] as const;
+
+export function isHostable(kind: string): boolean {
+  return (HOSTABLE_KINDS as readonly string[]).includes(kind);
 }
 
 interface ObjectBaseDoc {
@@ -299,7 +315,8 @@ export function describeBoard(doc: Y.Doc): string {
   const m = boardMaps(doc);
   const lines: string[] = [];
   for (const s of m.sections.values()) {
-    lines.push(`## Section "${s.name}" (${s.id})`);
+    const host = s.host ? m.objects.get(s.host) : undefined;
+    lines.push(`## Section "${s.name}" (${s.id})${host ? ` — hosts the app "${host.name}" (${host.id}); its ports are the section's` : ""}`);
     for (const o of m.objects.values()) {
       if (o.sectionId !== s.id) continue;
       if (o.kind === "panel") {

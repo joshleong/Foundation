@@ -17,6 +17,7 @@ import {
   boardMaps,
   describeBoard,
   findSection,
+  isHostable,
   logActivity,
   uid,
   type LinkDoc,
@@ -129,7 +130,11 @@ export function addPanel(
       createdBy: ctx.actor,
     };
     for (const k of Object.keys(panel) as Array<keyof PanelDoc>) if (panel[k] === undefined) delete panel[k];
-    boardMaps(doc).objects.set(panel.id, panel);
+    const m = boardMaps(doc);
+    // an app opened into an empty section becomes that section's app
+    const empty = ![...m.objects.values()].some((o) => o.sectionId === sec.id);
+    m.objects.set(panel.id, panel);
+    if (empty && isHostable(panel.panel)) m.sections.set(sec.id, { ...sec, host: panel.id });
     return panel;
   });
 }

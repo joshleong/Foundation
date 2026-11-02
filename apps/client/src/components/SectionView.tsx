@@ -8,6 +8,9 @@ import {
   addNote,
   addSectionAdjacent,
   cellAtWorld,
+  edgeAtWorld,
+  moveSectionToEdge,
+  type BoardEdge,
   createMap,
   createTable,
   effectivePos,
@@ -22,8 +25,10 @@ import {
   sectionCardRect,
   setActiveSection,
   setSectionDragTarget,
+  setSectionHost,
   setSectionScroll,
   splitSection,
+  hostOf,
   useAppState,
 } from "../state/store";
 import { Spring, Spring2D, presets } from "../physics/spring";
@@ -32,7 +37,8 @@ import { TableView } from "./TableView";
 const MapView = lazy(() => import("./MapView").then((m) => ({ default: m.MapView })));
 import { NoteView } from "./NoteView";
 import { MediaView } from "./MediaView";
-import { PanelView } from "../panels/PanelView";
+import { PANEL_GLYPH, PanelActions, PanelView } from "../panels/PanelView";
+import { isHostable } from "@foundation/protocol";
 import { isPanel } from "../state/store";
 import { ingest } from "../lib/ingest";
 import { SectionEmpty } from "../panels/SectionEmpty";
@@ -71,6 +77,7 @@ export const SectionView = memo(function SectionView({
     startX: 0,
     startY: 0,
     target: null as { c: number; r: number } | null,
+    edge: null as BoardEdge | null,
   });
 
   const worldPoint = useCallback(
@@ -114,8 +121,11 @@ export const SectionView = memo(function SectionView({
       if (el) el.style.translate = `${dx / s}px ${dy / s}px`;
       const pt = worldPoint(e.clientX, e.clientY);
       const cell = pt ? cellAtWorld(pt.x, pt.y) : null;
+      // past the board's edge: append the section along that whole side
+      const edge = pt && !cell ? edgeAtWorld(pt.x, pt.y) : null;
       d.target = cell;
-      setSectionDragTarget(cell ? { sectionId: section.id, c: cell.c, r: cell.r } : null);
+      d.edge = edge;
+      setSectionDragTarget(cell ? { sectionId: section.id, c: cell.c, r: cell.r } : edge ? { sectionId: section.id, c: -1, r: -1, edge } : null);
     },
     [getScale, worldPoint, section.id],
   );
@@ -133,11 +143,15 @@ export const SectionView = memo(function SectionView({
       }
       setSectionDragTarget(null);
       if (d.target) moveSectionTo(section.id, d.target.c, d.target.r);
+      else if (d.edge) moveSectionToEdge(section.id, d.edge);
     }
   }, [section.id]);
 
   const rect = sectionCardRect(grid, section);
-  const objects = objectsInSection(section.id);
+  // a section that hosts an app is that app; any other cards sit over it
+  const host = hostOf(section.id);
+  const objects = objectsInSection(section.id).filter((o) => o.id !== host?.id);
+  const hostable = !host && objects.length === 1 && isPanel(objects[0]) && isHostable(objects[0].panel) ? objects[0] : null;
   const layout = useMemo(
     () => {
       const m = new Map<string, { x: number; y: number }>();
@@ -243,6 +257,11 @@ export const SectionView = memo(function SectionView({
         { icon: "◍", label: "Add map", action: () => createMap(section.id) },
         { icon: "▤", label: "Add note", action: () => addNote(section.id) },
         { icon: "⇪", label: "Add image / video…", action: () => fileRef.current?.click() },
+        ...(host
+          ? [{ icon: "◱", label: `Show ${host.name} as a card`, action: () => setSectionHost(section.id, null) }]
+          : hostable
+            ? [{ icon: "◳", label: `Let ${hostable.name} fill the section`, action: () => setSectionHost(section.id, hostable.id) }]
+            : []),
         { divider: true },
         { icon: "←", label: "Insert section left", action: () => addSectionAdjacent(section.id, "left") },
         { icon: "→", label: "Insert section right", action: () => addSectionAdjacent(section.id, "right") },
@@ -262,7 +281,7 @@ export const SectionView = memo(function SectionView({
         },
       ]);
     },
-    [section.id, canRemove],
+    [section.id, canRemove, host, hostable],
   );
 
   // confirmation can be requested locally (✕ button) or via the context menu
@@ -301,6 +320,7 @@ export const SectionView = memo(function SectionView({
         (sectionCtx ? " ctx-active" : "") +
         (dropping ? " dropping" : "")
       }
+      data-section-id={section.id}
       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
       initial={{ opacity: 0, scale: 0.92 }}
       animate={{ opacity: 1, scale: 1 }}
@@ -353,6 +373,7 @@ export const SectionView = memo(function SectionView({
           />
         ) : (
           <button className="section-name" onClick={() => setRenaming(true)} title="Rename section">
+            {host && <span className="section-app-glyph">{PANEL_GLYPH[host.panel]}</span>}
             {section.name}
           </button>
         )}
@@ -364,8 +385,15 @@ export const SectionView = memo(function SectionView({
         </span>
         {objects.length > 0 && <span className="section-count">{objects.length}</span>}
 
+        {host && (
+          <div className="section-app-actions">
+            <PanelActions panel={host} />
+          </div>
+        )}
         <div className="section-actions">
-          {secBtn("Open an app or link (⌘L)", "◳", () => {
+          {host && secBtn(`Show ${host.name} as a card`, "◱", () => setSectionHost(section.id, null))}
+          {hostable && secBtn(`Let ${hostable.name} fill the section`, "◳", () => setSectionHost(section.id, hostable.id))}
+          {!host && secBtn("Open an app or link (⌘L)", "◳", () => {
             setActiveSection(section.id);
             setUi({ command: true });
           })}
@@ -446,7 +474,7 @@ export const SectionView = memo(function SectionView({
             const pos = layout.get(o.id) ?? { x: o.x, y: o.y };
             const isObjActive = state.focusLevel === "object" && state.activeObjectId === o.id;
             const slot = (child: React.ReactNode) => (
-              <div key={o.id} className="obj-slot" style={{ left: CONTENT_PAD, top: CONTENT_PAD }}>
+              <div key={o.id} className="obj-slot" data-obj-id={o.id} style={{ left: CONTENT_PAD, top: CONTENT_PAD }}>
                 {child}
               </div>
             );
@@ -478,7 +506,7 @@ export const SectionView = memo(function SectionView({
           })}
         </div>
 
-        {objects.length === 0 && (
+        {objects.length === 0 && !host && (
           <SectionEmpty
             name={section.name}
             onUpload={() => fileRef.current?.click()}
@@ -489,6 +517,17 @@ export const SectionView = memo(function SectionView({
 
         {(scrollable.x > 1 || scrollable.y > 1) && <div className="scroll-hint" />}
       </div>
+
+      {/* the hosted app fills the section; its ports sit on the section's edges */}
+      {host && (
+        <PanelView
+          panel={host}
+          pos={{ x: 0, y: 0 }}
+          hosted
+          isActive={state.focusLevel === "object" && state.activeObjectId === host.id}
+          getScale={getScale}
+        />
+      )}
 
       {/* add-section affordances on all four edges */}
       <motion.button

@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { ShaderBackground } from "../gl/background";
 import { Spring, Spring2D, presets } from "../physics/spring";
 import {
+  SECTION_INSET,
   SnapTarget,
   allObjects,
   createSectionAt,
@@ -19,6 +20,7 @@ import {
   resizeCol,
   resizeRow,
   sectionCardRect,
+  setActiveObject,
   setActiveSection,
   setFocusGrid,
   trackOffsets,
@@ -28,6 +30,7 @@ import { SectionView } from "./SectionView";
 import { WireLayer } from "./WireLayer";
 import { publishCamera, publishPointer } from "../state/camera";
 import { isNight, onNight } from "@foundation/ui";
+import { setUi, useUi } from "../state/ui";
 import { PeerCursors } from "../shell/Presence";
 import { PortWires } from "../shell/AgentLayer";
 import { openContextMenu } from "./ContextMenu";
@@ -45,11 +48,10 @@ function colName(col: number): string {
 const MIN_SCALE = 0.12;
 const MAX_SCALE = 1.6;
 const FIT_MARGIN = 0.92;
-/** chrome the framing keeps clear of: the capsule above, the HUD below */
-const SAFE_TOP = 72;
-const SAFE_BOTTOM = 76;
-/** how close (in snap-score units) a framing must be before the camera settles into it */
-const MAGNET = 0.5;
+/** chrome the framing keeps clear of: the search pill below, the side pane when it's open */
+const SAFE_TOP = 20;
+const SAFE_BOTTOM = 68;
+export const PANE_W = 264;
 
 /**
  * What "frame this section" should show: the cards it holds (plus its header)
@@ -77,6 +79,33 @@ function sectionFocusRect(grid: Parameters<typeof sectionCardRect>[0], s: Parame
   return rect.w * rect.h < card.w * card.h * 0.7 ? rect : card;
 }
 
+/**
+ * Each track boundary split into runs: where it divides two sections (or
+ * empty cells) it is a real edge; where one merged section spans across it,
+ * it is interior.
+ */
+function gutterRuns(grid: { cols: number[]; rows: number[] }, sections: Array<{ c0: number; c1: number; r0: number; r1: number }>) {
+  const out: Array<{ axis: "col" | "row"; index: number; from: number; to: number; interior: boolean }> = [];
+  for (const axis of ["col", "row"] as const) {
+    const bounds = (axis === "col" ? grid.cols : grid.rows).length - 1;
+    const along = (axis === "col" ? grid.rows : grid.cols).length;
+    for (let i = 0; i < bounds; i++) {
+      let run: (typeof out)[number] | null = null;
+      for (let k = 0; k < along; k++) {
+        const interior = sections.some((s) =>
+          axis === "col" ? s.c0 <= i && s.c1 >= i + 1 && s.r0 <= k && k <= s.r1 : s.r0 <= i && s.r1 >= i + 1 && s.c0 <= k && k <= s.c1,
+        );
+        if (run && run.interior === interior) run.to = k;
+        else {
+          run = { axis, index: i, from: k, to: k, interior };
+          out.push(run);
+        }
+      }
+    }
+  }
+  return out;
+}
+
 interface Rect {
   x: number;
   y: number;
@@ -93,6 +122,9 @@ interface Candidate {
 
 export function GridViewport() {
   const state = useAppState();
+  const ui = useUi();
+  const paneOpen = useRef(ui.pane);
+  paneOpen.current = ui.pane;
   const containerRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const bgRef = useRef<ShaderBackground | null>(null);
@@ -165,14 +197,16 @@ export function GridViewport() {
     (rect: Rect, cap: number) => {
       const vp = viewportRect();
       if (!vp) return null;
+      const left = paneOpen.current ? PANE_W + 12 : 0;
+      const availW = Math.max(160, vp.w - left);
       const availH = Math.max(120, vp.h - SAFE_TOP - SAFE_BOTTOM);
       const s = Math.max(
         MIN_SCALE,
-        Math.min(cap, (vp.w * FIT_MARGIN) / rect.w, (availH * FIT_MARGIN) / rect.h),
+        Math.min(cap, (availW * FIT_MARGIN) / rect.w, (availH * FIT_MARGIN) / rect.h),
       );
       return {
         scale: s,
-        x: vp.w / 2 - (rect.x + rect.w / 2) * s,
+        x: left + availW / 2 - (rect.x + rect.w / 2) * s,
         y: SAFE_TOP + availH / 2 - (rect.y + rect.h / 2) * s,
       };
     },
@@ -236,9 +270,9 @@ export function GridViewport() {
     return out;
   }, []);
 
-  /** spring the camera to the framing nearest the (projected) camera state */
+  /** keyboard paging: spring the camera to the framing nearest where the page would land */
   const snapToNearest = useCallback(
-    (fromX?: number, fromY?: number, fromS?: number, force = false) => {
+    (fromX?: number, fromY?: number, fromS?: number) => {
       const vp = viewportRect();
       if (!vp) return;
       const cx = fromX ?? camera.x.goal;
@@ -254,8 +288,7 @@ export function GridViewport() {
           Math.abs(Math.log(frame.scale / cs)) * 1.3 + dist + cand.penalty;
         if (!best || score < best.score) best = { score, frame };
       }
-      // magnetic, not forced: settle only when a framing is close; otherwise rest where the person left it
-      if (best && (force || best.score < MAGNET)) {
+      if (best) {
         zoom.to(best.frame.scale);
         camera.to(best.frame.x, best.frame.y);
       } else {
@@ -380,8 +413,7 @@ export function GridViewport() {
         if (!vp) return;
         const dx = dir === "left" ? vp.w : dir === "right" ? -vp.w : 0;
         const dy = dir === "up" ? vp.h : dir === "down" ? -vp.h : 0;
-        camera.to(camera.x.goal + dx * 0.9, camera.y.goal + dy * 0.9);
-        armWheelSnap(); // settle onto the nearest framing
+        snapToNearest(camera.x.goal + dx * 0.9, camera.y.goal + dy * 0.9, zoom.goal); // keys land on a framing
       } else if (st.focusLevel === "section") {
         e.preventDefault();
         const n = neighborSection(st.activeSectionId, dir);
@@ -396,7 +428,7 @@ export function GridViewport() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera, viewportRect]);
 
-  // ----- pan / zoom gestures (always resolving to a snap) -----
+  // ----- pan / zoom gestures: the camera rests wherever the person leaves it -----
 
   const panDrag = useRef({ active: false, lastX: 0, lastY: 0, vx: 0, vy: 0, lastT: 0 });
 
@@ -476,25 +508,16 @@ export function GridViewport() {
     if (!d.active) return;
     d.active = false;
     containerRef.current?.classList.remove("panning");
-    // project the throw's landing point, then snap from there —
-    // the release velocity carries into the snap spring
-    const projX = camera.x.value + d.vx / 20;
-    const projY = camera.y.value + d.vy / 20;
-    snapToNearest(projX, projY, zoom.value);
+    // a throw glides on to where it was heading and rests there — no snapping
+    camera.to(camera.x.value + d.vx / 8, camera.y.value + d.vy / 8);
     camera.x.nudgeVelocity(d.vx * 0.35);
     camera.y.nudgeVelocity(d.vy * 0.35);
-  }, [camera, zoom, snapToNearest]);
+  }, [camera]);
 
   const onPointerLeave = useCallback(() => {
     if (bgRef.current) bgRef.current.pointerTarget = 0;
     publishPointer(null, null);
   }, []);
-
-  const wheelIdle = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const armWheelSnap = useCallback(() => {
-    if (wheelIdle.current) clearTimeout(wheelIdle.current);
-    wheelIdle.current = setTimeout(() => snapToNearest(), 260);
-  }, [snapToNearest]);
 
   const onWheel = useCallback(
     (e: React.WheelEvent) => {
@@ -519,14 +542,12 @@ export function GridViewport() {
           zoom.to(newS);
           camera.to(cx - (cx - camera.x.goal) * ratio, cy - (cy - camera.y.goal) * ratio);
         }
-        armWheelSnap();
       } else {
         // two-finger / wheel pans the grid wherever a section didn't consume it
         camera.set(camera.x.value - e.deltaX, camera.y.value - e.deltaY);
-        armWheelSnap();
       }
     },
-    [camera, zoom, armWheelSnap],
+    [camera, zoom],
   );
 
   useEffect(() => {
@@ -565,6 +586,59 @@ export function GridViewport() {
       camera.to(cx - (cx - camera.x.goal) * ratio, cy - (cy - camera.y.goal) * ratio);
     },
     [camera, zoom, viewportRect],
+  );
+
+  /** zoom by a factor around a viewport point (world point under it stays put) */
+  const zoomAt = useCallback(
+    (cx: number, cy: number, factor: number) => {
+      const oldS = zoom.goal;
+      const newS = Math.max(MIN_SCALE, Math.min(MAX_SCALE, oldS * factor));
+      const ratio = newS / oldS;
+      zoom.to(newS);
+      camera.to(cx - (cx - camera.x.goal) * ratio, cy - (cy - camera.y.goal) * ratio);
+    },
+    [camera, zoom],
+  );
+
+  // ----- double-click zooms in on what's under the pointer -----
+  // An item you aren't framed on yet comes up to fill the view; once you're
+  // there, the double-click goes through to the item (edit a note, a cell…).
+  const onDoubleClickCapture = useCallback(
+    (e: React.MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.closest("input, textarea, select, button, [contenteditable='true'], .gutter, .add-btn, .port, .side-pane, .hud")) return;
+      const st = getState();
+      const objEl = t.closest<HTMLElement>("[data-obj-id]");
+      const secEl = t.closest<HTMLElement>("[data-section-id]");
+      let target: SnapTarget | null = null;
+      let rect: Rect | null = null;
+      let cap = 1.05;
+      const obj = objEl?.dataset.objId ? getObject(objEl.dataset.objId) : null;
+      if (obj) {
+        rect = objectWorldRect(obj);
+        target = { kind: "object", id: obj.id };
+        if ("sourceTableId" in obj) cap = 1;
+      } else if (secEl?.dataset.sectionId && st.sections[secEl.dataset.sectionId]) {
+        const s = st.sections[secEl.dataset.sectionId];
+        rect = sectionFocusRect(st.grid, s);
+        target = { kind: "section", id: s.id };
+      }
+      if (target && rect) {
+        const frame = frameOf(rect, cap);
+        if (frame && zoom.goal < frame.scale * 0.85) {
+          e.stopPropagation();
+          e.preventDefault();
+          if (target.kind === "object") setActiveObject(target.id);
+          else if (target.kind === "section") setActiveSection(target.id);
+          requestSnap(target);
+        }
+        return;
+      }
+      // the void: step in around the pointer
+      const r = containerRef.current?.getBoundingClientRect();
+      if (r) zoomAt(e.clientX - r.left, e.clientY - r.top, 2);
+    },
+    [frameOf, zoom, zoomAt],
   );
 
   // ----- track resize gutters -----
@@ -615,18 +689,14 @@ export function GridViewport() {
   // the resize knob rides along the boundary, following the cursor on hover
   const knobRefs = useRef(new Map<string, HTMLDivElement>());
   const onGutterHover = useCallback(
-    (e: React.PointerEvent, axis: "col" | "row", index: number) => {
+    (e: React.PointerEvent, key: string, axis: "col" | "row") => {
       if (gutterDrag.current.active) return;
-      const knob = knobRefs.current.get(axis + index);
-      const world = worldRef.current;
-      if (!knob || !world) return;
-      const wr = world.getBoundingClientRect();
+      const knob = knobRefs.current.get(key);
+      if (!knob) return;
+      const gr = (e.currentTarget as HTMLElement).getBoundingClientRect();
       const s = zoom.value;
-      if (axis === "col") {
-        knob.style.top = `${(e.clientY - wr.top) / s - 22}px`;
-      } else {
-        knob.style.left = `${(e.clientX - wr.left) / s - 22}px`;
-      }
+      if (axis === "col") knob.style.top = `${(e.clientY - gr.top) / s - 22}px`;
+      else knob.style.left = `${(e.clientX - gr.left) / s - 22}px`;
     },
     [zoom],
   );
@@ -636,10 +706,6 @@ export function GridViewport() {
   const xo = trackOffsets(state.grid.cols);
   const yo = trackOffsets(state.grid.rows);
   const sections = Object.values(state.sections);
-  const spring = { type: "spring", stiffness: 480, damping: 24 } as const;
-
-  const activeSec = state.sections[state.activeSectionId];
-  const activeObj = state.activeObjectId ? getObject(state.activeObjectId) : null;
 
   return (
     <div
@@ -658,16 +724,21 @@ export function GridViewport() {
       onPointerCancel={onPointerUp}
       onPointerLeave={onPointerLeave}
       onWheel={onWheel}
+      onDoubleClickCapture={onDoubleClickCapture}
     >
       <div ref={worldRef} className="world">
         {/* ----- grid chrome: track lines + spreadsheet labels ----- */}
         <div className="grid-frame" style={{ width: size.w, height: size.h }} />
-        {xo.slice(1, -1).map((x, i) => (
-          <div key={`lc${i}`} className="grid-line-v" style={{ left: x, height: size.h }} />
-        ))}
-        {yo.slice(1, -1).map((y, i) => (
-          <div key={`lr${i}`} className="grid-line-h" style={{ top: y, width: size.w }} />
-        ))}
+        {/* track lines only where they divide sections — never across a merged one */}
+        {gutterRuns(state.grid, sections)
+          .filter((g) => !g.interior)
+          .map((g) =>
+            g.axis === "col" ? (
+              <div key={`l${g.axis}${g.index}:${g.from}`} className="grid-line-v" style={{ left: xo[g.index + 1], top: yo[g.from], height: yo[g.to + 1] - yo[g.from] }} />
+            ) : (
+              <div key={`l${g.axis}${g.index}:${g.from}`} className="grid-line-h" style={{ top: yo[g.index + 1], left: xo[g.from], width: xo[g.to + 1] - xo[g.from] }} />
+            ),
+          )}
         {state.grid.cols.map((w, i) => (
           <div key={`hc${i}`} className="track-label track-label-col" style={{ left: xo[i], width: w }}>
             {colName(i)}
@@ -687,10 +758,10 @@ export function GridViewport() {
               key={`empty${c},${r}`}
               className="empty-cell"
               style={{
-                left: rect.x + 12,
-                top: rect.y + 12,
-                width: rect.w - 24,
-                height: rect.h - 24,
+                left: rect.x + SECTION_INSET,
+                top: rect.y + SECTION_INSET,
+                width: rect.w - SECTION_INSET * 2,
+                height: rect.h - SECTION_INSET * 2,
               }}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -723,7 +794,22 @@ export function GridViewport() {
         })}
 
         {/* highlight while a section is dragged toward a cell */}
-        {state.sectionDragTarget &&
+        {state.sectionDragTarget?.edge &&
+          (() => {
+            const e = state.sectionDragTarget.edge;
+            const band = 120;
+            const rect =
+              e === "left" ? { x: -band - 12, y: 0, w: band, h: size.h }
+              : e === "right" ? { x: size.w + 12, y: 0, w: band, h: size.h }
+              : e === "top" ? { x: 0, y: -band - 12, w: size.w, h: band }
+              : { x: 0, y: size.h + 12, w: size.w, h: band };
+            return (
+              <div className="cell-drop-highlight is-edge" style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}>
+                <span>Append along the {e} of the board</span>
+              </div>
+            );
+          })()}
+        {state.sectionDragTarget && !state.sectionDragTarget.edge &&
           (() => {
             const { c, r } = state.sectionDragTarget;
             const rect = gridCellRect(state.grid, c, r);
@@ -747,51 +833,39 @@ export function GridViewport() {
           />
         ))}
 
-        {/* track resize gutters — hover reveals a grab knob on the boundary */}
-        {state.grid.cols.slice(0, -1).map((_, i) => (
-          <div
-            key={`gc${i}`}
-            className="gutter gutter-col"
-            style={{ left: xo[i + 1] - 7, top: 0, height: size.h }}
-            onPointerMove={(e) => onGutterHover(e, "col", i)}
-          >
-            <div className="gutter-line" />
+        {/* track resize gutters, one per run of boundary: a boundary between two
+            sections shows its line; one running inside a merged section is
+            invisible until the pointer finds it — both reveal a grab knob */}
+        {gutterRuns(state.grid, sections).map((g) => {
+          const key = `${g.axis}${g.index}:${g.from}`;
+          const col = g.axis === "col";
+          return (
             <div
-              className="gutter-knob"
-              ref={(el) => {
-                if (el) knobRefs.current.set("col" + i, el);
-                else knobRefs.current.delete("col" + i);
-              }}
-              title="Drag to resize column"
-              onPointerDown={(e) => onGutterDown(e, "col", i)}
-              onPointerMove={onGutterMove}
-              onPointerUp={onGutterUp}
-              onPointerCancel={onGutterUp}
-            />
-          </div>
-        ))}
-        {state.grid.rows.slice(0, -1).map((_, i) => (
-          <div
-            key={`gr${i}`}
-            className="gutter gutter-row"
-            style={{ top: yo[i + 1] - 7, left: 0, width: size.w }}
-            onPointerMove={(e) => onGutterHover(e, "row", i)}
-          >
-            <div className="gutter-line" />
-            <div
-              className="gutter-knob"
-              ref={(el) => {
-                if (el) knobRefs.current.set("row" + i, el);
-                else knobRefs.current.delete("row" + i);
-              }}
-              title="Drag to resize row"
-              onPointerDown={(e) => onGutterDown(e, "row", i)}
-              onPointerMove={onGutterMove}
-              onPointerUp={onGutterUp}
-              onPointerCancel={onGutterUp}
-            />
-          </div>
-        ))}
+              key={key}
+              className={`gutter gutter-${g.axis}${g.interior ? " is-interior" : ""}`}
+              style={
+                col
+                  ? { left: xo[g.index + 1] - 7, top: yo[g.from], height: yo[g.to + 1] - yo[g.from] }
+                  : { top: yo[g.index + 1] - 7, left: xo[g.from], width: xo[g.to + 1] - xo[g.from] }
+              }
+              onPointerMove={(e) => onGutterHover(e, key, g.axis)}
+            >
+              <div className="gutter-line" />
+              <div
+                className="gutter-knob"
+                ref={(el) => {
+                  if (el) knobRefs.current.set(key, el);
+                  else knobRefs.current.delete(key);
+                }}
+                title={col ? "Drag to resize column" : "Drag to resize row"}
+                onPointerDown={(e) => onGutterDown(e, g.axis, g.index)}
+                onPointerMove={onGutterMove}
+                onPointerUp={onGutterUp}
+                onPointerCancel={onGutterUp}
+              />
+            </div>
+          );
+        })}
 
         {/* data-flow wires above everything */}
         <WireLayer />
@@ -800,108 +874,25 @@ export function GridViewport() {
         <PeerCursors />
       </div>
 
-      {/* grid-context corner brackets */}
-      <div className="ctx-corners">
-        <span className="ctx-corner tl" />
-        <span className="ctx-corner tr" />
-        <span className="ctx-corner bl" />
-        <span className="ctx-corner br" />
-      </div>
-
-      {/* viewport toolbar */}
+      {/* the HUD: a small search pill and the zoom, bottom centre — everything else is called up */}
       <motion.div
-        className="panel-toolbar viewport-toolbar"
-        initial={{ y: 70, opacity: 0 }}
+        className="hud"
+        initial={{ y: 40, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ type: "spring", stiffness: 210, damping: 20, delay: 0.05 }}
+        transition={{ type: "spring", stiffness: 210, damping: 22, delay: 0.05 }}
       >
-        {/* context breadcrumb — where the keyboard is aimed */}
-        <motion.button
-          className="tb-btn crumb-up"
-          whileHover={{ scale: 1.1, y: -2 }}
-          whileTap={{ scale: 0.88, y: 1 }}
-          transition={spring}
-          title="Up a level (Esc)"
-          onClick={() => focusUp()}
-        >
-          ↑
-        </motion.button>
-        <div className="crumbs">
-          <motion.button
-            className={"crumb" + (state.focusLevel === "grid" ? " on" : "")}
-            whileTap={{ scale: 0.94 }}
-            title="Grid level — arrow keys page the viewport"
-            onClick={() => {
-              setFocusGrid();
-              requestSnap({ kind: "all" });
-            }}
-          >
-            ⊞ Grid
-          </motion.button>
-          {activeSec && state.focusLevel !== "grid" && (
-            <>
-              <span className="crumb-sep">›</span>
-              <motion.button
-                className={"crumb" + (state.focusLevel === "section" ? " on" : "")}
-                whileTap={{ scale: 0.94 }}
-                title="Section level — arrow keys walk between sections"
-                onClick={() => {
-                  setActiveSection(activeSec.id);
-                  requestSnap({ kind: "section", id: activeSec.id });
-                }}
-              >
-                {activeSec.name}
-              </motion.button>
-            </>
-          )}
-          {activeObj && state.focusLevel === "object" && (
-            <>
-              <span className="crumb-sep">›</span>
-              <motion.button
-                className="crumb on"
-                whileTap={{ scale: 0.94 }}
-                title="Primitive level — keys act inside this card"
-                onClick={() => requestSnap({ kind: "object", id: activeObj.id })}
-              >
-                {activeObj.name}
-              </motion.button>
-            </>
-          )}
-        </div>
-        <div className="tb-divider" />
-        <motion.button
-          className="tb-btn"
-          whileHover={{ scale: 1.08, y: -2 }}
-          whileTap={{ scale: 0.88, y: 1 }}
-          transition={spring}
-          title="Zoom out (−)"
-          onClick={() => {
-            zoomAroundCenter(1 / 1.3);
-            armWheelSnap();
-          }}
-        >
-          −
-        </motion.button>
+        <button className="hud-search f-glass" onClick={() => setUi({ command: true })} title="Search, open an app, ask the agent (⌘K)">
+          <span className="hud-glyph">⌕</span>
+          <span className="hud-label">Search</span>
+          <span className="f-kbd">⌘K</span>
+        </button>
         <button
-          className="tb-btn zoom-readout"
-          title="Zoom — click for 100% (1) · 0 fits all · F frames the focus"
+          className="hud-zoom f-glass"
+          title="Zoom — click for 100% (1) · 0 fits all · F frames the focus · double-click zooms in"
           onClick={() => zoomAroundCenter(1 / zoom.goal)}
         >
           <span ref={zoomLabel}>50%</span>
         </button>
-        <motion.button
-          className="tb-btn"
-          whileHover={{ scale: 1.08, y: -2 }}
-          whileTap={{ scale: 0.88, y: 1 }}
-          transition={spring}
-          title="Zoom in (+)"
-          onClick={() => {
-            zoomAroundCenter(1.3);
-            armWheelSnap();
-          }}
-        >
-          +
-        </motion.button>
       </motion.div>
     </div>
   );

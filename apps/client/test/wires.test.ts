@@ -4,7 +4,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { offsetRoute, pipeCrossings, route, tunnelGeometry, typesCompatible, type P } from "../src/shell/wireGeometry.ts";
+import { offsetRoute, pipeCrossings, road, route, segmentOverlap, tunnelGeometry, typesCompatible, type P } from "../src/shell/wireGeometry.ts";
 
 function angles(pts: P[]) {
   return pts.slice(1).map((p, i) => {
@@ -131,4 +131,23 @@ test("a card right beside the port: the lead shortens and the road takes the nar
   const pts = routeAvoiding(a, b, { src, dst, obstacles: [mapCard] });
   assert.ok(!crossesCard(pts, mapCard), JSON.stringify(pts));
   for (const ang of angles(pts)) assert.ok(ang % 45 === 0, `roads only (${ang}°)`);
+});
+
+test("a change of height is one long 45° run, not a stair of short steps", () => {
+  const pts = route({ x: 0, y: 0 }, { x: 900, y: 260 });
+  const diag = pts.slice(1).map((p, i) => ({ dx: p.x - pts[i].x, dy: p.y - pts[i].y })).filter((d) => Math.abs(d.dy) > 0.5);
+  assert.equal(diag.length, 1, "the whole climb is one segment");
+  assert.ok(Math.abs(Math.abs(diag[0].dx) - Math.abs(diag[0].dy)) < 1e-6, "at 45°");
+  assert.ok(Math.abs(diag[0].dy - 260) < 1e-6, "covering all 260 px");
+  // too steep for one diagonal: the turns still take all the room ahead (not 14 px chamfers)
+  const steep = route({ x: 0, y: 0 }, { x: 400, y: 700 });
+  const firstTurn = steep.slice(1).map((p, i) => ({ dx: p.x - steep[i].x, dy: p.y - steep[i].y })).find((d) => Math.abs(d.dx) > 0.5 && Math.abs(d.dy) > 0.5)!;
+  assert.ok(Math.abs(firstTurn.dx) > 100, `turn runs ${Math.abs(firstTurn.dx).toFixed(0)} px`);
+});
+
+test("a long turn shortens rather than cut through a card", () => {
+  const card = { x: 120, y: 60, w: 200, h: 200 };
+  const pts = road([{ x: 0, y: 0 }, { x: 400, y: 0 }, { x: 400, y: 400 }, { x: 800, y: 400 }], [card]);
+  for (let i = 1; i < pts.length; i++) assert.ok(segmentOverlap(pts[i - 1], pts[i], card) < 0.5, "no segment enters the card");
+  for (const ang of angles(pts)) assert.ok(ang % 45 === 0);
 });

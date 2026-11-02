@@ -64,7 +64,7 @@ The running system:
 
 ```
                  ┌────────────────────────── apps/client (React 19 + Vite, :1430; Tauri shell) ──────────────────────────┐
-  people ───────▶│ Login (ASCII wind) · Shell capsule · Grid (springs, WebGL paper) · Panels · Agent layer · ⌘K · Dock │
+  people ───────▶│ Login (ASCII wind) · Side pane · Grid (springs, WebGL paper) · App sections · Agent layer · ⌘K · Dock │
                  │ store.ts (60 fps local model) ⇄ sync/board.ts (Yjs mirror, diff by identity) ⇄ WebSocket /sync/:board  │
                  └───────────────▲──────────────────────────────────────────────────────────────▲──────────────────────────┘
                                  │ postMessage bridge (foundation:input/output/ports)          │ HTTP /api /auth /files, SSE /api/agent
@@ -98,11 +98,11 @@ SPEC.md DESIGN.md README.md CLAUDE.md
 
 One Y.Doc per board, with these top-level maps:
 - `grid.tracks`: `{cols, rows}`
-- `sections`: id → `{name, c0, r0, c1, r1}`
+- `sections`: id → `{name, c0, r0, c1, r1, host?}` — `host` is the app (panel id) the section hosts: it fills the section and its ports sit on the section's edges
 - `objects`: id → table | map | note | media | **panel**
 - `cells`: tableId → `{"c,r": raw}`
 - `links`: id → `{from:{panel,port}, to:{panel,port}, label}`
-- `meta`: `schema: 1`, name
+- `meta`: `schema: 2`, name
 - `activity`: bounded array of `{at, who, role, text, objectId}`
 
 **Panel kinds:** `app`, `link`, `file`, `machine`, `agent`, `connector`, `ask`. Each kind has optional `url`, `repo`, `mcp`, `fileId`/`mime`, `ports[]`, `outputs{portId: value}`, `status`, `assignee`, `sessionId`.
@@ -110,7 +110,7 @@ One Y.Doc per board, with these top-level maps:
 **Rules:**
 - Section scroll is local, never shared.
 - `blob:` URLs never enter the document.
-- The schema version lives in `meta.schema`. flowform shipped unversioned fields and paid for it; bump it and migrate on change.
+- The schema version lives in `meta.schema`. flowform shipped unversioned fields and paid for it; bump it and migrate on change. Migrations are numbered steps in `apps/server/src/migrate.ts`, run at boot. **2:** sections host apps — a section of only apps (the company board's six connectors) becomes one section per app where its card was, other sections shift, nothing overlaps; a section holding one app hosts it (`apps/server/test/hosting.test.ts`).
 
 ### 2.1 The Foundation bridge (apps ↔ grid)
 
@@ -154,13 +154,18 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | **Login** | ASCII wind background (light and night), glass card | done | Our own implementation; compare against Details' "ASCII Cursor 2.0" (§6) |
 | **Design** | `#/design` living page; DESIGN.md | done | |
 | **Desktop** | Tauri config points at :1430 | partial | Not rebuilt this session |
-| **Grid feel** (2026-11-02) | Magnetic snapping (settle only when near a framing). Safe-area framing clear of the capsule and HUD. Sections frame their cards (sparse sections at ~105% instead of ~55%). Trackpad pinch 1:1, two-finger pan everywhere. Keys 0 / ⇧1 / F / ⇧2 / 1 / + / −, Space-drag. Live zoom % in the HUD. Cards lift and lean when dragged | done | `docs/evidence/2026-11-02_grid-feel/`. Not yet measured on a real trackpad (headless only) |
+| **Grid feel** (2026-11-02) | ~~Magnetic snapping~~ (replaced by keyboard-only framing, see Chrome on call). Safe-area framing clear of the side pane and search pill. Sections frame their cards (sparse sections at ~105% instead of ~55%). Trackpad pinch 1:1, two-finger pan everywhere. Keys 0 / ⇧1 / F / ⇧2 / 1 / + / −, Space-drag. Live zoom % in the HUD. Cards lift and lean when dragged | done | `docs/evidence/2026-11-02_grid-feel/`. Not yet measured on a real trackpad (headless only) |
 | **Flow wires** (2026-11-02) | Vision's flow-diagram rules on app and pipeline wires: 45° roads with straight leads, back-routes through the gap, parallel lanes, stable over/under tunnels, typed tones, port pill intakes with a landing per wire, hover tooltips with live values, select + ⌫, magnetic drag with compatible-port highlighting, grab-to-re-route | done | `docs/evidence/2026-11-02_flow-wires/`, `apps/client/test/wires.test.ts`. Table→map and formula wires follow the same rules, and over/under is decided across both layers (shell/routeRegistry.ts). Wires route round every card in their way (routeAvoiding) — measured: 0 of 12 company-board wires cross a card |
 | **Design pipelines** (2026-11-02) | Brief → Concept → CAD → Simulate → Review → Release as six wired stage panels in their own section | done (Vision run is manual) | `docs/evidence/2026-11-02_design-pipeline/`, `apps/server/test/pipeline.test.ts` |
 | | Stages: status (waiting / active / done), owner, editable brief, artifacts (renders, STEP measured on arrival, results, decisions), self-ticking checklist where the evidence is clear, ★ to choose what goes forward | done | |
 | | Hand-offs (`stage_request`): CAD asks the owner via Hermes and the STEP lands back on the stage. Concept and Simulate write a Vision brief from the stage (chosen concept; CAD size + analysis/loads/target). Review asks every reviewer | done | Vision still runs by hand; phase 2 starts T3 threads |
 | | Complete → output goes down the wire and the next stage opens. "Request changes" at Review reopens CAD and Simulate. Agents drive all of it through the same tools; ⌘K "Start a design pipeline: …" | done | |
 | | Release → BomForm | stub | Completes the stage; nothing is written to BomForm yet |
+| **Chrome on call** (2026-11-02) | No top capsule, no logo, no grid reticle. A collapsible side pane (⌘\, remembered) holds boards, tools, activity and settings; a small search pill + zoom at the bottom opens ⌘K. The camera rests wherever pan / pinch / wheel leave it; only the keyboard (0, F, ⇧1/⇧2, arrows) snaps to framings; double-click zooms in on the card or section under the pointer (once framed, the double-click goes through to edit), or 2× on empty paper | done | `docs/evidence/2026-11-02_chrome-on-call/`. Checked: a throw comes to rest at its own position (no snap) |
+| | Cards rest without a bar; a glass bar drops in on hover. Images and video have no bar: mute / remove icons slide out from behind the card, the card is the drag handle, a tap plays/pauses video. Pipeline stages name themselves in their body | done | Tables and maps keep their own headers |
+| | Sections: track lines and gutters only where they divide sections — seams inside a merged section are invisible until hovered. Drag a section past any board edge to append it along that whole side (new track, sized like the section, capped at a normal track); its hole is absorbed by an aligned neighbour | done | Checked in the browser: dropped below the board → full-width row, pipeline section widened into the hole |
+| | **Sections host apps** (schema 2). An app fills its section; the section header is the app's; ports sit on the section's edges; wires run section to section and treat every other section as an obstacle. The company board migrated to one section per app. An app opened into an empty section (people or `add_panel`) is hosted; "Show as a card" / "Let it fill the section" toggles | done | Gaps between sections widened to 40 px so wires have a road |
+| | Wires: turns are long 45° runs (up to 480 px a side, shortened where they'd enter a card) instead of 14 px chamfers; a height change with room ahead is one diagonal. Port pills centred exactly on the wire's landing (was 1–2 px off: the section border wasn't counted) | done | Measured: 24 of 24 wire ends at 0.00 px from their pill centre. `wires.test.ts` (13) |
 | **Interface pass 1** (2026-11-02) | Connector status pills and offline states. Foundation's own live counts. Backward wires loop through the gap between rows. Empty sections offer open/drop/ask/note and a company app shelf. Panels opened from the shelf carry the registry's repo and MCP. Section headers solid with a card count. Glass pill HUD. Presentation title scrim, HUD hidden. Capsule truly centred. The grid can't be scrolled by focus. My avatar shown once | done | Evidence in `docs/evidence/2026-11-02_interface-pass/` |
 
 ### 3.1 flowform → Foundation port map
@@ -255,8 +260,12 @@ Every integration is off until its key exists; the server always starts. Copy `.
 - **The REA job runner and the Vision brief are unexercised end to end.**
 - **Hidden windows pause `requestAnimationFrame`.** Overlays catch up when shown. `?rafshim` (dev) drives frames from a timer for headless capture.
 - **Panel iframes use `sandbox` with `allow-same-origin`**, so a hostile app on the same origin could escape. Only add apps you trust; serve third-party apps from their own origins.
+- **Wires between packed app sections stay in the 40 px gaps**, so their diagonals there are short; the long 45° runs show inside sections and across open board. Ports on all four section edges (choose the side facing the other app) would give section wires real diagonals — not built.
+- **The "+" add-section buttons sit in the gaps between sections**, so a double-click aimed at the gap can hit one and add a section. Move them off the gap or require a single deliberate click target.
+- **Throw momentum is generous** (velocity × 125 ms); tune on a real trackpad.
 - **The old toolbar CSS** (`.app-bar`) is still in `App.css`; prune it. A few small hover transitions on `background` remain in `App.css` and lag the night fade the way pills did.
 - **Snap framing to a section** at 1440×900 lands at about 0.55 zoom; an empty section's welcome card reads small. Consider a tighter section frame when it holds one card or none.
+- **Cards at rest have no title** (by design); a connector shown as a card (not hosted) reads by its body only. Hosted apps and pipeline stages name themselves.
 
 ---
 

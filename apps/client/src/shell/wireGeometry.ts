@@ -5,7 +5,9 @@
  *
  *  1. Roads, not strings: only horizontal, vertical and 45° segments.
  *  2. Every wire leaves an output and enters an input on a straight lead.
- *  3. Turns are 45° chamfers, never curves; joins are bevelled.
+ *  3. Turns are long 45° runs, never curves: a turn takes as much of the
+ *     runs either side as it can (up to TURN) without touching a card, so a
+ *     change of height reads as one clean diagonal; joins are bevelled.
  *  4. A wire going back (target behind its source) crosses through the gap
  *     between the two cards, or just clear of both — never through a card.
  *  5. Wires sharing a port run in parallel lanes, equally spaced at bends.
@@ -20,7 +22,8 @@ export type Rect = { x: number; y: number; w: number; h: number };
 
 export const LEAD = 48; // straight run out of / into a port
 export const LANE = 4; // pitch between parallel wires sharing a run
-const CHAMFER = 14; // the 45° step that turns a run through 90°
+const CHAMFER = 14; // the shortest 45° step that turns a run through 90°
+const TURN = 480; // the longest: a turn's diagonal may run this far each way
 const CLEAR = 28; // how far a crossing keeps from a card edge
 
 export function polyline(pts: P[]): string {
@@ -82,59 +85,74 @@ export interface RouteOpts {
   dst?: Rect | null;
 }
 
-/** The shortest road from an output (leaving right) to an input (arriving from the left). */
+/**
+ * The road from an output (leaving right) to an input (arriving from the
+ * left): an orthogonal skeleton whose corners become long 45° runs (road()).
+ */
 export function route(a: P, b: P, opts: RouteOpts = {}): P[] {
   const { leadIn = LEAD, leadOut = LEAD, lane = 0, srcLane = 0 } = opts;
   const approach = b.x > a.x ? (b.x - a.x) / 4 : Infinity;
   const x1 = a.x + Math.min(leadIn, approach);
   const x2 = b.x - Math.min(leadOut, approach);
   const dx = x2 - x1;
-  const dy = b.y - a.y;
-  const ady = Math.abs(dy);
-  const sy = Math.sign(dy) || 1;
+  const ends = [opts.src, opts.dst].filter((r): r is Rect => Boolean(r));
+  const keep = { start: (x1 - a.x) / 2, end: (b.x - x2) / 2 };
 
-  if (dx >= ady) {
-    // room ahead: lead, run, one 45° diagonal, run along the port's line, lead
-    const middle = x1 + (dx - ady) / 2 + lane * LANE;
-    const pts: P[] = [a, { x: Math.max(x1, Math.min(middle, x2 - ady)), y: a.y }];
-    if (ady > 0) pts.push({ x: Math.max(x1, Math.min(middle, x2 - ady)) + ady, y: b.y });
-    pts.push({ x: x2, y: b.y }, b);
-    return dedupe(pts);
-  }
-
-  if (dx >= 2 * CHAMFER) {
-    // too steep for one diagonal: a vertical mid-run with a 45° step at each end
-    const c = Math.max(0, Math.min(CHAMFER, dx / 2, ady / 3));
-    const xm = Math.min(Math.max(x1 + dx / 2 + lane * LANE, x1 + c), x2 - c);
-    return dedupe([a, { x: x1, y: a.y }, { x: xm - c, y: a.y }, { x: xm, y: a.y + sy * c }, { x: xm, y: b.y - sy * c }, { x: xm + c, y: b.y }, { x: x2, y: b.y }, b]);
+  if (dx > 0) {
+    // forward: one vertical run between the leads — its two turns become diagonals,
+    // and when the room ahead allows, they meet as one long 45° run (in a narrow
+    // gap between neighbouring sections it is a short step down the gap)
+    const xm = Math.min(Math.max(x1 + dx / 2 + lane * LANE, x1 + Math.min(CHAMFER, dx / 2)), x2 - Math.min(CHAMFER, dx / 2));
+    return road([a, { x: x1, y: a.y }, { x: xm, y: a.y }, { x: xm, y: b.y }, { x: x2, y: b.y }, b], ends, keep);
   }
 
   // target behind: out and round beside the source, across clear of both cards, round beside the target, in
-  const c = CHAMFER;
   const src = opts.src ?? { x: a.x, y: a.y, w: 0, h: 0 };
   const dst = opts.dst ?? { x: b.x, y: b.y, w: 0, h: 0 };
   let yc = crossingY(src, dst, a.y, b.y) + lane * LANE;
-  if (Math.abs(yc - a.y) < 2 * c + 16 || Math.abs(yc - b.y) < 2 * c + 16) {
-    yc = Math.min(src.y, dst.y, a.y, b.y) - CLEAR - 2 * c - Math.abs(lane * LANE);
+  if (Math.abs(yc - a.y) < 2 * CHAMFER + 16 || Math.abs(yc - b.y) < 2 * CHAMFER + 16) {
+    yc = Math.min(src.y, dst.y, a.y, b.y) - CLEAR - 2 * CHAMFER - Math.abs(lane * LANE);
   }
-  const xr = Math.max(x1, x2) + 2 * c + Math.abs(srcLane * LANE);
-  const xl = Math.min(x1, x2) - 2 * c - Math.abs(lane * LANE);
-  const s1 = Math.sign(yc - a.y) || 1;
-  const s2 = Math.sign(b.y - yc) || 1;
-  return dedupe([
-    a,
-    { x: x1, y: a.y },
-    { x: xr - c, y: a.y },
-    { x: xr, y: a.y + s1 * c },
-    { x: xr, y: yc - s1 * c },
-    { x: xr - c, y: yc },
-    { x: xl + c, y: yc },
-    { x: xl, y: yc + s2 * c },
-    { x: xl, y: b.y - s2 * c },
-    { x: xl + c, y: b.y },
-    { x: x2, y: b.y },
-    b,
-  ]);
+  const xr = Math.max(x1, x2) + 2 * CHAMFER + Math.abs(srcLane * LANE);
+  const xl = Math.min(x1, x2) - 2 * CHAMFER - Math.abs(lane * LANE);
+  return road([a, { x: x1, y: a.y }, { x: xr, y: a.y }, { x: xr, y: yc }, { x: xl, y: yc }, { x: xl, y: b.y }, { x: x2, y: b.y }, b], ends, keep);
+}
+
+/**
+ * Turn an orthogonal skeleton into a road. Each corner becomes a 45° run as
+ * long as the runs either side allow — a corner shares its outgoing run with
+ * the next one, and the leads keep at least `keep` px straight — and as long
+ * as the diagonal stays out of every card in `avoid` (halving until it does,
+ * down to a CHAMFER step).
+ */
+export function road(corners: P[], avoid: Rect[] = [], keep: { start?: number; end?: number } = {}, max = TURN): P[] {
+  const pts = dedupe(corners);
+  if (pts.length < 3) return pts;
+  const out: P[] = [pts[0]];
+  const last = pts.length - 2;
+  for (let i = 1; i <= last; i++) {
+    const prev = out[out.length - 1];
+    const b = pts[i];
+    const n = pts[i + 1];
+    const lin = Math.hypot(b.x - prev.x, b.y - prev.y) - (i === 1 ? (keep.start ?? 0) : 0);
+    const nextLen = Math.hypot(n.x - b.x, n.y - b.y);
+    const lout = i === last ? nextLen - (keep.end ?? 0) : nextLen / 2;
+    const ux = (b.x - prev.x) / (Math.hypot(b.x - prev.x, b.y - prev.y) || 1);
+    const uy = (b.y - prev.y) / (Math.hypot(b.x - prev.x, b.y - prev.y) || 1);
+    const vx = (n.x - b.x) / (nextLen || 1);
+    const vy = (n.y - b.y) / (nextLen || 1);
+    let k = Math.min(max, lin, lout);
+    const cut = (k: number) => [{ x: b.x - ux * k, y: b.y - uy * k }, { x: b.x + vx * k, y: b.y + vy * k }] as const;
+    while (k > CHAMFER && avoid.some((r) => segmentOverlap(cut(k)[0], cut(k)[1], r) > 0.5)) k /= 2;
+    if (k < 0.5) {
+      out.push(b);
+      continue;
+    }
+    const [p, q] = cut(k);
+    out.push(p, q);
+  }
+  out.push(pts[pts.length - 1]);
+  return dedupe(out);
 }
 
 // ---------- over / under ----------
@@ -414,10 +432,11 @@ export function routeAvoiding(a: P, b: P, opts: AvoidOpts = {}): P[] {
       if (gy > 4 && gy < CLEAR * 2) ys.add(r.y + r.h + gy / 2);
     }
 
+  const keep = { start: lin / 2, end: lout / 2 };
   const candidates: P[][] = [base, route(a, b, { ...opts, leadIn: lin, leadOut: lout })];
   for (const xm of xs) {
     if (xm < x1 || xm > x2) continue;
-    candidates.push(chamfer([a, { x: x1, y: a.y }, { x: xm + off, y: a.y }, { x: xm + off, y: b.y }, { x: x2, y: b.y }, b]));
+    candidates.push(road([a, { x: x1, y: a.y }, { x: xm + off, y: a.y }, { x: xm + off, y: b.y }, { x: x2, y: b.y }, b], all, keep));
   }
   // the four channels nearest each end keep the search small
   const xas = [...xs].filter((x) => x >= x1).sort((p, q) => p - q).slice(0, 4);
@@ -425,7 +444,7 @@ export function routeAvoiding(a: P, b: P, opts: AvoidOpts = {}): P[] {
   for (const yc of ys)
     for (const xa of xas)
       for (const xb of xbs)
-        candidates.push(chamfer([a, { x: xa + off, y: a.y }, { x: xa + off, y: yc + off }, { x: xb - off, y: yc + off }, { x: xb - off, y: b.y }, b]));
+        candidates.push(road([a, { x: x1, y: a.y }, { x: xa + off, y: a.y }, { x: xa + off, y: yc + off }, { x: xb - off, y: yc + off }, { x: xb - off, y: b.y }, { x: x2, y: b.y }, b], all, keep));
 
   let best = base;
   let bestCost = cost(base, raw, ends);

@@ -185,6 +185,56 @@ export function DesignPage() {
         </div>
       </Section>
 
+      <Section title="Chrome on call" note="The grid runs edge to edge. Everything else waits to be called: the side pane folds into one corner button, search is a small pill at the bottom, a card's bar drops in on hover, and an image's icons slide out from behind it.">
+        <div className="oncall-row">
+          <div className="oncall-cell">
+            <button className="pane-toggle f-glass oncall-static">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
+                <rect x="1.5" y="2.5" width="13" height="11" rx="2.5" />
+                <path d="M6 2.5v11" />
+              </svg>
+              <span className="f-dot is-ok" />
+            </button>
+            <div className="oncall-hud">
+              <button className="hud-search f-glass">
+                <span className="hud-glyph">⌕</span>
+                <span className="hud-label">Search</span>
+                <span className="f-kbd">⌘K</span>
+              </button>
+              <button className="hud-zoom f-glass">64%</button>
+            </div>
+            <div className="effect-label">Side pane (⌘\) and the search pill</div>
+          </div>
+          <div className="oncall-cell">
+            <div className="frame-anchor chrome-bar oncall-static is-hover" style={{ width: 240 }}>
+              <div className="frame-card">
+                <div className="frame-header" style={{ height: 30 }}>
+                  <span className="frame-title">▤ Launch notes</span>
+                  <div className="header-actions">
+                    <span className="icon-btn">✥</span>
+                    <span className="icon-btn">✕</span>
+                  </div>
+                </div>
+                <div className="frame-body oncall-body">Card at rest: no bar. Hover: the bar drops in over the top edge.</div>
+              </div>
+            </div>
+            <div className="effect-label">A card, hovered</div>
+          </div>
+          <div className="oncall-cell">
+            <div className="frame-anchor chrome-icons oncall-static is-hover" style={{ width: 200 }}>
+              <div className="frame-icons">
+                <span className="frame-icon is-on">♪</span>
+                <span className="frame-icon is-remove">✕</span>
+              </div>
+              <div className="frame-card">
+                <div className="frame-body oncall-media" />
+              </div>
+            </div>
+            <div className="effect-label">Video, hovered: mute and remove slide out</div>
+          </div>
+        </div>
+      </Section>
+
       <Section title="Panels that adapt" note="Design for the narrowest width first; container queries, never the window. Check 260, 400 and 560 px.">
         <div className="adapt-row">
           {[260, 400, 560].map((w) => (

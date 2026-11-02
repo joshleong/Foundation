@@ -26,6 +26,8 @@ interface Props {
   pos: { x: number; y: number };
   isActive: boolean;
   getScale(): number;
+  /** the section hosts this app: it fills the section, ports on the section's edges, no frame of its own */
+  hosted?: boolean;
 }
 
 
@@ -40,7 +42,7 @@ const GLYPH: Record<PanelMeta["panel"], string> = {
   stage: "◆",
 };
 
-export const PanelView = memo(function PanelView({ panel, pos, isActive, getScale }: Props) {
+export const PanelView = memo(function PanelView({ panel, pos, isActive, getScale, hosted }: Props) {
   const ui = useUi();
   const layout = usePortLayout(panel);
   const ports = (
@@ -72,7 +74,65 @@ export const PanelView = memo(function PanelView({ panel, pos, isActive, getScal
     </>
   );
 
-  const extras = (
+  const extras = <PanelActions panel={panel} />;
+
+  const body =
+    panel.panel === "app" || panel.panel === "link" || panel.panel === "machine" ? (
+      <LiveFrame panel={panel} />
+    ) : panel.panel === "file" ? (
+      <FilePreview panel={panel} />
+    ) : panel.panel === "connector" ? (
+      <ConnectorBody panel={panel} />
+    ) : panel.panel === "ask" ? (
+      <AskBody panel={panel} />
+    ) : panel.panel === "stage" ? (
+      <StageBody panel={panel} />
+    ) : (
+      <AgentBody panel={panel} />
+    );
+
+  if (hosted)
+    return (
+      <div
+        className={`hosted-app panel-card kind-${panel.panel}${panel.status ? ` status-${panel.status}` : ""}${ui.agentLayer ? " show-ports" : ""}`}
+        data-panel-id={panel.id}
+        data-obj-id={panel.id}
+      >
+        <div className={`panel-body panel-${panel.panel}`}>
+          <div className="panel-inner">{body}</div>
+        </div>
+        {panel.ports.length > 0 && <div className="port-rail">{ports}</div>}
+      </div>
+    );
+
+  return (
+    <ObjectFrame
+      id={panel.id}
+      title={`${GLYPH[panel.panel]}  ${panel.name}`}
+      pos={pos}
+      width={panel.w}
+      float={panel.float}
+      isActive={isActive}
+      getScale={getScale}
+      onMove={(x, y) => movePanel(panel.id, x, y)}
+      onResize={(dw, dh) => resizePanel(panel.id, panel.w + dw, panel.h + dh)}
+      onRemove={() => removePanel(panel.id)}
+      headerExtras={extras}
+      bodyClass={`panel-body panel-${panel.panel}`}
+      cardClass={`panel-card kind-${panel.panel}${panel.status ? ` status-${panel.status}` : ""}${ui.agentLayer ? " show-ports" : ""}`}
+      data={{ "panel-id": panel.id }}
+      overlay={panel.ports.length ? <div className="port-rail">{ports}</div> : null}
+    >
+      <div style={{ height: panel.h }} className="panel-inner">
+        {body}
+      </div>
+    </ObjectFrame>
+  );
+});
+
+/** a panel's own actions: repo, MCP, open, ask — in its hover bar, or in its host section's header */
+export function PanelActions({ panel }: { panel: PanelMeta }) {
+  return (
     <>
       {panel.repo && (
         <button className="icon-btn panel-chip" title={`Repository · ${panel.repo}`} onClick={() => openRepo(panel.repo!)}>
@@ -94,43 +154,9 @@ export const PanelView = memo(function PanelView({ panel, pos, isActive, getScal
       </button>
     </>
   );
+}
 
-  return (
-    <ObjectFrame
-      id={panel.id}
-      title={`${GLYPH[panel.panel]}  ${panel.name}`}
-      pos={pos}
-      width={panel.w}
-      float={panel.float}
-      isActive={isActive}
-      getScale={getScale}
-      onMove={(x, y) => movePanel(panel.id, x, y)}
-      onResize={(dw, dh) => resizePanel(panel.id, panel.w + dw, panel.h + dh)}
-      onRemove={() => removePanel(panel.id)}
-      headerExtras={extras}
-      bodyClass={`panel-body panel-${panel.panel}`}
-      cardClass={`panel-card kind-${panel.panel}${panel.status ? ` status-${panel.status}` : ""}${ui.agentLayer ? " show-ports" : ""}`}
-      data={{ "panel-id": panel.id }}
-      overlay={panel.ports.length ? <div className="port-rail">{ports}</div> : null}
-    >
-      <div style={{ height: panel.h }} className="panel-inner">
-        {panel.panel === "app" || panel.panel === "link" || panel.panel === "machine" ? (
-          <LiveFrame panel={panel} />
-        ) : panel.panel === "file" ? (
-          <FilePreview panel={panel} />
-        ) : panel.panel === "connector" ? (
-          <ConnectorBody panel={panel} />
-        ) : panel.panel === "ask" ? (
-          <AskBody panel={panel} />
-        ) : panel.panel === "stage" ? (
-          <StageBody panel={panel} />
-        ) : (
-          <AgentBody panel={panel} />
-        )}
-      </div>
-    </ObjectFrame>
-  );
-});
+export { GLYPH as PANEL_GLYPH };
 
 // ---------- live frames (apps, links, machines) ----------
 
