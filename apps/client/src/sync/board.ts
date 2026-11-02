@@ -1,0 +1,412 @@
+/**
+ * Live board sync. The grid's store (state/store.ts) stays the fast local
+ * model the 60 fps hot paths read; this module mirrors it into the board's
+ * Y.Doc and back:
+ *
+ *   local edit → store.set() → syncHook → diff by id → Y transaction (origin LOCAL)
+ *   remote edit → Y update → observe → rebuild changed slices → applyRemote()
+ *
+ * Diffs are by object identity (the store replaces what it changes), so a
+ * drag frame touches one key. Section scroll stays local; the document holds
+ * only what everyone shares. Cursors and selections ride on awareness.
+ *
+ * Transport: y-protocols over WebSocket at /sync/:board, with backoff
+ * reconnect; the session cookie authenticates it.
+ */
+
+import * as Y from "yjs";
+import * as syncProtocol from "y-protocols/sync";
+import * as awarenessProtocol from "y-protocols/awareness";
+import * as encoding from "lib0/encoding";
+import * as decoding from "lib0/decoding";
+import { boardMaps, type ObjectDoc, type SectionDoc, type UserInfo } from "@foundation/protocol";
+import { applyRemote, getState, setSyncHook, type AnyObject, type AppState, type Section } from "../state/store";
+import { workbook } from "../engine/workbook";
+import { wsUrl } from "../lib/api";
+
+const LOCAL = Symbol("local");
+const MSG_SYNC = 0;
+const MSG_AWARENESS = 1;
+
+export type SyncStatus = "connecting" | "live" | "offline";
+
+type Kind = "table" | "map" | "note" | "media" | "panel";
+const SLICE: Record<Kind, "tables" | "maps" | "notes" | "media" | "panels"> = {
+  table: "tables",
+  map: "maps",
+  note: "notes",
+  media: "media",
+  panel: "panels",
+};
+
+function kindOf(o: AnyObject): Kind {
+  if ("panel" in o) return "panel";
+  if ("cols" in o) return "table";
+  if ("sourceTableId" in o) return "map";
+  if ("media" in o) return "media";
+  return "note";
+}
+
+export interface PeerState {
+  clientId: number;
+  user: { name: string; color: string; email?: string; agent?: boolean };
+  cursor?: { x: number; y: number } | null;
+  focus?: string | null;
+}
+
+class BoardSync {
+  doc = new Y.Doc();
+  awareness = new awarenessProtocol.Awareness(this.doc);
+  status: SyncStatus = "connecting";
+  private ws: WebSocket | null = null;
+  private retry = 0;
+  private synced = false;
+  private closed = false;
+  private applyingCells = false;
+  private listeners = new Set<() => void>();
+  private unsubWorkbook: (() => void) | null = null;
+
+  constructor(
+    public boardId: string,
+    public user: UserInfo,
+  ) {
+    this.awareness.setLocalState({ user: { name: user.name, color: user.color, email: user.email }, cursor: null, focus: null });
+    this.doc.on("update", (update: Uint8Array, origin: unknown) => {
+      if (origin === this) return; // came from the server
+      const enc = encoding.createEncoder();
+      encoding.writeVarUint(enc, MSG_SYNC);
+      syncProtocol.writeUpdate(enc, update);
+      this.send(encoding.toUint8Array(enc));
+    });
+    this.awareness.on("update", ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => {
+      if (origin !== "local") {
+        this.notify();
+        return;
+      }
+      const enc = encoding.createEncoder();
+      encoding.writeVarUint(enc, MSG_AWARENESS);
+      encoding.writeVarUint8Array(enc, awarenessProtocol.encodeAwarenessUpdate(this.awareness, added.concat(updated, removed)));
+      this.send(encoding.toUint8Array(enc));
+      this.notify();
+    });
+    const m = boardMaps(this.doc);
+    m.objects.observe((e) => e.transaction.origin !== LOCAL && this.pullObjects([...e.keysChanged]));
+    m.sections.observe((e) => e.transaction.origin !== LOCAL && this.pullSections());
+    m.grid.observe((e) => e.transaction.origin !== LOCAL && this.pullGrid());
+    m.links.observe((e) => e.transaction.origin !== LOCAL && this.pullLinks());
+    m.cells.observe((e) => e.transaction.origin !== LOCAL && this.pullCells([...e.keysChanged]));
+    m.activity.observe(() => this.notify());
+    this.connect();
+  }
+
+  // ---------- transport ----------
+
+  private connect() {
+    if (this.closed) return;
+    this.setStatus("connecting");
+    const ws = new WebSocket(wsUrl(`/sync/${encodeURIComponent(this.boardId)}`));
+    ws.binaryType = "arraybuffer";
+    this.ws = ws;
+    ws.onopen = () => {
+      this.retry = 0;
+      const enc = encoding.createEncoder();
+      encoding.writeVarUint(enc, MSG_SYNC);
+      syncProtocol.writeSyncStep1(enc, this.doc);
+      ws.send(encoding.toUint8Array(enc));
+      const aw = encoding.createEncoder();
+      encoding.writeVarUint(aw, MSG_AWARENESS);
+      encoding.writeVarUint8Array(aw, awarenessProtocol.encodeAwarenessUpdate(this.awareness, [this.doc.clientID]));
+      ws.send(encoding.toUint8Array(aw));
+    };
+    ws.onmessage = (ev) => {
+      const dec = decoding.createDecoder(new Uint8Array(ev.data as ArrayBuffer));
+      const type = decoding.readVarUint(dec);
+      if (type === MSG_SYNC) {
+        const enc = encoding.createEncoder();
+        encoding.writeVarUint(enc, MSG_SYNC);
+        const kind = syncProtocol.readSyncMessage(dec, enc, this.doc, this);
+        if (encoding.length(enc) > 1) ws.send(encoding.toUint8Array(enc));
+        if (kind === syncProtocol.messageYjsSyncStep2 && !this.synced) this.onFirstSync();
+        else if (this.synced) this.setStatus("live");
+      } else if (type === MSG_AWARENESS) {
+        awarenessProtocol.applyAwarenessUpdate(this.awareness, decoding.readVarUint8Array(dec), this);
+      }
+    };
+    ws.onclose = () => {
+      this.ws = null;
+      if (this.closed) return;
+      this.setStatus("offline");
+      const delay = Math.min(15_000, 400 * 2 ** this.retry++) * (0.75 + Math.random() * 0.5);
+      setTimeout(() => this.connect(), delay);
+    };
+  }
+
+  private send(data: Uint8Array) {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(data);
+  }
+
+  private setStatus(s: SyncStatus) {
+    if (this.status === s) return;
+    this.status = s;
+    this.notify();
+  }
+
+  subscribe(fn: () => void) {
+    this.listeners.add(fn);
+    return () => {
+      this.listeners.delete(fn);
+    };
+  }
+  private notify() {
+    for (const fn of this.listeners) fn();
+  }
+
+  // ---------- first sync: doc → store (or seed an empty board from the store) ----------
+
+  private onFirstSync() {
+    this.synced = true;
+    const m = boardMaps(this.doc);
+    if (m.sections.size === 0) {
+      this.pushAll(getState());
+    } else {
+      this.pullGrid();
+      this.pullSections();
+      this.pullObjects(null);
+      this.pullLinks();
+      this.pullCells(null);
+    }
+    setSyncHook((next, prev) => this.push(next, prev));
+    this.unsubWorkbook = workbook.subscribeAll((tableId) => {
+      if (!this.applyingCells && tableId) this.pushCells(tableId);
+    });
+    this.setStatus("live");
+  }
+
+  // ---------- store → doc ----------
+
+  private pushAll(st: AppState) {
+    this.doc.transact(() => {
+      const m = boardMaps(this.doc);
+      m.meta.set("schema", 1);
+      m.grid.set("tracks", st.grid);
+      for (const s of Object.values(st.sections)) m.sections.set(s.id, toSectionDoc(s));
+      for (const slice of Object.values(SLICE)) {
+        for (const o of Object.values(st[slice]) as AnyObject[]) m.objects.set(o.id, toObjectDoc(o));
+      }
+      for (const l of Object.values(st.links)) m.links.set(l.id, l);
+    }, LOCAL);
+    for (const t of Object.keys(st.tables)) this.pushCells(t);
+  }
+
+  private push(next: AppState, prev: AppState) {
+    if (!this.synced) return;
+    const m = boardMaps(this.doc);
+    this.doc.transact(() => {
+      if (next.grid !== prev.grid) m.grid.set("tracks", next.grid);
+      if (next.sections !== prev.sections) {
+        for (const [id, s] of Object.entries(next.sections)) {
+          const p = prev.sections[id];
+          if (!p || p.name !== s.name || p.c0 !== s.c0 || p.c1 !== s.c1 || p.r0 !== s.r0 || p.r1 !== s.r1) m.sections.set(id, toSectionDoc(s));
+        }
+        for (const id of Object.keys(prev.sections)) if (!next.sections[id]) m.sections.delete(id);
+      }
+      for (const slice of Object.values(SLICE)) {
+        const a = next[slice] as Record<string, AnyObject>;
+        const b = prev[slice] as Record<string, AnyObject>;
+        if (a === b) continue;
+        for (const [id, o] of Object.entries(a)) if (b[id] !== o) m.objects.set(id, toObjectDoc(o));
+        for (const id of Object.keys(b)) if (!a[id]) m.objects.delete(id);
+      }
+      if (next.links !== prev.links) {
+        for (const [id, l] of Object.entries(next.links)) if (prev.links[id] !== l) m.links.set(id, l);
+        for (const id of Object.keys(prev.links)) if (!next.links[id]) m.links.delete(id);
+      }
+    }, LOCAL);
+  }
+
+  private pushCells(tableId: string) {
+    const t = workbook.getTable(tableId);
+    const m = boardMaps(this.doc);
+    if (!t) {
+      if (m.cells.has(tableId)) this.doc.transact(() => m.cells.delete(tableId), LOCAL);
+      return;
+    }
+    const raw: Record<string, string> = {};
+    for (const [k, c] of t.cells) if (c.raw) raw[k] = c.raw;
+    const cur = m.cells.get(tableId);
+    if (cur && sameRecord(cur, raw)) return;
+    this.doc.transact(() => m.cells.set(tableId, raw), LOCAL);
+  }
+
+  // ---------- doc → store ----------
+
+  private pullGrid() {
+    const tracks = boardMaps(this.doc).grid.get("tracks");
+    if (tracks) applyRemote({ grid: tracks });
+  }
+
+  private pullSections() {
+    const st = getState();
+    const sections: Record<string, Section> = {};
+    for (const s of boardMaps(this.doc).sections.values()) {
+      sections[s.id] = { ...s, scroll: st.sections[s.id]?.scroll ?? { x: 0, y: 0 } };
+    }
+    const partial: Partial<AppState> = { sections };
+    if (!sections[st.activeSectionId]) {
+      const first = Object.keys(sections)[0];
+      if (first) partial.activeSectionId = first;
+    }
+    applyRemote(partial);
+  }
+
+  private pullObjects(keys: string[] | null) {
+    const st = getState();
+    const m = boardMaps(this.doc);
+    const slices: Partial<Record<(typeof SLICE)[Kind], Record<string, AnyObject>>> = {};
+    const slice = (k: Kind) => (slices[SLICE[k]] ??= { ...(st[SLICE[k]] as Record<string, AnyObject>) });
+    if (keys === null) {
+      for (const k of Object.keys(SLICE) as Kind[]) slices[SLICE[k]] = {};
+      for (const o of m.objects.values()) slice(o.kind)[o.id] = fromObjectDoc(o);
+    } else {
+      for (const id of keys) {
+        const o = m.objects.get(id);
+        if (o) {
+          slice(o.kind)[id] = fromObjectDoc(o);
+        } else {
+          for (const k of Object.keys(SLICE) as Kind[]) {
+            const rec = st[SLICE[k]] as Record<string, AnyObject>;
+            if (rec[id]) {
+              delete slice(k)[id];
+              if (k === "table") workbook.removeTable(id);
+            }
+          }
+        }
+      }
+    }
+    // the workbook must know every table before cells arrive
+    for (const t of Object.values(slices.tables ?? {}) as Array<{ id: string; name: string; cols: number; rows: number }>) {
+      const existing = workbook.getTable(t.id);
+      if (!existing) workbook.addTable(t.id, t.name, t.cols, t.rows);
+      else {
+        if (existing.name !== t.name) workbook.renameTable(t.id, t.name);
+        if (existing.cols !== t.cols || existing.rows !== t.rows) workbook.resize(t.id, t.cols, t.rows);
+      }
+    }
+    applyRemote(slices as Partial<AppState>);
+  }
+
+  private pullLinks() {
+    applyRemote({ links: Object.fromEntries(boardMaps(this.doc).links.entries()) });
+  }
+
+  private pullCells(keys: string[] | null) {
+    const m = boardMaps(this.doc);
+    const ids = keys ?? [...m.cells.keys()];
+    this.applyingCells = true;
+    try {
+      for (const tableId of ids) {
+        const t = workbook.getTable(tableId);
+        const raw = m.cells.get(tableId);
+        if (!t || !raw) continue;
+        for (const [k, c] of t.cells) if (c.raw && !(k in raw)) setCellKey(tableId, k, "");
+        for (const [k, v] of Object.entries(raw)) if (t.cells.get(k)?.raw !== v) setCellKey(tableId, k, v);
+      }
+    } finally {
+      this.applyingCells = false;
+    }
+  }
+
+  // ---------- presence ----------
+
+  setCursor(cursor: { x: number; y: number } | null) {
+    const cur = this.awareness.getLocalState() ?? {};
+    this.awareness.setLocalStateField("cursor", cursor);
+    void cur;
+  }
+
+  setFocus(focus: string | null) {
+    this.awareness.setLocalStateField("focus", focus);
+  }
+
+  peers(): PeerState[] {
+    const out: PeerState[] = [];
+    for (const [clientId, s] of this.awareness.getStates()) {
+      if (clientId === this.doc.clientID || !s?.user) continue;
+      out.push({ clientId, ...(s as Omit<PeerState, "clientId">) });
+    }
+    return out;
+  }
+
+  activity() {
+    return boardMaps(this.doc).activity.toArray();
+  }
+
+  destroy() {
+    this.closed = true;
+    setSyncHook(null);
+    this.unsubWorkbook?.();
+    awarenessProtocol.removeAwarenessStates(this.awareness, [this.doc.clientID], "local");
+    this.ws?.close();
+    this.doc.destroy();
+  }
+}
+
+function setCellKey(tableId: string, key: string, raw: string) {
+  const [c, r] = key.split(",").map((n) => parseInt(n, 10));
+  workbook.setCell(tableId, c, r, raw);
+}
+
+function sameRecord(a: Record<string, string>, b: Record<string, string>) {
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  for (const k of ka) if (a[k] !== b[k]) return false;
+  return true;
+}
+
+function toSectionDoc(s: Section): SectionDoc {
+  return { id: s.id, name: s.name, c0: s.c0, r0: s.r0, c1: s.c1, r1: s.r1 };
+}
+
+function toObjectDoc(o: AnyObject): ObjectDoc {
+  const doc = { ...o, kind: kindOf(o) } as Record<string, unknown>;
+  // blob: URLs only live in this tab; never share them
+  if (typeof doc.src === "string" && (doc.src as string).startsWith("blob:")) doc.src = "";
+  return doc as unknown as ObjectDoc;
+}
+
+function fromObjectDoc(o: ObjectDoc): AnyObject {
+  const { kind: _k, ...rest } = o as ObjectDoc & Record<string, unknown>;
+  const local = getState();
+  // keep a local blob preview while the shared copy has no URL yet
+  if (_k === "media" && !rest.src) {
+    const mine = local.media[o.id];
+    if (mine?.src) rest.src = mine.src;
+  }
+  return rest as unknown as AnyObject;
+}
+
+// ---------- the active board ----------
+
+let current: BoardSync | null = null;
+const boardListeners = new Set<() => void>();
+
+export function joinBoard(boardId: string, user: UserInfo): BoardSync {
+  if (current && current.boardId === boardId) return current;
+  current?.destroy();
+  current = new BoardSync(boardId, user);
+  for (const fn of boardListeners) fn();
+  return current;
+}
+
+export function activeBoard(): BoardSync | null {
+  return current;
+}
+
+export function onBoardChange(fn: () => void) {
+  boardListeners.add(fn);
+  return () => {
+    boardListeners.delete(fn);
+  };
+}
+
+export type { BoardSync };

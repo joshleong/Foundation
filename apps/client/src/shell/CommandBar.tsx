@@ -1,0 +1,276 @@
+/**
+ * ⌘K — one field for everything: search the board, files (CAD too), Slack,
+ * GitHub and apps; open a link or an app as a live panel; ask the agent;
+ * run any board action. Local results answer first (FTS, a few ms), remote
+ * sources stream in after.
+ */
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import type { SearchHit } from "@foundation/protocol";
+import { isNight, setNight } from "@foundation/ui";
+import { api, logout, search } from "../lib/api";
+import { addNote, addPanel, appendSectionLocal, createTable, getState, requestSnap, updatePanel } from "../state/store";
+import { askAgent, getUi, setUi, toast, useUi } from "../state/ui";
+import { activeBoard } from "../sync/board";
+
+interface Action {
+  id: string;
+  label: string;
+  hint?: string;
+  glyph: string;
+  keys?: string;
+  run(): void | Promise<void>;
+}
+
+const SOURCE_LABEL: Record<SearchHit["source"], string> = {
+  board: "Board",
+  file: "File",
+  slack: "Slack",
+  github: "GitHub",
+  app: "App",
+  activity: "Activity",
+};
+
+export function looksLikeUrl(q: string) {
+  return /^(https?:\/\/|localhost:|[\w-]+\.[a-z]{2,}(\/|$))/i.test(q.trim());
+}
+
+export function normalizeUrl(q: string) {
+  const t = q.trim();
+  if (/^https?:\/\//i.test(t)) return t;
+  if (/^localhost:/i.test(t)) return `http://${t}`;
+  return `https://${t}`;
+}
+
+/** Open any URL as a live panel: probe it (title, repo, MCP, ports, frame policy) first. */
+export async function openUrlAsPanel(raw: string, kind: "app" | "link" | "machine" = "app") {
+  const url = normalizeUrl(raw);
+  const st = getState();
+  const sectionId = st.activeSectionId in st.sections ? st.activeSectionId : Object.keys(st.sections)[0];
+  const p = addPanel(sectionId, { panel: kind, name: new URL(url).host, url });
+  try {
+    const probe = await api<{ name?: string; description?: string; repo?: string; mcp?: string; ports?: Array<{ name: string; dir: "in" | "out"; type?: string }>; embeddable: boolean; reason?: string }>(
+      "/api/apps/probe",
+      { method: "POST", json: { url } },
+    );
+    updatePanel(p.id, {
+      name: probe.name?.slice(0, 60) || p.name,
+      repo: probe.repo,
+      mcp: probe.mcp,
+      text: probe.embeddable ? probe.description : `${probe.reason ?? "can't be framed"} — opens in a tab`,
+      ports: (probe.ports ?? []).map((pt) => ({ ...pt, id: `port_${Math.random().toString(36).slice(2, 9)}` })),
+      ...(probe.embeddable ? {} : { panel: "link" as const }),
+    });
+    if (probe.repo) toast(`Found its repo · ${probe.repo}`, "ok");
+  } catch {
+    /* the panel still works without the probe */
+  }
+}
+
+export function CommandBar() {
+  const ui = useUi();
+  const [q, setQ] = useState("");
+  const [hits, setHits] = useState<SearchHit[]>([]);
+  const [sel, setSel] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const board = activeBoard()?.boardId ?? "company";
+
+  useEffect(() => {
+    if (ui.command) {
+      setQ("");
+      setHits([]);
+      setSel(0);
+      requestAnimationFrame(() => input.current?.focus());
+    }
+  }, [ui.command]);
+
+  // local first, then everything
+  useEffect(() => {
+    const term = q.trim();
+    if (!term || looksLikeUrl(term)) {
+      setHits([]);
+      return;
+    }
+    const ctrl = new AbortController();
+    const t = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const local = await search(term, board, false, ctrl.signal);
+        setHits(local.hits);
+        const all = await search(term, board, true, ctrl.signal);
+        setHits(all.hits);
+      } catch {
+        /* aborted */
+      } finally {
+        if (!ctrl.signal.aborted) setLoading(false);
+      }
+    }, 90);
+    return () => {
+      clearTimeout(t);
+      ctrl.abort();
+    };
+  }, [q, board]);
+
+  const close = () => setUi({ command: false });
+
+  const actions: Action[] = useMemo(() => {
+    const st = getState();
+    const sec = st.activeSectionId;
+    const term = q.trim();
+    const list: Action[] = [];
+    if (term && looksLikeUrl(term)) {
+      list.push(
+        { id: "open-app", glyph: "◳", label: `Open ${term} as a live app`, hint: "finds its repo, MCP and ports", run: () => openUrlAsPanel(term, "app") },
+        { id: "open-machine", glyph: "▤", label: `Open ${term} as a machine`, hint: "VM, container, noVNC, ttyd, code-server", run: () => openUrlAsPanel(term, "machine") },
+        { id: "rea", glyph: "⌬", label: `Reverse-engineer ${term}`, hint: "REA — queued, you press Run", run: () => askAgent(`Reverse-engineer ${normalizeUrl(term)} — map how it works and what we could reuse.`) },
+      );
+    }
+    if (term) list.push({ id: "ask", glyph: "✦", label: `Ask the agent: “${term}”`, keys: "⌘↵", run: () => askAgent(term) });
+    list.push(
+      { id: "present", glyph: "▶", label: "Present this board", keys: "P", run: () => setUi({ presenting: true }) },
+      { id: "layer", glyph: "◇", label: `${getUi().agentLayer ? "Hide" : "Show"} the agent layer`, hint: "who's working on what, and how apps are wired", keys: "A", run: () => setUi({ agentLayer: !getUi().agentLayer }) },
+      { id: "company", glyph: "◉", label: "Go to the company board", hint: "every app we run, live", run: () => void window.dispatchEvent(new CustomEvent("foundation:board", { detail: "company" })) },
+      { id: "note", glyph: "▤", label: "Add a note", run: () => void addNote(sec) },
+      { id: "table", glyph: "⊞", label: "Add a table", run: () => void createTable(sec) },
+      { id: "section", glyph: "▥", label: "New section", run: () => void appendSectionLocal(term && !looksLikeUrl(term) ? term : "New section") },
+      { id: "upload", glyph: "⇪", label: "Upload files…", hint: "designs, CAD, PDFs, video", run: () => void window.dispatchEvent(new CustomEvent("foundation:upload")) },
+      { id: "cad", glyph: "✉", label: "Ask someone for the latest CAD…", hint: "Hermes keeps following up", run: () => askAgent("Ask ") },
+      { id: "vision", glyph: "◈", label: "Design something with Vision…", run: () => askAgent("Brief Vision: design ") },
+      { id: "connect", glyph: "⌁", label: "Connect Claude Code / Codex to this board", hint: "copies an MCP command", run: copyMcpCommand },
+      { id: "design", glyph: "◐", label: "Design language", hint: "tokens, type, motion, effects", run: () => {
+          window.location.hash = "#/design";
+        } },
+      { id: "night", glyph: isNight() ? "☀" : "☾", label: isNight() ? "Day" : "Night", run: () => setNight(!isNight()) },
+      { id: "logout", glyph: "⏻", label: "Sign out", run: async () => {
+          await logout();
+          window.location.reload();
+        } },
+    );
+    if (!term || looksLikeUrl(term)) return list;
+    const t = term.toLowerCase();
+    return list.filter((a) => a.id === "ask" || a.id === "section" || a.label.toLowerCase().includes(t) || a.hint?.toLowerCase().includes(t));
+  }, [q]);
+
+  const rows: Array<{ kind: "action"; a: Action } | { kind: "hit"; h: SearchHit }> = [
+    ...actions.slice(0, q ? 4 : 20).map((a) => ({ kind: "action" as const, a })),
+    ...hits.slice(0, 14).map((h) => ({ kind: "hit" as const, h })),
+  ];
+
+  const choose = (i: number) => {
+    const r = rows[i];
+    if (!r) return;
+    close();
+    if (r.kind === "action") void r.a.run();
+    else openHit(r.h);
+  };
+
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSel((s) => Math.min(rows.length - 1, s + 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSel((s) => Math.max(0, s - 1));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (e.metaKey || e.ctrlKey) {
+        close();
+        askAgent(q);
+      } else choose(sel);
+    } else if (e.key === "Escape") {
+      close();
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      {ui.command && (
+        <motion.div className="cmd-scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.16 }} onPointerDown={close}>
+          <motion.div
+            className="cmd f-glass"
+            initial={{ opacity: 0, y: -14, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.985 }}
+            transition={{ type: "spring", stiffness: 260, damping: 26 }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <div className="cmd-field">
+              <span className="cmd-glyph">⌕</span>
+              <input
+                ref={input}
+                value={q}
+                onChange={(e) => {
+                  setQ(e.target.value);
+                  setSel(0);
+                }}
+                onKeyDown={onKey}
+                autoFocus
+                placeholder="Search everything, paste a link, or ask the agent…"
+                spellCheck={false}
+              />
+              {loading && <span className="cmd-spin" />}
+              <span className="f-kbd">esc</span>
+            </div>
+            <div className="cmd-list">
+              {rows.map((r, i) =>
+                r.kind === "action" ? (
+                  <button key={r.a.id} className={`cmd-row${i === sel ? " is-sel" : ""}`} onMouseEnter={() => setSel(i)} onClick={() => choose(i)}>
+                    <span className="cmd-row-glyph">{r.a.glyph}</span>
+                    <span className="cmd-row-label">{r.a.label}</span>
+                    {r.a.hint && <span className="cmd-row-hint">{r.a.hint}</span>}
+                    {r.a.keys && <span className="f-kbd">{r.a.keys}</span>}
+                  </button>
+                ) : (
+                  <button key={r.h.id + i} className={`cmd-row is-hit${i === sel ? " is-sel" : ""}`} onMouseEnter={() => setSel(i)} onClick={() => choose(i)}>
+                    <span className={`cmd-src src-${r.h.source}`}>{SOURCE_LABEL[r.h.source]}</span>
+                    <span className="cmd-row-label">{r.h.title}</span>
+                    <span className="cmd-row-hint" dangerouslySetInnerHTML={{ __html: highlight(r.h.snippet) }} />
+                  </button>
+                ),
+              )}
+              {q && !loading && hits.length === 0 && !looksLikeUrl(q) && <div className="cmd-empty">Nothing found yet — ⌘↵ asks the agent.</div>}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function highlight(snippet: string) {
+  const esc = snippet.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return esc.replace(/«/g, "<mark>").replace(/»/g, "</mark>");
+}
+
+function openHit(h: SearchHit) {
+  if (h.objectId && (getState().panels[h.objectId] || getState().notes[h.objectId] || getState().tables[h.objectId] || getState().media[h.objectId] || getState().maps[h.objectId])) {
+    requestSnap({ kind: "object", id: h.objectId });
+    return;
+  }
+  if (h.source === "file" && h.url) {
+    const st = getState();
+    const fileId = h.id.replace(/^file:/, "");
+    addPanel(st.activeSectionId, { panel: "file", name: h.title, fileId });
+    return;
+  }
+  if (h.source === "app" && h.url) {
+    void openUrlAsPanel(h.url);
+    return;
+  }
+  if (h.url) window.open(h.url, "_blank", "noopener");
+}
+
+async function copyMcpCommand() {
+  try {
+    const { token, mcp } = await api<{ token: string; mcp: string }>("/api/agent/token", { method: "POST" });
+    const board = activeBoard()?.boardId ?? "company";
+    const url = mcp.replace(/board=[^&]+/, `board=${board}`);
+    const cmd = `claude mcp add foundation --transport http "${url}" --header "Authorization: Bearer ${token}"`;
+    await navigator.clipboard.writeText(cmd);
+    toast("Copied — paste it in a terminal to give Claude Code this board", "ok");
+  } catch (e) {
+    toast((e as Error).message, "bad");
+  }
+}

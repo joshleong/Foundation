@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Foundation server data (SQLite, uploaded files)
+data/
+.env
+apps/server/.env

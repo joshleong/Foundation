@@ -1,28 +1,16 @@
 {
-  "name": "tauri-app",
+  "name": "foundation",
   "private": true,
-  "version": "0.1.0",
-  "type": "module",
+  "description": "Foundation — the company brain of Form Industries. One grid where people, apps and agents work together.",
+  "workspaces": ["apps/*", "packages/*"],
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
-    "tauri": "tauri"
+    "dev": "node scripts/dev.mjs",
+    "dev:client": "npm run dev -w @foundation/client",
+    "dev:server": "npm run dev -w @foundation/server",
+    "build": "npm run build -w @foundation/client",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm test --workspaces --if-present",
+    "tauri": "npm run tauri -w @foundation/client --"
   },
-  "dependencies": {
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2",
-    "maplibre-gl": "^5.24.0",
-    "motion": "^12.42.2",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
-  },
-  "devDependencies": {
-    "@tauri-apps/cli": "^2",
-    "@types/react": "^19.1.8",
-    "@types/react-dom": "^19.1.6",
-    "@vitejs/plugin-react": "^4.6.0",
-    "typescript": "~5.8.3",
-    "vite": "^7.0.4"
-  }
+  "engines": { "node": ">=22.13" }
 }
