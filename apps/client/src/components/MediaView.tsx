@@ -39,7 +39,8 @@ export const MediaView = memo(function MediaView({ item, pos, isActive, getScale
     item.media === "video" ? (
       <button
         className={"frame-icon" + (item.muted ? "" : " is-on")}
-        title={item.muted ? "Sound off — click for sound" : "Sound on — click to mute"}
+        data-tip={item.muted ? "Turn sound on" : "Mute"}
+        aria-label={item.muted ? "Turn sound on" : "Mute"}
         onClick={() => setMediaFlag(item.id, { muted: !item.muted })}
       >
         {item.muted ? <SoundGlyph off /> : <SoundGlyph />}

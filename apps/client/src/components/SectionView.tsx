@@ -291,22 +291,11 @@ export const SectionView = memo(function SectionView({
     requestRemoveSection(null);
   };
 
-  const secBtn = (
-    title: string,
-    glyph: string,
-    onClick: () => void,
-    cls = "",
-  ) => (
-    <motion.button
-      className={"icon-btn sec-btn " + cls}
-      whileHover={{ scale: 1.12 }}
-      whileTap={{ scale: 0.82 }}
-      transition={iconSpring}
-      title={title}
-      onClick={onClick}
-    >
+  // one toolbar button: its label rolls over (shell/Tip.tsx), never a native title
+  const tool = (tip: string, glyph: string, onClick: () => void, cls = "", kbd?: string) => (
+    <button className={"sec-tool " + cls} data-tip={tip} data-kbd={kbd} aria-label={tip} onClick={onClick}>
       {glyph}
-    </motion.button>
+    </button>
   );
 
   const sectionCtx = active && state.focusLevel === "section";
@@ -318,7 +307,8 @@ export const SectionView = memo(function SectionView({
         "section-card" +
         (active ? " active" : "") +
         (sectionCtx ? " ctx-active" : "") +
-        (dropping ? " dropping" : "")
+        (dropping ? " dropping" : "") +
+        (confirmingActive ? " confirming" : "")
       }
       data-section-id={section.id}
       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
@@ -372,7 +362,7 @@ export const SectionView = memo(function SectionView({
             }}
           />
         ) : (
-          <button className="section-name" onClick={() => setRenaming(true)} title="Rename section">
+          <button className="section-name" onClick={() => setRenaming(true)} data-tip="Rename · drag to move">
             {host && <span className="section-app-glyph">{PANEL_GLYPH[host.panel]}</span>}
             {section.name}
           </button>
@@ -385,38 +375,37 @@ export const SectionView = memo(function SectionView({
         </span>
         {objects.length > 0 && <span className="section-count">{objects.length}</span>}
 
-        {host && (
-          <div className="section-app-actions">
-            <PanelActions panel={host} />
+        {/* tools wait in the top-right corner until the pointer is on the section */}
+        <div className="section-tools" role="toolbar" aria-label={`${section.name} tools`}>
+          {host && (
+            <div className="sec-group">
+              <PanelActions panel={host} ask={false} />
+              {tool(`Show ${host.name} as a card`, "◱", () => setSectionHost(section.id, null))}
+            </div>
+          )}
+          <div className="sec-group">
+            {hostable && tool(`Let ${hostable.name} fill the section`, "◳", () => setSectionHost(section.id, hostable.id))}
+            {!host &&
+              tool("Open an app or link", "◳", () => {
+                setActiveSection(section.id);
+                setUi({ command: true });
+              }, "", "⌘L")}
+            {tool("Add a table", "⊞", () => createTable(section.id))}
+            {tool("Add a map", "◍", () => createMap(section.id))}
+            {tool("Add a note", "▤", () => addNote(section.id))}
+            {tool("Upload an image or video", "⇪", () => fileRef.current?.click(), "", "⌘U")}
           </div>
-        )}
-        <div className="section-actions">
-          {host && secBtn(`Show ${host.name} as a card`, "◱", () => setSectionHost(section.id, null))}
-          {hostable && secBtn(`Let ${hostable.name} fill the section`, "◳", () => setSectionHost(section.id, hostable.id))}
-          {!host && secBtn("Open an app or link (⌘L)", "◳", () => {
-            setActiveSection(section.id);
-            setUi({ command: true });
-          })}
-          {secBtn("Add table", "⊞", () => createTable(section.id))}
-          {secBtn("Add map", "◍", () => createMap(section.id))}
-          {secBtn("Add markdown note", "▤", () => addNote(section.id))}
-          {secBtn("Add image or video from disk", "⇪", () => fileRef.current?.click())}
-          <span className="sec-sep" />
-          {secBtn("Split section — subdivides this grid column", "◫", () =>
-            splitSection(section.id, "h"),
-          )}
-          {secBtn("Split section — subdivides this grid row", "⬓", () =>
-            splitSection(section.id, "v"),
-          )}
-          <span className="sec-sep" />
-          {secBtn("Expand — fill the viewport with this section", "⤢", () =>
-            requestSnap({ kind: "section", id: section.id }),
-          )}
-          {secBtn("Ask the agent about this section", "✦", () =>
-            askAgent(`In the “${section.name}” section: `),
-          "sec-agent")}
-          {canRemove &&
-            secBtn("Remove section", "✕", () => setConfirming(true), "sec-remove")}
+          <div className="sec-group">
+            {tool("Split into two columns", "◫", () => splitSection(section.id, "h"))}
+            {tool("Split into two rows", "⬓", () => splitSection(section.id, "v"))}
+            {tool("Fill the screen with this section", "⤢", () => requestSnap({ kind: "section", id: section.id }))}
+          </div>
+          <div className="sec-group">
+            {host
+              ? tool(`Ask the agent about ${host.name}`, "✦", () => askAgent(`About “${host.name}”: `), "sec-agent", "⌘J")
+              : tool("Ask the agent about this section", "✦", () => askAgent(`In the “${section.name}” section: `), "sec-agent", "⌘J")}
+            {canRemove && tool("Remove this section…", "✕", () => setConfirming(true), "sec-remove")}
+          </div>
         </div>
       </div>
 
@@ -535,7 +524,8 @@ export const SectionView = memo(function SectionView({
         whileHover={{ scale: 1.15 }}
         whileTap={{ scale: 0.8 }}
         transition={iconSpring}
-        title="Add section to the right"
+        data-tip="Add a section to the right"
+        aria-label="Add a section to the right"
         onClick={() => addSectionAdjacent(section.id, "right")}
       >
         +
@@ -545,7 +535,8 @@ export const SectionView = memo(function SectionView({
         whileHover={{ scale: 1.15 }}
         whileTap={{ scale: 0.8 }}
         transition={iconSpring}
-        title="Add section below"
+        data-tip="Add a section below"
+        aria-label="Add a section below"
         onClick={() => addSectionAdjacent(section.id, "below")}
       >
         +
@@ -555,7 +546,8 @@ export const SectionView = memo(function SectionView({
         whileHover={{ scale: 1.15 }}
         whileTap={{ scale: 0.8 }}
         transition={iconSpring}
-        title="Add section to the left"
+        data-tip="Add a section to the left"
+        aria-label="Add a section to the left"
         onClick={() => addSectionAdjacent(section.id, "left")}
       >
         +
@@ -565,7 +557,8 @@ export const SectionView = memo(function SectionView({
         whileHover={{ scale: 1.15 }}
         whileTap={{ scale: 0.8 }}
         transition={iconSpring}
-        title="Add section above"
+        data-tip="Add a section above"
+        aria-label="Add a section above"
         onClick={() => addSectionAdjacent(section.id, "above")}
       >
         +

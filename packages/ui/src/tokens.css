@@ -89,10 +89,10 @@
   --space-6: 24px;
   --space-7: 32px;
 
-  /* radii discipline: paper 4 · card 8 · pane 14 · pill 999 — nothing in between */
-  --radius-paper: 4px;
-  --radius-card: 8px;
-  --radius-pane: 14px;
+  /* radii discipline: paper 3 · card 5 · pane 8 · pill 999 — nothing in between; corners stay quiet */
+  --radius-paper: 3px;
+  --radius-card: 5px;
+  --radius-pane: 8px;
   --radius-pill: 999px;
 
   /* heights */
@@ -211,6 +211,40 @@ html.is-night {
   background: var(--color-abyss);
   color: var(--color-mist);
   font: 600 10px / 1 var(--font-sans);
+}
+
+/* roll-over label (shell/Tip.tsx): one per app, in screen space, ink on paper */
+.f-tip {
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 280px;
+  padding: 5px 8px;
+  border-radius: var(--radius-paper);
+  background: var(--color-frost);
+  color: var(--color-void);
+  font: 500 var(--text-12) / 1.2 var(--font-sans);
+  white-space: nowrap;
+  box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--color-frost) 60%, transparent);
+  pointer-events: none;
+  opacity: 0;
+  translate: 0 -2px;
+  transition:
+    opacity var(--dur-press) var(--ease-out-soft),
+    translate var(--dur-quick) var(--ease-out-soft);
+}
+.f-tip.is-on {
+  opacity: 1;
+  translate: 0 0;
+}
+.f-tip .f-kbd {
+  border-color: color-mix(in srgb, var(--color-void) 25%, transparent);
+  background: transparent;
+  color: color-mix(in srgb, var(--color-void) 75%, transparent);
 }
 
 .f-dot {

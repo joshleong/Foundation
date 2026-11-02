@@ -153,9 +153,10 @@ body.resizing-v {
   box-shadow:
     0 1px 2px color-mix(in srgb, var(--color-frost) 4%, transparent),
     0 10px 30px color-mix(in srgb, var(--color-frost) 5%, transparent);
+  /* geometry settles; border and shadow change at once — a 0.3 s box-shadow
+     transition repainted the whole (huge, translucent) section every frame and
+     read as flicker on select. The selection ring fades on ::after instead. */
   transition:
-    border-color 0.3s ease,
-    box-shadow 0.3s ease,
     left 0.5s var(--ease-settle),
     top 0.5s var(--ease-settle),
     width 0.5s var(--ease-settle),
@@ -166,7 +167,23 @@ body.resizing-v {
 body.resizing-h .section-card,
 body.resizing-v .section-card,
 .section-card.section-dragging {
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  transition: none;
+}
+
+.section-card::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid var(--select);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-pulse) 35%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 5;
+  transition: opacity var(--dur-quick) var(--ease-out-soft);
+}
+.section-card.ctx-active::after {
+  opacity: 1;
 }
 
 .section-card.section-dragging {
@@ -198,12 +215,13 @@ body.resizing-v .section-card,
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--line);
-  /* solid, not glass: one backdrop-filter per region (DESIGN.md §1.3) — a blur per section header tore under load */
-  background: color-mix(in srgb, var(--color-raise) 94%, var(--color-void));
-  border-radius: var(--radius-pane) var(--radius-pane) 0 0;
+  padding: 0 8px 0 10px;
+  /* no bar: the name sits on the section's own paper, tools wait top-right */
   z-index: 3;
+  cursor: grab;
+}
+.section-card.section-dragging .section-header {
+  cursor: grabbing;
 }
 
 .section-name {
@@ -216,7 +234,7 @@ body.resizing-v .section-card,
   border: none;
   cursor: text;
   padding: 3px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-card);
 }
 
 .section-name:hover {
@@ -230,7 +248,7 @@ body.resizing-v .section-card,
   color: var(--ink);
   background: var(--color-raise);
   border: 1.5px solid var(--select);
-  border-radius: 6px;
+  border-radius: var(--radius-card);
   padding: 2px 6px;
   outline: none;
   width: 160px;
@@ -262,39 +280,81 @@ body.resizing-v .section-card,
   font-variant-numeric: tabular-nums;
 }
 
-.sec-btn.sec-agent {
-  color: var(--color-agent);
-}
-
-.section-actions {
+/* Section tools: a ghost bar in the top-right corner, only while the pointer is
+   on the section (or a tool has focus). Solid paper, no blur — one
+   backdrop-filter per region. Hiding waits a beat so a pointer that slips off
+   for a moment doesn't strobe it. */
+.section-tools {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 2px;
-  opacity: 0.35;
-  transition: opacity 0.25s ease;
+  height: 30px;
+  padding: 0 2px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--color-raise) 92%, transparent);
+  box-shadow: var(--shadow-sheet);
+  opacity: 0;
+  translate: 0 -3px;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-quick) var(--ease-out-soft) 180ms,
+    translate var(--dur-pane) var(--ease-out-soft) 180ms;
 }
-
-.section-card:hover .section-actions,
-.section-card.active .section-actions {
+.section-card:hover .section-tools,
+.section-card.confirming .section-tools,
+.section-tools:focus-within {
   opacity: 1;
+  translate: 0 0;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+body.is-connecting .section-tools,
+.section-card.section-dragging .section-tools {
+  opacity: 0;
+  pointer-events: none;
 }
 
-.sec-btn {
-  font-size: 13px;
+.sec-group {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0 2px;
+}
+.sec-group + .sec-group {
+  border-left: 1px solid var(--line);
+}
+.sec-group:empty {
+  display: none;
+}
+
+.sec-tool,
+.section-tools .icon-btn {
+  width: 26px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-paper);
+  background: transparent;
   color: var(--ink-soft);
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--dur-press) var(--ease-out-soft);
 }
-
-.sec-btn:hover {
+.sec-tool:hover,
+.section-tools .icon-btn:hover {
   background: color-mix(in srgb, var(--color-frost) 8%, transparent);
   color: var(--ink);
 }
-
-.sec-sep {
-  width: 1px;
-  height: 16px;
-  background: var(--line);
-  margin: 0 4px;
+.sec-tool:active,
+.section-tools .icon-btn:active {
+  transform: scale(0.88);
+}
+.sec-tool.sec-agent,
+.section-tools .icon-btn.is-agent {
+  color: var(--color-agent);
 }
 
 /* nested grid inside a section: scrollable content plane with its own dots */
@@ -765,12 +825,7 @@ body.rewiring {
 }
 
 /* section level: the addressed section gets the ring instead */
-.section-card.ctx-active {
-  border-color: var(--select);
-  box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--color-pulse) 35%, transparent),
-    0 14px 44px color-mix(in srgb, var(--color-pulse) 10%, transparent);
-}
+/* (the ring itself is .section-card::after, faded on the compositor) */
 
 .section-card.ctx-active > .section-header .section-coords {
   color: var(--select);
@@ -807,7 +862,7 @@ body.rewiring {
   height: 30px;
   padding: 0 10px;
   border: none;
-  border-radius: 7px;
+  border-radius: var(--radius-card);
   background: transparent;
   font-family: var(--font);
   font-size: 13px;
@@ -884,9 +939,10 @@ body.rewiring {
 
 .section-card:hover > .add-btn {
   opacity: 1;
+  transition-delay: 0s;
 }
 
-.sec-remove:hover {
+.sec-tool.sec-remove:hover {
   background: color-mix(in srgb, var(--color-bad) 12%, transparent);
   color: var(--danger);
 }
@@ -916,7 +972,7 @@ body.rewiring {
   font-size: 12px;
   font-weight: 600;
   padding: 5px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   border: 1px solid var(--line-strong);
   background: var(--paper-raised);
   color: var(--ink-soft);
@@ -992,17 +1048,17 @@ body.rewiring {
   padding: 0 6px 0 6px;
   cursor: grab;
   border-radius: var(--radius-card);
-  background: var(--glass-fill-strong);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
+  /* solid glass, no backdrop-filter: a blur per card inside the zoomed world
+     re-rasterised on every selection and flickered (one blur per region) */
+  background: color-mix(in srgb, var(--color-abyss) 95%, transparent);
   border: 1px solid var(--glass-edge);
   box-shadow: var(--shadow-glass);
   opacity: 0;
   translate: 0 -6px;
   pointer-events: none;
   transition:
-    opacity var(--dur-quick) var(--ease-out-soft),
-    translate var(--dur-pane) var(--ease-out-soft);
+    opacity var(--dur-quick) var(--ease-out-soft) 140ms,
+    translate var(--dur-pane) var(--ease-out-soft) 140ms;
 }
 .frame-anchor:hover .frame-header,
 .frame-anchor.is-hover .frame-header,
@@ -1011,6 +1067,7 @@ body.rewiring {
   opacity: 1;
   translate: 0 0;
   pointer-events: auto;
+  transition-delay: 0s;
 }
 /* while a wire is being dragged, bars stay out of the way of the ports */
 body.is-connecting .frame-header {
@@ -1036,6 +1093,31 @@ body.is-connecting .frame-header {
   gap: 6px;
   pointer-events: none;
 }
+/* The ghost rail: a faint track from under the card's edge out past the icons.
+   It belongs to the card, so the pointer keeps the card's hover all the way
+   across to a button (before, an 8 px gap dropped the hover and the icons
+   slid away before they could be clicked). */
+.frame-icons::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: -6px;
+  bottom: -6px;
+  left: calc(100% - 12px);
+  width: 54px;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  background: transparent;
+  transition:
+    background-color var(--dur-quick) var(--ease-out-soft) 150ms,
+    border-color var(--dur-quick) var(--ease-out-soft) 150ms;
+}
+.frame-anchor.chrome-icons:hover .frame-icons::before,
+.frame-anchor.chrome-icons.is-hover .frame-icons::before {
+  background-color: color-mix(in srgb, var(--color-frost) 4%, transparent);
+  border-color: color-mix(in srgb, var(--color-frost) 7%, transparent);
+  transition-delay: 0s;
+}
 .chrome-icons .frame-card {
   z-index: 1;
 }
@@ -1047,25 +1129,17 @@ body.is-connecting .frame-header {
   justify-content: center;
   border-radius: var(--radius-pill);
   border: 1px solid var(--glass-edge);
-  background: var(--glass-fill-strong);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
+  background: color-mix(in srgb, var(--color-abyss) 95%, transparent);
   box-shadow: var(--shadow-glass);
   color: var(--color-mist);
   font-size: var(--text-12);
   cursor: pointer;
   translate: -30px 0;
   opacity: 0;
+  /* going away waits a beat (150 ms), so a pointer that slips off doesn't lose them */
   transition:
-    translate var(--dur-pane) var(--ease-spring),
-    opacity var(--dur-quick) var(--ease-out-soft),
-    color var(--dur-quick) var(--ease-out-soft);
-}
-.frame-icon:nth-child(2) {
-  transition-delay: 40ms;
-}
-.frame-icon:nth-child(3) {
-  transition-delay: 80ms;
+    translate var(--dur-pane) var(--ease-spring) 150ms,
+    opacity var(--dur-quick) var(--ease-out-soft) 150ms;
 }
 .frame-anchor.chrome-icons:hover .frame-icons {
   pointer-events: auto;
@@ -1074,6 +1148,13 @@ body.is-connecting .frame-header {
 .frame-anchor.chrome-icons.is-hover .frame-icon {
   translate: 36px 0;
   opacity: 1;
+  transition-delay: 0s;
+}
+.frame-anchor.chrome-icons:hover .frame-icon:nth-child(2) {
+  transition-delay: 40ms;
+}
+.frame-anchor.chrome-icons:hover .frame-icon:nth-child(3) {
+  transition-delay: 80ms;
 }
 .frame-anchor.chrome-icons.dragging .frame-icon {
   translate: -30px 0;
@@ -1158,13 +1239,13 @@ body.is-connecting .frame-header {
   font-family: var(--mono);
   font-size: 12px;
   background: color-mix(in srgb, var(--color-frost) 6%, transparent);
-  border-radius: 4px;
+  border-radius: var(--radius-paper);
   padding: 1px 5px;
 }
 .note-rendered pre {
   background: color-mix(in srgb, var(--color-frost) 5%, transparent);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   padding: 10px 12px;
   margin: 6px 0;
   overflow-x: auto;
@@ -1284,7 +1365,7 @@ body.is-connecting .frame-header {
   border: none;
   cursor: text;
   padding: 4px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-card);
   letter-spacing: -0.01em;
 }
 
@@ -1299,7 +1380,7 @@ body.is-connecting .frame-header {
   color: var(--ink);
   background: var(--color-raise);
   border: 1.5px solid var(--select);
-  border-radius: 6px;
+  border-radius: var(--radius-card);
   padding: 3px 6px;
   outline: none;
   width: 200px;
@@ -1315,7 +1396,8 @@ body.is-connecting .frame-header {
   width: 26px;
   height: 26px;
   border: none;
-  border-radius: 7px;
+  border-radius: var(--radius-paper);
+  transition: transform var(--dur-press) var(--ease-out-soft);
   background: transparent;
   color: var(--ink-faint);
   font-size: 12px;
@@ -1326,8 +1408,15 @@ body.is-connecting .frame-header {
 }
 
 .icon-btn:hover {
+  background: color-mix(in srgb, var(--color-frost) 8%, transparent);
+  color: var(--ink);
+}
+.icon-btn.is-remove:hover {
   background: color-mix(in srgb, var(--color-bad) 12%, transparent);
   color: var(--danger);
+}
+.icon-btn:active {
+  transform: scale(0.88);
 }
 
 /* sheet grid */
@@ -1483,7 +1572,7 @@ body.is-connecting .frame-header {
   justify-content: center;
   box-shadow: 0 2px 8px color-mix(in srgb, var(--color-frost) 10%, transparent);
   opacity: 0;
-  transition: opacity 0.25s ease;
+  transition: opacity var(--dur-quick) var(--ease-out-soft) 150ms;
   z-index: 4;
 }
 
@@ -1524,7 +1613,7 @@ body.is-connecting .frame-header {
   height: 100%;
   max-width: 100%;
   object-fit: cover;
-  border-radius: 5px;
+  border-radius: var(--radius-paper);
   box-shadow: 0 1px 4px color-mix(in srgb, var(--color-frost) 25%, transparent);
   cursor: zoom-in;
 }
@@ -1637,7 +1726,7 @@ body.is-connecting .frame-header {
   color: var(--ink-soft);
   background: var(--color-raise);
   border: 1px solid var(--line-strong);
-  border-radius: 7px;
+  border-radius: var(--radius-card);
   height: 28px;
   padding: 0 8px;
   cursor: pointer;

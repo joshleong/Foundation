@@ -820,7 +820,7 @@ body.is-connecting .port-in.is-snap {
 .upload-bar {
   width: 70%;
   height: 4px;
-  border-radius: 4px;
+  border-radius: var(--radius-paper);
   background: var(--color-line);
   position: relative;
   overflow: hidden;
@@ -1268,7 +1268,7 @@ body.is-connecting .port-in.is-snap {
   background: var(--color-frost);
   color: var(--color-void);
   padding: var(--space-3) var(--space-4);
-  border-radius: 16px 16px 4px 16px;
+  border-radius: var(--radius-pane) var(--radius-pane) var(--radius-paper) var(--radius-pane);
 }
 .turn-agent .turn-text {
   white-space: pre-wrap;
@@ -1947,6 +1947,17 @@ body.is-connecting .port-in.is-snap {
   left: auto !important;
   align-self: flex-start;
 }
+.oncall-section .section-tools {
+  opacity: 1;
+  translate: 0 0;
+}
+/* the specimen label hangs under the ✦ tool, as it would on the board */
+.f-tip.oncall-tip {
+  position: absolute;
+  left: auto;
+  right: 40px;
+  top: 66px;
+}
 .oncall-hud {
   display: flex;
   gap: var(--space-3);
@@ -2400,12 +2411,6 @@ body.is-connecting .port-in.is-snap {
 .section-app-glyph {
   margin-right: 6px;
   color: var(--color-mist);
-}
-.section-app-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: var(--space-2);
 }
 
 .stage-name {

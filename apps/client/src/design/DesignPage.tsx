@@ -85,12 +85,12 @@ export function DesignPage() {
         </div>
       </Section>
 
-      <Section title="Shape" note="Paper 4 · card 8 · pane 14 · pill 999 — nothing in between. Space 2/4/8/12/16/24/32.">
+      <Section title="Shape" note="Paper 3 · card 5 · pane 8 · pill 999 — nothing in between; corners stay quiet. Space 2/4/8/12/16/24/32.">
         <div className="shapes">
           {[
-            ["paper", "4"],
-            ["card", "8"],
-            ["pane", "14"],
+            ["paper", "3"],
+            ["card", "5"],
+            ["pane", "8"],
             ["pill", "999"],
           ].map(([n, v]) => (
             <div key={n} className="shape" style={{ borderRadius: `var(--radius-${n})` }}>
@@ -225,7 +225,38 @@ export function DesignPage() {
                 <div className="frame-body oncall-media" />
               </div>
             </div>
-            <div className="effect-label">Video, hovered: mute and remove slide out</div>
+            <div className="effect-label">Video, hovered: a ghost rail carries the pointer out to mute and remove</div>
+          </div>
+          <div className="oncall-cell">
+            <div className="section-card oncall-static oncall-section is-hover" style={{ width: 420, height: 120 }}>
+              <div className="section-header" style={{ height: 42 }}>
+                <span className="section-name">Design</span>
+                <span className="section-coords">B1</span>
+                <span className="section-count">3</span>
+                <div className="section-tools">
+                  <div className="sec-group">
+                    <span className="sec-tool">◳</span>
+                    <span className="sec-tool">⊞</span>
+                    <span className="sec-tool">◍</span>
+                    <span className="sec-tool">▤</span>
+                    <span className="sec-tool">⇪</span>
+                  </div>
+                  <div className="sec-group">
+                    <span className="sec-tool">◫</span>
+                    <span className="sec-tool">⬓</span>
+                    <span className="sec-tool">⤢</span>
+                  </div>
+                  <div className="sec-group">
+                    <span className="sec-tool sec-agent">✦</span>
+                    <span className="sec-tool">✕</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="f-tip is-on oncall-tip">
+              Ask the agent about this section <span className="f-kbd">⌘J</span>
+            </div>
+            <div className="effect-label">Section, hovered: no bar — tools wait top-right (add · arrange · agent · remove), each names itself on roll-over</div>
           </div>
         </div>
       </Section>

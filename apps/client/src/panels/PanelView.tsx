@@ -179,28 +179,31 @@ export const PanelView = memo(function PanelView({ panel, pos, isActive, getScal
   );
 });
 
-/** a panel's own actions: repo, MCP, open, ask — in its hover bar, or in its host section's header */
-export function PanelActions({ panel }: { panel: PanelMeta }) {
+/** a panel's own actions: repo, MCP, open, ask — in its hover bar, or in its host section's toolbar (which has its own ✦) */
+export function PanelActions({ panel, ask = true }: { panel: PanelMeta; ask?: boolean }) {
+  const tip = (label: string) => ({ "data-tip": label, "aria-label": label });
   return (
     <>
       {panel.repo && (
-        <button className="icon-btn panel-chip" title={`Repository · ${panel.repo}`} onClick={() => openRepo(panel.repo!)}>
+        <button className="icon-btn panel-chip" {...tip(`Repository · ${panel.repo}`)} onClick={() => openRepo(panel.repo!)}>
           <GithubGlyph />
         </button>
       )}
       {panel.mcp && (
-        <button className="icon-btn panel-chip is-mcp" title={`MCP · ${panel.mcp}`} onClick={() => askAgent(`List the MCP tools of “${panel.name}” and tell me what it can do.`)}>
+        <button className="icon-btn panel-chip is-mcp" {...tip(`MCP tools · ${panel.mcp}`)} onClick={() => askAgent(`List the MCP tools of “${panel.name}” and tell me what it can do.`)}>
           MCP
         </button>
       )}
       {panel.url && (
-        <button className="icon-btn" title="Open in a browser tab" onClick={() => window.open(panel.url, "_blank", "noopener")}>
+        <button className="icon-btn" {...tip("Open in a browser tab")} onClick={() => window.open(panel.url, "_blank", "noopener")}>
           ↗
         </button>
       )}
-      <button className="icon-btn is-agent" title="Ask the agent about this" onClick={() => askAgent(`About “${panel.name}”: `)}>
-        ✦
-      </button>
+      {ask && (
+        <button className="icon-btn is-agent" {...tip(`Ask the agent about ${panel.name}`)} onClick={() => askAgent(`About “${panel.name}”: `)}>
+          ✦
+        </button>
+      )}
     </>
   );
 }

@@ -185,8 +185,6 @@ export function ObjectFrame({
     resizeRef.current.active = false;
   }, []);
 
-  const iconSpring = { type: "spring", stiffness: 500, damping: 22 } as const;
-
   const dragHandlers = {
     onPointerDown: onHeaderDown,
     onPointerMove: onHeaderMove,
@@ -204,7 +202,7 @@ export function ObjectFrame({
       {chrome === "icons" && (
         <div className="frame-icons">
           {icons}
-          <button className="frame-icon is-remove" title="Remove" onClick={onRemove}>
+          <button className="frame-icon is-remove" data-tip="Remove" aria-label="Remove" onClick={onRemove}>
             ✕
           </button>
         </div>
@@ -225,26 +223,17 @@ export function ObjectFrame({
             <span className="frame-title">{title}</span>
             <div className="header-actions">
               {headerExtras}
-              <motion.button
+              <button
                 className={"icon-btn float-btn" + (float ? " floating" : "")}
-                whileHover={{ scale: 1.12 }}
-                whileTap={{ scale: 0.82 }}
-                transition={iconSpring}
-                title={float ? "Dock into the section grid" : "Floating off — drag to float"}
+                data-tip={float ? "Dock into the section" : "Float freely"}
+                aria-label={float ? "Dock into the section" : "Float freely"}
                 onClick={() => setObjectFloat(id, !float)}
               >
                 {float ? "✥" : "⌗"}
-              </motion.button>
-              <motion.button
-                className="icon-btn"
-                whileHover={{ scale: 1.12 }}
-                whileTap={{ scale: 0.82 }}
-                transition={iconSpring}
-                title="Remove"
-                onClick={onRemove}
-              >
+              </button>
+              <button className="icon-btn is-remove" data-tip="Remove" aria-label="Remove" onClick={onRemove}>
                 ✕
-              </motion.button>
+              </button>
             </div>
           </div>
         )}
@@ -259,7 +248,7 @@ export function ObjectFrame({
             onPointerMove={onResizeMove}
             onPointerUp={onResizeUp}
             onPointerCancel={onResizeUp}
-            title="Resize"
+            data-tip="Resize"
           />
         )}
       </motion.div>

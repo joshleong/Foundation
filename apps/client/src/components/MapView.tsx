@@ -348,36 +348,27 @@ export const MapView = memo(function MapView({ map: meta, framePos, isActive, ge
               : ""}
           </span>
           <div className="header-actions">
-            <motion.button
+            <button
               className={"icon-btn float-btn" + (meta.float ? " floating" : "")}
-              whileHover={{ scale: 1.12 }}
-              whileTap={{ scale: 0.82 }}
-              transition={{ type: "spring", stiffness: 500, damping: 22 }}
-              title={meta.float ? "Dock into the section grid" : "Floating off — drag to float"}
+              data-tip={meta.float ? "Dock into the section" : "Float freely"}
               onClick={() => setObjectFloat(meta.id, !meta.float)}
             >
               {meta.float ? "✥" : "⌗"}
-            </motion.button>
-            <motion.button
+            </button>
+            <button
               className={"icon-btn map-3d" + (meta.pitched ? " on" : "")}
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.85 }}
-              transition={{ type: "spring", stiffness: 500, damping: 22 }}
-              title="Toggle 3D tilt"
+              data-tip="Tilt into 3D"
               onClick={() => toggleMapPitch(meta.id)}
             >
               3D
-            </motion.button>
-            <motion.button
-              className="icon-btn"
-              whileHover={{ scale: 1.12 }}
-              whileTap={{ scale: 0.82 }}
-              transition={{ type: "spring", stiffness: 500, damping: 22 }}
-              title="Delete map"
+            </button>
+            <button
+              className="icon-btn is-remove"
+              data-tip="Delete map"
               onClick={() => removeMap(meta.id)}
             >
               ✕
-            </motion.button>
+            </button>
           </div>
         </div>
 

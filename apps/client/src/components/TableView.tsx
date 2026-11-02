@@ -568,31 +568,25 @@ export const TableView = memo(function TableView({ table, framePos, isActive, ge
               }}
             />
           ) : (
-            <button className="table-name" onClick={() => setRenaming(true)} title="Rename table">
+            <button className="table-name" onClick={() => setRenaming(true)} data-tip="Rename table">
               {table.name}
             </button>
           )}
           <div className="header-actions">
-            <motion.button
+            <button
               className={"icon-btn float-btn" + (table.float ? " floating" : "")}
-              whileHover={{ scale: 1.12 }}
-              whileTap={{ scale: 0.82 }}
-              transition={{ type: "spring", stiffness: 500, damping: 22 }}
-              title={table.float ? "Dock into the section grid" : "Floating off — drag to float"}
+              data-tip={table.float ? "Dock into the section" : "Float freely"}
               onClick={() => setObjectFloat(table.id, !table.float)}
             >
               {table.float ? "✥" : "⌗"}
-            </motion.button>
-            <motion.button
-              className="icon-btn"
-              whileHover={{ scale: 1.12 }}
-              whileTap={{ scale: 0.82 }}
-              transition={{ type: "spring", stiffness: 500, damping: 22 }}
-              title="Delete table"
+            </button>
+            <button
+              className="icon-btn is-remove"
+              data-tip="Delete table"
               onClick={() => removeTable(table.id)}
             >
               ✕
-            </motion.button>
+            </button>
           </div>
         </div>
 

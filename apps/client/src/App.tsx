@@ -5,6 +5,7 @@ import "@foundation/ui/tokens.css";
 import { Login } from "./login/Login";
 import { Shell } from "./shell/Shell";
 import { DesignPage } from "./design/DesignPage";
+import { Tip } from "./shell/Tip";
 import { me } from "./lib/api";
 import "./App.css";
 import "./shell/shell.css";
@@ -35,11 +36,22 @@ function App() {
       .catch(() => setUser(null));
   }, []);
 
-  if (route.startsWith("#/design/sign-in")) return <Login onSignedIn={setUser} />;
-  if (route.startsWith("#/design")) return <DesignPage />;
-  if (user === undefined) return <div className="boot" />;
-  if (!user) return <Login onSignedIn={setUser} />;
-  return <Shell user={user} />;
+  return (
+    <>
+      {route.startsWith("#/design/sign-in") ? (
+        <Login onSignedIn={setUser} />
+      ) : route.startsWith("#/design") ? (
+        <DesignPage />
+      ) : user === undefined ? (
+        <div className="boot" />
+      ) : !user ? (
+        <Login onSignedIn={setUser} />
+      ) : (
+        <Shell user={user} />
+      )}
+      <Tip />
+    </>
+  );
 }
 
 export default App;
