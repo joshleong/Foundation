@@ -697,57 +697,13 @@ body.resizing-v .section-card,
   z-index: 30;
 }
 
-.wire-group .wire {
-  fill: none;
-  stroke-width: 2.25;
-  stroke-linecap: round;
-  stroke-dasharray: 7 9;
-  animation: wire-flow 0.9s linear infinite;
+/* sheet wires (table → map, formulas) are pipes — DESIGN.md §5.1; styles in shell.css.
+   They read stronger than app wires at rest: they're the spreadsheet's own data flow. */
+.wire-layer .pipe {
+  --pipe-opacity: 0.85;
 }
-
-.wire-group .wire-glow {
-  fill: none;
-  stroke-width: 7;
-  stroke-linecap: round;
-  opacity: 0.14;
-}
-
-.wire-group.map .wire,
-.wire-group.map .wire-glow {
-  stroke: var(--color-wire);
-}
-
-.wire-group.map circle {
-  fill: var(--color-wire);
-}
-
-.wire-group.ref .wire,
-.wire-group.ref .wire-glow {
-  stroke: var(--color-wire-formula);
-}
-
-.wire-group.ref circle {
-  fill: var(--color-wire-formula);
-}
-
-.wire-group circle {
-  stroke: var(--paper-raised);
-  stroke-width: 2;
-}
-
-.wire-group.hot .wire {
-  stroke-width: 3.5;
-  animation-duration: 0.3s;
-}
-
-.wire-group.hot .wire-glow {
-  opacity: 0.35;
-}
-
-@keyframes wire-flow {
-  to {
-    stroke-dashoffset: -16;
-  }
+.wire-layer .pipe.rebinding .pipe-wire {
+  stroke-dasharray: 6 6;
 }
 
 /* draggable consumer port — move a connection to another map */
@@ -764,11 +720,6 @@ body.resizing-v .section-card,
 
 body.rewiring {
   cursor: grabbing !important;
-}
-
-.wire-group.rebinding .wire {
-  stroke-dasharray: 4 6;
-  animation-duration: 0.35s;
 }
 
 .rebind-highlight {

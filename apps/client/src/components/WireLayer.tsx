@@ -1,14 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { workbook } from "../engine/workbook";
 import { bindMap, getState, gridSize, objectWorldRect, useAppState } from "../state/store";
+import { polyline, route, tunnelGeometry, type P } from "../shell/wireGeometry";
+import { allCrossings, publishRoutes, routesVersion, unpublishRoutes } from "../shell/routeRegistry";
 
 /**
- * Animated data-flow wires drawn in world space:
+ * The spreadsheet's data-flow wires, drawn by the same flow-diagram rules as
+ * app wires (DESIGN.md §5.1 — 45° roads, straight leads, lanes, tunnels):
  *  - table → map for every map binding (blue)
  *  - table → table for every cross-table formula dependency (green)
- * Endpoints are recomputed imperatively each frame so wires track cards
- * mid-spring (drag, reflow, section scroll) with zero React re-renders.
+ * A wire leaves its source's right edge and enters its consumer's left edge
+ * level with the header. Routes are shared with the app-wire layer so
+ * over/under is decided across both. Geometry runs imperatively per frame and
+ * writes only when a route changes — zero React re-renders on the hot path.
  */
+
+/** wires attach level with a card's header (tables and maps have 52 px headers) */
+const ATTACH_Y = 26;
 
 interface Edge {
   key: string;
@@ -121,16 +129,41 @@ export function WireLayer() {
     let raf = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
+    const lastD = new Map<string, string>();
+    let lastVersion = -1;
 
-    const objOf = (id: string) =>
-      state.tables[id] ?? state.maps[id] ?? state.notes[id] ?? state.media[id] ?? state.panels[id];
+    const objOf = (id: string) => {
+      const st = getState();
+      return st.tables[id] ?? st.maps[id] ?? st.notes[id] ?? st.media[id] ?? st.panels[id];
+    };
 
     const tick = () => {
       if (disposed) return;
-      // single chain: whichever of rAF/timeout fires first cancels the other
       cancelAnimationFrame(raf);
       if (timer) clearTimeout(timer);
       const now = performance.now();
+
+      // lanes: wires into the same card run side by side, ordered by where they come from; same out of a card
+      const into = new Map<string, Edge[]>();
+      const outOf = new Map<string, Edge[]>();
+      for (const e of edges) {
+        if (!into.has(e.to)) into.set(e.to, []);
+        if (!outOf.has(e.from)) outOf.set(e.from, []);
+        into.get(e.to)!.push(e);
+        outOf.get(e.from)!.push(e);
+      }
+      const yOf = (id: string) => {
+        const o = objOf(id);
+        return (o && objectWorldRect(o)?.y) ?? 0;
+      };
+      const lane = new Map<string, number>();
+      const srcLane = new Map<string, number>();
+      for (const list of into.values())
+        [...list].sort((a, b) => yOf(a.from) - yOf(b.from) || a.key.localeCompare(b.key)).forEach((e, i, arr) => lane.set(e.key, i - (arr.length - 1) / 2));
+      for (const list of outOf.values())
+        [...list].sort((a, b) => yOf(a.to) - yOf(b.to) || a.key.localeCompare(b.key)).forEach((e, i, arr) => srcLane.set(e.key, i - (arr.length - 1) / 2));
+
+      const routes = new Map<string, P[]>();
       for (const edge of edges) {
         const g = groupRefs.current.get(edge.key);
         if (!g) continue;
@@ -143,47 +176,56 @@ export function WireLayer() {
           continue;
         }
         g.style.display = "";
-        // while this wire's consumer end is being dragged, follow the cursor
         const activeRebind = rebind.current?.edgeKey === edge.key ? rebind.current : null;
-        // pick facing edges
-        const acx = ra.x + ra.w / 2;
-        const bcx = activeRebind ? activeRebind.x : rb.x + rb.w / 2;
-        const acy = ra.y + ra.h / 2;
-        const bcy = activeRebind ? activeRebind.y : rb.y + rb.h / 2;
-        const horizontal = Math.abs(bcx - acx) > Math.abs(bcy - acy);
-        let x1: number, y1: number, x2: number, y2: number, d: string;
-        if (horizontal) {
-          const leftToRight = acx < bcx;
-          x1 = leftToRight ? ra.x + ra.w : ra.x;
-          y1 = acy;
-          x2 = activeRebind ? activeRebind.x : leftToRight ? rb.x : rb.x + rb.w;
-          y2 = bcy;
-          const k = Math.max(50, Math.abs(x2 - x1) * 0.45) * (leftToRight ? 1 : -1);
-          d = `M ${x1} ${y1} C ${x1 + k} ${y1}, ${x2 - k} ${y2}, ${x2} ${y2}`;
-        } else {
-          const topToBottom = acy < bcy;
-          x1 = acx;
-          y1 = topToBottom ? ra.y + ra.h : ra.y;
-          x2 = bcx;
-          y2 = activeRebind ? activeRebind.y : topToBottom ? rb.y : rb.y + rb.h;
-          const k = Math.max(50, Math.abs(y2 - y1) * 0.45) * (topToBottom ? 1 : -1);
-          d = `M ${x1} ${y1} C ${x1} ${y1 + k}, ${x2} ${y2 - k}, ${x2} ${y2}`;
-        }
+        const start = { x: ra.x + ra.w, y: ra.y + ATTACH_Y };
+        const end = activeRebind ? { x: activeRebind.x, y: activeRebind.y } : { x: rb.x, y: rb.y + ATTACH_Y };
+        const pts = route(start, end, {
+          src: ra,
+          dst: activeRebind ? null : rb,
+          leadOut: activeRebind ? 0 : undefined,
+          lane: lane.get(edge.key) ?? 0,
+          srcLane: srcLane.get(edge.key) ?? 0,
+        });
+        routes.set(edge.key, pts);
         g.classList.toggle("rebinding", !!activeRebind);
-        const path = g.querySelector("path.wire") as SVGPathElement;
-        const glow = g.querySelector("path.wire-glow") as SVGPathElement;
-        path?.setAttribute("d", d);
-        glow?.setAttribute("d", d);
-        const dotA = g.querySelector("circle.port-a") as SVGCircleElement;
-        const dotB = g.querySelector("circle.port-b") as SVGCircleElement;
-        dotA?.setAttribute("cx", String(x1));
-        dotA?.setAttribute("cy", String(y1));
-        dotB?.setAttribute("cx", String(x2));
-        dotB?.setAttribute("cy", String(y2));
-        // recalc pulse: source table just changed
-        const hot = (hotUntil.current.get(edge.from) ?? 0) > now;
-        g.classList.toggle("hot", hot);
+        // recalc pulse: packets flow for a moment after the source table changes
+        g.classList.toggle("is-live", (hotUntil.current.get(edge.from) ?? 0) > now);
+        const d = polyline(pts);
+        if (lastD.get(edge.key) === d) continue;
+        lastD.set(edge.key, d);
+        g.querySelectorAll<SVGPathElement>("path[data-route]").forEach((p) => p.setAttribute("d", d));
+        const ends = g.querySelectorAll("circle");
+        ends[0]?.setAttribute("cx", String(start.x));
+        ends[0]?.setAttribute("cy", String(start.y));
+        ends[1]?.setAttribute("cx", String(end.x));
+        ends[1]?.setAttribute("cy", String(end.y));
+        // the tunnel mask covers just this wire
+        const xs = pts.map((p) => p.x);
+        const ys = pts.map((p) => p.y);
+        const box = { x: Math.min(...xs) - 40, y: Math.min(...ys) - 40, width: Math.max(...xs) - Math.min(...xs) + 80, height: Math.max(...ys) - Math.min(...ys) + 80 };
+        const mask = g.querySelector("mask");
+        const rect = mask?.querySelector("rect");
+        for (const [k, v] of Object.entries(box)) {
+          mask?.setAttribute(k, String(v));
+          rect?.setAttribute(k, String(v));
+        }
       }
+
+      // over / under, decided across every wire layer
+      publishRoutes("sheet", routes, [...routes.values()].map(polyline).join("|"));
+      if (routesVersion() !== lastVersion) {
+        lastVersion = routesVersion();
+        const crossings = allCrossings();
+        for (const [key, pts] of routes) {
+          const g = groupRefs.current.get(key);
+          if (!g) continue;
+          const t = tunnelGeometry(pts, crossings.get(key) ?? [], 13);
+          g.querySelector(".tunnel-cut")?.setAttribute("d", t.cut);
+          g.querySelector(".pipe-terminal")?.setAttribute("d", t.terminals);
+          g.classList.toggle("is-under", t.cut.length > 0);
+        }
+      }
+
       // drop-target highlight while rebinding
       const hl = highlightRef.current;
       if (hl) {
@@ -208,6 +250,7 @@ export function WireLayer() {
       disposed = true;
       cancelAnimationFrame(raf);
       if (timer) clearTimeout(timer);
+      unpublishRoutes("sheet");
     };
   }, [edges, state.tables, state.maps, state.notes, state.media]);
 
@@ -226,18 +269,31 @@ export function WireLayer() {
       {edges.map((e) => (
         <g
           key={e.key}
-          className={`wire-group ${e.kind}`}
+          className={`pipe wire-group ${e.kind}`}
+          style={{ ["--wire-tone" as string]: e.kind === "map" ? "var(--color-pulse)" : "var(--color-wire-formula)" }}
           ref={(el) => {
             if (el) groupRefs.current.set(e.key, el);
             else groupRefs.current.delete(e.key);
           }}
         >
-          <path className="wire-glow" />
-          <path className="wire" />
-          <circle className="port-a" r={5} />
+          <title>{e.kind === "map" ? "Table → map: rows with Lat/Lng become pins" : "Formula: this table reads the other"}</title>
+          <defs>
+            <mask id={`sheet-tun-${e.key.replace(/[^\w-]/g, "_")}`} maskUnits="userSpaceOnUse">
+              <rect fill="white" />
+              <path className="tunnel-cut" fill="black" />
+            </mask>
+          </defs>
+          <path className="pipe-trace" data-route />
+          <g mask={`url(#sheet-tun-${e.key.replace(/[^\w-]/g, "_")})`}>
+            <path className="pipe-lane" data-route />
+            <path className="pipe-wire" data-route />
+            <path className="pipe-pulse" data-route />
+          </g>
+          <path className="pipe-terminal" />
+          <circle className="pipe-end" r={4} />
           <circle
-            className={"port-b" + (e.kind === "map" ? " port-grab" : "")}
-            r={e.kind === "map" ? 7 : 5}
+            className={"pipe-end" + (e.kind === "map" ? " port-grab" : "")}
+            r={e.kind === "map" ? 6 : 4}
             onPointerDown={(ev) => beginRebind(ev, e)}
           >
             {e.kind === "map" && <title>Drag to move this connection to another map</title>}

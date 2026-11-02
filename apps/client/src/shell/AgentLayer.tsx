@@ -18,7 +18,8 @@ import { addLink, getState, gridSize, objectWorldRect, removeLink, uid, updatePa
 import { toast, useUi } from "../state/ui";
 import { useBoardTick } from "./Presence";
 import { toWorld, camera } from "../state/camera";
-import { pipeCrossings, polyline, route, tunnelGeometry, typesCompatible, type P } from "./wireGeometry";
+import { polyline, route, tunnelGeometry, typesCompatible, type P } from "./wireGeometry";
+import { allCrossings, publishRoutes, routesVersion, unpublishRoutes } from "./routeRegistry";
 import { describeValue, portLayout, portPoint, toneOf } from "./ports";
 
 const SNAP_RADIUS = 32;
@@ -259,7 +260,7 @@ export function PortWires() {
   useEffect(() => {
     let raf = 0;
     const lastD = new Map<string, string>();
-    let lastSignature = "";
+    let lastVersion = -1;
     const tick = () => {
       const frames = routesFor(links);
       for (const l of links) {
@@ -296,11 +297,11 @@ export function PortWires() {
           label.setAttribute("y", String(at.y - 9));
         }
       }
-      // over / under: tunnels recomputed only when some route moved
-      const signature = [...frames.values()].map((f) => f.d).join("|");
-      if (signature !== lastSignature) {
-        lastSignature = signature;
-        const crossings = pipeCrossings([...frames].map(([id, f]) => ({ id, points: f.pts })));
+      // over / under across every wire layer: tunnels recomputed only when some route moved
+      publishRoutes("ports", new Map([...frames].map(([id, f]) => [id, f.pts])), [...frames.values()].map((f) => f.d).join("|"));
+      if (routesVersion() !== lastVersion) {
+        lastVersion = routesVersion();
+        const crossings = allCrossings();
         for (const [id, f] of frames) {
           const g = groups.current.get(id);
           if (!g) continue;
@@ -335,7 +336,10 @@ export function PortWires() {
       raf = requestAnimationFrame(tick);
     };
     tick();
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      unpublishRoutes("ports");
+    };
   }, [links, agentFocus, d !== null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const size = gridSize(state.grid);

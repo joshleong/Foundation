@@ -77,6 +77,7 @@ Ported from Vision (`apps/vision/src/components/wireGeometry.ts`, `@pacific/ui/d
 7. **Look.** A 9 px road at 8 % ink, a 2.6 px wire tinted by the port type (json blue, image rose, cad amber, data green, bom violet, decision green, number teal, text slate), and 10/150 packets moving at 160 px / 4 s while the source port holds a value. Faint (38 %) until the agent layer is on, hovered or selected.
 8. **Interaction.** Hover: the wire thickens and a tooltip says what it carries, from → to, and its current value. Click: selected (heavier, in its tone); ⌫ removes. Drag from an output: every compatible input lights (others step back to 20 %), the ghost is routed by the same rules, and it magnetises to an input within 32 px; dropping on a card body uses its first compatible input or makes one. Grab a connected input to lift the nearest wire off — drop it elsewhere to re-route, or on nothing to disconnect.
 9. **Types.** A wire may join ports of the same type, or any port to a `json` port.
+10. **One road system.** App and pipeline wires and the spreadsheet's own wires (table → map in blue, formulas in green, both attached level with the card's header) publish their routes to one registry, so over/under is decided across all of them with the same stable order. Sheet wires rest stronger (85 %) than app wires (38 %) because they are the sheet's own data flow.
 
 ## 6. Motion
 

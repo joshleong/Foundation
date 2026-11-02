@@ -1,6 +1,7 @@
 import {
   memo,
   useCallback,
+  useLayoutEffect,
   useEffect,
   useMemo,
   useRef,
@@ -173,9 +174,13 @@ export const TableView = memo(function TableView({ table, framePos, isActive, ge
     [editing, editText, table.id, table.rows, table.cols],
   );
 
+  /** true when the edit began by typing a character (caret goes after it; nothing selected) */
+  const seededEdit = useRef(false);
+
   const beginEdit = useCallback(
     (col: number, row: number, seed?: string) => {
       const cell = workbook.getCell(table.id, col, row);
+      seededEdit.current = seed !== undefined;
       setSel({ col, row });
       setEditing({ col, row });
       setEditText(seed !== undefined ? seed : (cell?.raw ?? ""));
@@ -205,13 +210,16 @@ export const TableView = memo(function TableView({ table, framePos, isActive, ge
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing, table.id]);
 
-  useEffect(() => {
-    if (editing) {
-      requestAnimationFrame(() => {
-        inputRef.current?.focus();
-        inputRef.current?.select();
-      });
-    }
+  // focus the editor before the next keystroke can arrive (layout effect, not a
+  // frame later); typing into a cell continues after the first character
+  // instead of selecting it, so "42" stays "42"
+  useLayoutEffect(() => {
+    if (!editing) return;
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus();
+    if (seededEdit.current) input.setSelectionRange(input.value.length, input.value.length);
+    else input.select();
   }, [editing]);
 
   // ----- keyboard on the table root -----
