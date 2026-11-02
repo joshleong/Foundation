@@ -140,7 +140,7 @@ export function Shell({ user }: { user: UserInfo }) {
         <button className={`f-pill${ui.dock ? " is-agent" : ""}`} onClick={() => setUi({ dock: !ui.dock })} title="Agent (⌘J)">
           ✦ Agent
         </button>
-        <PresenceStack me={user} />
+        <PresenceStack />
         <NightOrb onToggle={() => setNight(!isNight())} />
         <span className="me-avatar" style={{ background: user.color }} title={`${user.name} · ${user.email}`}>
           {initials(user.name)}

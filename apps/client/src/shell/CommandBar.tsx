@@ -44,21 +44,33 @@ export function normalizeUrl(q: string) {
 }
 
 /** Open any URL as a live panel: probe it (title, repo, MCP, ports, frame policy) first. */
-export async function openUrlAsPanel(raw: string, kind: "app" | "link" | "machine" = "app") {
+export async function openUrlAsPanel(
+  raw: string,
+  kind: "app" | "link" | "machine" = "app",
+  known: { name?: string; repo?: string | null; mcp?: string | null; description?: string | null } = {},
+) {
   const url = normalizeUrl(raw);
   const st = getState();
   const sectionId = st.activeSectionId in st.sections ? st.activeSectionId : Object.keys(st.sections)[0];
-  const p = addPanel(sectionId, { panel: kind, name: new URL(url).host, url });
+  // what the registry already knows shows at once; the probe fills in the rest
+  const p = addPanel(sectionId, {
+    panel: kind,
+    name: known.name ?? new URL(url).host,
+    url,
+    repo: known.repo ?? undefined,
+    mcp: known.mcp ?? undefined,
+    text: known.description ?? undefined,
+  });
   try {
     const probe = await api<{ name?: string; description?: string; repo?: string; mcp?: string; ports?: Array<{ name: string; dir: "in" | "out"; type?: string }>; embeddable: boolean; reason?: string }>(
       "/api/apps/probe",
       { method: "POST", json: { url } },
     );
     updatePanel(p.id, {
-      name: probe.name?.slice(0, 60) || p.name,
-      repo: probe.repo,
-      mcp: probe.mcp,
-      text: probe.embeddable ? probe.description : `${probe.reason ?? "can't be framed"} — opens in a tab`,
+      name: known.name ?? (probe.name?.slice(0, 60) || p.name),
+      repo: probe.repo ?? known.repo ?? undefined,
+      mcp: probe.mcp ?? known.mcp ?? undefined,
+      text: probe.embeddable ? (probe.description ?? known.description ?? undefined) : `${probe.reason ?? "can't be framed"} — opens in a tab`,
       ports: (probe.ports ?? []).map((pt) => ({ ...pt, id: `port_${Math.random().toString(36).slice(2, 9)}` })),
       ...(probe.embeddable ? {} : { panel: "link" as const }),
     });
@@ -256,7 +268,7 @@ function openHit(h: SearchHit) {
     return;
   }
   if (h.source === "app" && h.url) {
-    void openUrlAsPanel(h.url);
+    void openUrlAsPanel(h.url, "app", { name: h.title, description: h.snippet });
     return;
   }
   if (h.url) window.open(h.url, "_blank", "noopener");

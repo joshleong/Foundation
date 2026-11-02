@@ -15,6 +15,7 @@
 
 import { config } from "./config.ts";
 import { callMcpTool } from "./mcpclient.ts";
+import { one } from "./db.ts";
 
 export interface ConnectorState {
   id: string;
@@ -136,6 +137,31 @@ async function probe(id: string, name: string, url: string, path = "/"): Promise
   return { id, name, ok: res.ok, url, summary: res.ok ? "reachable" : `answered ${res.status}`, metrics: [], checkedAt: Date.now() };
 }
 
+function foundation(): ConnectorState {
+  const n = (sql: string, ...p: unknown[]) => (one<{ n: number }>(sql, ...p)?.n ?? 0);
+  const day = Date.now() - 864e5;
+  const boards = n("select count(*) n from boards");
+  const files = n("select count(*) n from files where archived_at is null");
+  const asks = n("select count(*) n from asks where status = 'open'");
+  const runs = n("select count(*) n from agent_runs where created_at > ?", day);
+  const people = n("select count(*) n from users");
+  return {
+    id: "foundation",
+    name: "Foundation",
+    ok: true,
+    url: config.publicUrl,
+    summary: `${people} people · ${boards} boards · ${files} files`,
+    metrics: [
+      { label: "Boards", value: boards },
+      { label: "Files", value: files },
+      { label: "Open asks", value: asks, tone: asks ? "warn" : "ok" },
+      { label: "Agent runs today", value: runs },
+      { label: "People", value: people },
+    ],
+    checkedAt: Date.now(),
+  };
+}
+
 async function vision(): Promise<ConnectorState> {
   const reach: string[] = [];
   const t3 = await timed(fetch("http://127.0.0.1:3783/.well-known/t3/environment"), 1200).then((r) => r.ok).catch(() => false);
@@ -168,8 +194,7 @@ export async function readConnector(id: string, fresh = false): Promise<Connecto
     else if (id === "bomform") state = await bomform();
     else if (id === "vision") state = await vision();
     else if (id === "dataroom") state = await probe(id, "Airform Data Room", config.connectors.dataroom);
-    else if (id === "foundation")
-      state = { id, name: "Foundation", ok: true, url: config.publicUrl, summary: "this server", metrics: [], checkedAt: Date.now() };
+    else if (id === "foundation") state = foundation();
     else if (id === "creation") state = await probe(id, "Creation", process.env.CREATION_URL || "http://localhost:5173");
     else throw new Error("unknown connector");
   } catch (e) {

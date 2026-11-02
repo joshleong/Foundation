@@ -66,9 +66,11 @@ export function PeerCursors() {
   );
 }
 
-export function PresenceStack({ me }: { me: { name: string; color: string } }) {
+/** everyone else on the board (you're the avatar at the end of the capsule) */
+export function PresenceStack() {
   const peers = usePeers();
-  const people = [{ clientId: -1, user: { ...me, agent: false } }, ...peers];
+  const people = peers;
+  if (people.length === 0) return null;
   const shown = people.slice(0, 5);
   return (
     <div className="presence-stack" title={people.map((p) => p.user.name).join(", ")}>

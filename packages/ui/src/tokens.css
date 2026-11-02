@@ -167,9 +167,10 @@ html.is-night {
   color: var(--color-frost);
   font: 500 var(--text-12) / 1 var(--font-sans);
   cursor: pointer;
+  /* never transition background/color here: the night engine animates every
+     token for 1.4 s, and a per-element transition restarting each frame lags behind it */
   transition:
     transform var(--dur-press) var(--ease-out-soft),
-    background var(--dur-quick) var(--ease-out-soft),
     border-color var(--dur-quick) var(--ease-out-soft);
 }
 .f-pill:hover {

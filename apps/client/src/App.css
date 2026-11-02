@@ -28,9 +28,15 @@
 
 html,
 body,
-#root {
+#root,
+.app {
   height: 100%;
   overflow: hidden;
+  /* clip: nothing may scroll the app frame — not focus, not scrollIntoView */
+  overflow: clip;
+}
+.design-page {
+  overflow: auto;
 }
 
 body {
@@ -105,7 +111,10 @@ body.resizing-v {
   position: relative;
   flex: 1;
   min-height: 0;
+  /* clip, not hidden: focus or scrollIntoView inside the world must never
+     scroll the viewport itself (the camera owns position) */
   overflow: hidden;
+  overflow: clip;
   background: var(--paper);
   touch-action: none;
   contain: strict;
@@ -191,17 +200,17 @@ body.resizing-v .section-card,
   gap: 8px;
   padding: 0 12px;
   border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--color-raise) 85%, transparent);
-  backdrop-filter: blur(6px);
+  /* solid, not glass: one backdrop-filter per region (DESIGN.md §1.3) — a blur per section header tore under load */
+  background: color-mix(in srgb, var(--color-raise) 94%, var(--color-void));
   border-radius: var(--radius-pane) var(--radius-pane) 0 0;
   z-index: 3;
 }
 
 .section-name {
   font-family: var(--font);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
   color: var(--ink);
   background: none;
   border: none;
@@ -231,8 +240,30 @@ body.resizing-v .section-card,
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.08em;
-  color: var(--ink-faint);
+  color: var(--color-moss);
   font-variant-numeric: tabular-nums;
+  padding: 2px 6px;
+  border-radius: var(--radius-paper);
+  background: color-mix(in srgb, var(--color-moss) 9%, transparent);
+}
+
+.section-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--color-panel);
+  color: var(--ink-soft);
+  font-size: 10.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sec-btn.sec-agent {
+  color: var(--color-agent);
 }
 
 .section-actions {
@@ -295,10 +326,119 @@ body.resizing-v .section-card,
   display: flex;
   align-items: center;
   justify-content: center;
-  pointer-events: none;
-  font-size: 13px;
-  color: var(--ink-faint);
-  letter-spacing: 0.02em;
+  padding: 24px;
+  container-type: inline-size;
+}
+
+.empty-card {
+  width: min(560px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.empty-title {
+  font: 600 var(--text-24) / 1.15 var(--font-display);
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  margin-bottom: var(--space-3);
+}
+.empty-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+@container (max-width: 520px) {
+  .empty-actions {
+    grid-template-columns: 1fr;
+  }
+}
+.empty-action {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--color-raise);
+  color: var(--ink);
+  cursor: pointer;
+  transition:
+    transform var(--dur-press) var(--ease-out-soft),
+    border-color var(--dur-quick) var(--ease-out-soft),
+    box-shadow var(--dur-lift) var(--ease-out-soft);
+}
+.empty-action:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-lift);
+  transform: translateY(-2px);
+}
+.empty-action:active {
+  transform: translateY(0) scale(0.985);
+}
+.empty-action b {
+  display: block;
+  font: 600 var(--text-13) / 1.3 var(--font-sans);
+}
+.empty-action small {
+  display: block;
+  font-size: var(--text-12);
+  color: var(--ink-soft);
+}
+.empty-glyph {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-card);
+  background: var(--color-pulse-dim);
+  color: var(--color-pulse);
+  font-size: 15px;
+}
+.empty-action.is-agent .empty-glyph {
+  background: var(--color-agent-dim);
+  color: var(--color-agent);
+}
+.empty-shelf-label {
+  margin-top: var(--space-5);
+}
+.empty-shelf {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.shelf-app {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 32px;
+  padding: 0 12px 0 4px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line);
+  background: var(--color-raise);
+  color: var(--ink);
+  font: 500 var(--text-12) / 1 var(--font-sans);
+  cursor: pointer;
+  transition: border-color var(--dur-quick) var(--ease-out-soft), transform var(--dur-press) var(--ease-out-soft);
+}
+.shelf-app:hover {
+  border-color: var(--color-pulse);
+}
+.shelf-app:active {
+  transform: scale(0.97);
+}
+.shelf-mark {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-frost);
+  color: var(--color-void);
+  font: 700 11px / 1 var(--font-display);
 }
 
 .scroll-hint {
@@ -1077,21 +1217,22 @@ body.rewiring {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 7px;
-  background: color-mix(in srgb, var(--color-raise) 86%, transparent);
-  backdrop-filter: blur(14px) saturate(1.15);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-pane);
-  box-shadow: var(--shadow-card);
+  padding: 6px;
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-glass);
   z-index: 15;
 }
 
 .tb-btn {
-  height: 34px;
-  min-width: 34px;
+  height: 32px;
+  min-width: 32px;
   padding: 0 12px;
   border: 1px solid transparent;
-  border-radius: 9px;
+  border-radius: var(--radius-pill);
   background: transparent;
   font-family: var(--font);
   font-size: 13px;
@@ -1114,7 +1255,7 @@ body.rewiring {
   background: linear-gradient(
     115deg,
     transparent 30%,
-    rgba(255, 255, 255, 0.65) 48%,
+    color-mix(in srgb, var(--color-raise) 65%, transparent) 48%,
     transparent 62%
   );
   transform: translateX(-110%);
@@ -1135,7 +1276,7 @@ body.rewiring {
   background: var(--ink);
   color: var(--paper-raised);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 1px 0 color-mix(in srgb, var(--color-raise) 14%, transparent),
     0 2px 6px color-mix(in srgb, var(--color-frost) 25%, transparent);
 }
 

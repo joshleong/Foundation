@@ -59,6 +59,10 @@ Never write a hex or `rgba()` in a component; mix tokens (`color-mix(in srgb, va
 | **⌘K** | Glass pane, 680 wide, 14 vh from the top. Rows 40 tall: glyph · label · hint · kbd. Search hits lead with a source tag (BOARD / FILE / SLACK / GITHUB / APP) and highlight matches in blue |
 | **Dock** | Glass pane at the right, 420 wide. Steps as violet chips that turn green/red; thinking as three violet dots; your turns ink bubbles |
 | **Toast** | Glass, bottom centre, 3.6 s |
+| **Connector** | Status pill first: Live (ok) · Offline (warn) · Checking. Then metrics as a 3-up grid (2-up under 380 px), 20 px tabular values. Offline shows a hatched, dashed well that says *Not reachable* and why, never a blank. Foot: one violet agent action ("What's going on?" / "How do I connect it?"), Open, and "checked Ns ago" |
+| **Empty section** | Never a void. An eyebrow with the section name, "Bring work here" (display 24), four actions as 2-up cards (open an app ⌘L, drop files ⌘U, ask the agent ⌘J (violet), write a note), then a pill shelf of company apps from the registry |
+| **Section header** | Solid (no blur). Name 14/600, coords as a moss pill, card count as a neutral pill, actions fade in on hover: ◳ app, ⊞ table, ◍ map, ▤ note, ⇪ upload · ◫ ⬓ split · ⤢ expand, ✦ agent (violet), ✕ |
+| **Wire routing** | Forward: one S-curve. Backward (target left of source): out, down a lane in the gap between the two cards' rows (or under both), across, and back in. Never a straight line through the board |
 
 ## 6. Motion
 
@@ -111,3 +115,5 @@ grid paper (WebGL) → grid chrome → sections → cards → formula wires → 
 - [ ] Moves on a spring or a named curve; no React state on a per-frame path
 - [ ] Says *offline / unknown / stub* when it is
 - [ ] Violet only if an agent is involved
+- [ ] No per-element `background`/`color` transitions on tokened surfaces (they lag the night fade)
+- [ ] Nothing positioned with `transform` that an animation also drives (use margins/insets)

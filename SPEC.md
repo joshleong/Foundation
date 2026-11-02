@@ -6,6 +6,13 @@ Last updated 2026-11-02 · branch `main` · evidence in `docs/evidence/2026-11-0
 
 ---
 
+## Open to-dos (kept by Josh, 2026-11-02)
+
+- [ ] **Repo visibility** — `joshleong/Foundation` is public; decide private / move to the Form Industries org (§6.1)
+- [ ] **Phase 1 · Solid ground** — proposed as its own session (§8): Y.Text notes, per-table cells, viewer role, offline, perf trace
+- [ ] **Keys and setup** — Google OAuth, Slack, BomForm + CA, API credits, `npx rea-agents setup`, Details MCP auth (§6)
+- [ ] **Vision loop** — start Vision Code (T3) threads from briefs (§8 phase 2)
+
 ## 0. How this brief was framed
 
 The original ask (Josh, 2026-11-02) was broad: unify Vision, Creation and the Data Room's UI work into Foundation; rebuild flowform's features with better design and agents; build a company view of BomForm, FactoryForm and the other apps; reach 60 fps; write a spec and a design language; then build, test and push. Before building, five questions were answered:
@@ -146,6 +153,7 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | **Login** | ASCII wind background (light and night), glass card | done | Our own implementation; compare against Details' "ASCII Cursor 2.0" (§6) |
 | **Design** | `#/design` living page; DESIGN.md | done | |
 | **Desktop** | Tauri config points at :1430 | partial | Not rebuilt this session |
+| **Interface pass 1** (2026-11-02) | Connector status pills and offline states. Foundation's own live counts. Backward wires loop through the gap between rows. Empty sections offer open/drop/ask/note and a company app shelf. Panels opened from the shelf carry the registry's repo and MCP. Section headers solid with a card count. Glass pill HUD. Presentation title scrim, HUD hidden. Capsule truly centred. The grid can't be scrolled by focus. My avatar shown once | done | Evidence in `docs/evidence/2026-11-02_interface-pass/` |
 
 ### 3.1 flowform → Foundation port map
 
@@ -238,7 +246,8 @@ Every integration is off until its key exists; the server always starts. Copy `.
 - **The REA job runner and the Vision brief are unexercised end to end.**
 - **Hidden windows pause `requestAnimationFrame`.** Overlays catch up when shown. `?rafshim` (dev) drives frames from a timer for headless capture.
 - **Panel iframes use `sandbox` with `allow-same-origin`**, so a hostile app on the same origin could escape. Only add apps you trust; serve third-party apps from their own origins.
-- **The old toolbar CSS** (`.tb-btn`, `.app-bar`) is still in `App.css`; prune it.
+- **The old toolbar CSS** (`.app-bar`) is still in `App.css`; prune it. A few small hover transitions on `background` remain in `App.css` and lag the night fade the way pills did.
+- **Snap framing to a section** at 1440×900 lands at about 0.55 zoom; an empty section's welcome card reads small. Consider a tighter section frame when it holds one card or none.
 
 ---
 

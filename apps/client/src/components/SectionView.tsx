@@ -35,6 +35,8 @@ import { MediaView } from "./MediaView";
 import { PanelView } from "../panels/PanelView";
 import { isPanel } from "../state/store";
 import { ingest } from "../lib/ingest";
+import { SectionEmpty } from "../panels/SectionEmpty";
+import { askAgent, setUi } from "../state/ui";
 import { openContextMenu } from "./ContextMenu";
 
 interface Props {
@@ -355,8 +357,13 @@ export const SectionView = memo(function SectionView({
           {(section.c1 !== section.c0 || section.r1 !== section.r0) &&
             `:${colName(section.c1)}${section.r1 + 1}`}
         </span>
+        {objects.length > 0 && <span className="section-count">{objects.length}</span>}
 
         <div className="section-actions">
+          {secBtn("Open an app or link (⌘L)", "◳", () => {
+            setActiveSection(section.id);
+            setUi({ command: true });
+          })}
           {secBtn("Add table", "⊞", () => createTable(section.id))}
           {secBtn("Add map", "◍", () => createMap(section.id))}
           {secBtn("Add markdown note", "▤", () => addNote(section.id))}
@@ -372,6 +379,9 @@ export const SectionView = memo(function SectionView({
           {secBtn("Expand — fill the viewport with this section", "⤢", () =>
             requestSnap({ kind: "section", id: section.id }),
           )}
+          {secBtn("Ask the agent about this section", "✦", () =>
+            askAgent(`In the “${section.name}” section: `),
+          "sec-agent")}
           {canRemove &&
             secBtn("Remove section", "✕", () => setConfirming(true), "sec-remove")}
         </div>
@@ -464,9 +474,12 @@ export const SectionView = memo(function SectionView({
         </div>
 
         {objects.length === 0 && (
-          <div className="section-empty">
-            <span>⊞ table · ◍ map · ▤ note · ⇪ media — or drop files here</span>
-          </div>
+          <SectionEmpty
+            name={section.name}
+            onUpload={() => fileRef.current?.click()}
+            onNote={() => addNote(section.id)}
+            onFocus={() => setActiveSection(section.id)}
+          />
         )}
 
         {(scrollable.x > 1 || scrollable.y > 1) && <div className="scroll-hint" />}

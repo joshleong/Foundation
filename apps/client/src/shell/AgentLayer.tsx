@@ -28,9 +28,36 @@ export function portPoint(p: PanelMeta, portId: string) {
   return { x: port.dir === "out" ? r.x + r.w : r.x, y: r.y + PORT_TOP + i * PORT_GAP };
 }
 
+/**
+ * A wire from an output (right edge) to an input (left edge). Forward wires
+ * are one smooth S; backward wires (the target sits left of the source) loop
+ * out, around through a lane between the cards, and back in, instead of
+ * cutting straight across the board.
+ */
+type Rect = { x: number; y: number; w: number; h: number };
+
+function wireGeometry(a: { x: number; y: number }, b: { x: number; y: number }, ra?: Rect | null, rb?: Rect | null) {
+  if (b.x >= a.x + 40) {
+    const k = Math.max(60, (b.x - a.x) * 0.5);
+    return { d: `M ${a.x} ${a.y} C ${a.x + k} ${a.y}, ${b.x - k} ${b.y}, ${b.x} ${b.y}`, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+  }
+  const k = 90;
+  // the lane runs through the gap between the two cards' rows, or under both
+  let lane = Math.max(a.y, b.y) + 150;
+  if (ra && rb) {
+    const [top, bottom] = ra.y < rb.y ? [ra, rb] : [rb, ra];
+    lane = top.y + top.h < bottom.y ? (top.y + top.h + bottom.y) / 2 : Math.max(ra.y + ra.h, rb.y + rb.h) + 44;
+  }
+  const mx = (a.x + b.x) / 2;
+  return {
+    d: `M ${a.x} ${a.y} C ${a.x + k} ${a.y}, ${a.x + k} ${lane}, ${mx} ${lane} C ${b.x - k} ${lane}, ${b.x - k} ${b.y}, ${b.x} ${b.y}`,
+    mx,
+    my: lane,
+  };
+}
+
 function pathFor(a: { x: number; y: number }, b: { x: number; y: number }) {
-  const k = Math.max(60, Math.abs(b.x - a.x) * 0.5);
-  return `M ${a.x} ${a.y} C ${a.x + k} ${a.y}, ${b.x - k} ${b.y}, ${b.x} ${b.y}`;
+  return wireGeometry(a, b).d;
 }
 
 // ---------- drag to connect ----------
@@ -128,7 +155,8 @@ export function PortWires() {
           continue;
         }
         g.style.display = "";
-        const dStr = pathFor(pa, pb);
+        const geo = wireGeometry(pa, pb, objectWorldRect(a), objectWorldRect(b));
+        const dStr = geo.d;
         if (last.get(l.id) !== dStr) {
           last.set(l.id, dStr);
           g.querySelectorAll("path").forEach((p) => p.setAttribute("d", dStr));
@@ -139,8 +167,8 @@ export function PortWires() {
           c2?.setAttribute("cy", String(pb.y));
           const label = g.querySelector("text");
           if (label) {
-            label.setAttribute("x", String((pa.x + pb.x) / 2));
-            label.setAttribute("y", String((pa.y + pb.y) / 2 - 8));
+            label.setAttribute("x", String(geo.mx));
+            label.setAttribute("y", String(geo.my - 8));
           }
         }
       }

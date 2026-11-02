@@ -327,32 +327,47 @@ function ConnectorBody({ panel }: { panel: PanelMeta }) {
       clearInterval(t);
     };
   }, [live, panel.connector]);
+  const offline = st && !st.ok;
+  const reason = st?.summary.replace(/^offline — /, "") ?? "";
   return (
-    <div ref={host} className="connector-body">
+    <div ref={host} className={`connector-body${offline ? " is-offline" : ""}`}>
       <div className="connector-head">
-        <span className={`f-dot ${st ? (st.ok ? "is-ok is-live" : "is-warn") : ""}`} />
+        <span className={`connector-status ${!st ? "is-checking" : st.ok ? "is-live" : "is-off"}`}>
+          <span className={`f-dot ${!st ? "is-live" : st.ok ? "is-ok is-live" : "is-warn"}`} />
+          {!st ? "Checking" : st.ok ? "Live" : "Offline"}
+        </span>
         <span className="connector-role">{panel.text}</span>
       </div>
-      <div className="connector-summary">{st ? st.summary : "Checking…"}</div>
-      {st && st.metrics.length > 0 && (
-        <div className="connector-metrics">
-          {st.metrics.map((m) => (
-            <div key={m.label} className={`metric${m.tone ? ` tone-${m.tone}` : ""}`}>
-              <div className="metric-value">{m.value}</div>
-              <div className="metric-label">{m.label}</div>
-            </div>
-          ))}
+      {offline ? (
+        <div className="connector-offline">
+          <div className="connector-offline-title">Not reachable from Foundation</div>
+          <div className="connector-offline-reason">{reason}</div>
         </div>
+      ) : st && st.metrics.length > 0 ? (
+        <>
+          <div className="connector-metrics">
+            {st.metrics.map((m) => (
+              <div key={m.label} className={`metric${m.tone ? ` tone-${m.tone}` : ""}`}>
+                <div className="metric-value">{m.value}</div>
+                <div className="metric-label">{m.label}</div>
+              </div>
+            ))}
+          </div>
+          <div className="connector-summary is-small">{st.summary}</div>
+        </>
+      ) : (
+        <div className="connector-summary">{st ? st.summary : "Reaching the service…"}</div>
       )}
       <div className="connector-foot">
-        <button className="f-pill" onClick={() => askAgent(`What's happening in ${panel.name} right now? Read it and tell me what needs attention.`)}>
-          Ask what's going on
+        <button className="f-pill is-agent" onClick={() => askAgent(offline ? `${panel.name} is offline (${reason}). How do we bring it back?` : `What's happening in ${panel.name} right now? Read it and tell me what needs attention.`)}>
+          ✦ {offline ? "How do I connect it?" : "What's going on?"}
         </button>
-        {st?.url && /^https?:/.test(st.url) && (
+        {st?.url && /^https?:/.test(st.url) && !offline && (
           <button className="f-pill" onClick={() => window.open(st.url, "_blank", "noopener")}>
-            Open
+            Open ↗
           </button>
         )}
+        {st && <span className="connector-checked">checked {Math.max(1, Math.round((Date.now() - st.checkedAt) / 1000))}s ago</span>}
       </div>
     </div>
   );

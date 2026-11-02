@@ -93,6 +93,11 @@ export function GridViewport() {
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    // the camera owns position: undo any browser scroll (focus, find-in-page, scrollIntoView)
+    const unscroll = () => {
+      if (container.scrollLeft || container.scrollTop) container.scrollTo(0, 0);
+    };
+    container.addEventListener("scroll", unscroll);
     const bg = new ShaderBackground(container);
     bgRef.current = bg;
     bg.nightTarget = bg.uniforms.night = isNight() ? 1 : 0; // start in the right light, fade only on toggle
@@ -108,6 +113,7 @@ export function GridViewport() {
     return () => {
       ro.disconnect();
       offNight();
+      container.removeEventListener("scroll", unscroll);
       bg.dispose();
       bgRef.current = null;
     };
