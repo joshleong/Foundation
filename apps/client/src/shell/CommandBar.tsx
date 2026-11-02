@@ -20,7 +20,7 @@ interface Action {
   hint?: string;
   glyph: string;
   keys?: string;
-  run(): void | Promise<void>;
+  run(): unknown;
 }
 
 const SOURCE_LABEL: Record<SearchHit["source"], string> = {
@@ -49,10 +49,13 @@ export async function openUrlAsPanel(
   raw: string,
   kind: "app" | "link" | "machine" = "app",
   known: { name?: string; repo?: string | null; mcp?: string | null; description?: string | null } = {},
+  into?: string,
+  /** called as soon as the card exists, before the probe answers (drops place it) */
+  created?: (id: string) => void,
 ) {
   const url = normalizeUrl(raw);
   const st = getState();
-  const sectionId = st.activeSectionId in st.sections ? st.activeSectionId : Object.keys(st.sections)[0];
+  const sectionId = into && st.sections[into] ? into : st.activeSectionId in st.sections ? st.activeSectionId : Object.keys(st.sections)[0];
   // what the registry already knows shows at once; the probe fills in the rest
   const p = addPanel(sectionId, {
     panel: kind,
@@ -61,7 +64,8 @@ export async function openUrlAsPanel(
     repo: known.repo ?? undefined,
     mcp: known.mcp ?? undefined,
     text: known.description ?? undefined,
-  });
+  }, into ? { focus: false } : {});
+  created?.(p.id);
   try {
     const probe = await api<{ name?: string; description?: string; repo?: string; mcp?: string; ports?: Array<{ name: string; dir: "in" | "out"; type?: string }>; embeddable: boolean; reason?: string }>(
       "/api/apps/probe",
@@ -79,6 +83,7 @@ export async function openUrlAsPanel(
   } catch {
     /* the panel still works without the probe */
   }
+  return p;
 }
 
 export function CommandBar() {
@@ -260,7 +265,7 @@ function highlight(snippet: string) {
   return esc.replace(/«/g, "<mark>").replace(/»/g, "</mark>");
 }
 
-function openHit(h: SearchHit) {
+export function openHit(h: SearchHit) {
   if (h.objectId && (getState().panels[h.objectId] || getState().notes[h.objectId] || getState().tables[h.objectId] || getState().media[h.objectId] || getState().maps[h.objectId])) {
     requestSnap({ kind: "object", id: h.objectId });
     return;

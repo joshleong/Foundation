@@ -180,25 +180,131 @@ export function DesignPage() {
         </div>
       </Section>
 
-      <Section title="Chrome on call" note="The grid runs edge to edge. Everything else waits to be called: the side pane folds into one corner button, search is a small pill at the bottom, a card's bar drops in on hover, and an image's icons slide out from behind it.">
-        <div className="oncall-row">
-          <div className="oncall-cell">
-            <button className="pane-toggle f-glass oncall-static">
+      <Section title="The floor" note="The top bar, the side pane, an open session and search are drawn on the grid's own paper — no glass, no card. The dots run underneath; the cards fade out at the floor's edge, and the view slides over to stay in the middle of what's left. Every pane's inner edge drags to resize.">
+        <div className="floor-demo">
+          <header className="top-bar">
+            <span className="top-btn is-on">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
                 <rect x="1.5" y="2.5" width="13" height="11" rx="2.5" />
                 <path d="M6 2.5v11" />
               </svg>
-              <span className="f-dot is-ok" />
-            </button>
+            </span>
+            <nav className="tabs">
+              <span className="tab is-board">
+                <span className="tab-main">
+                  <span className="tab-glyph">▦</span>
+                  <span className="tab-title">Form Industries</span>
+                  <span className="f-dot is-ok" />
+                </span>
+              </span>
+              <span className="tab is-agent is-current">
+                <span className="tab-main">
+                  <span className="tab-glyph is-running">✦</span>
+                  <span className="tab-title">Organize the fan work</span>
+                </span>
+                <span className="tab-close">✕</span>
+              </span>
+              <span className="tab is-t3">
+                <span className="tab-main">
+                  <span className="tab-glyph">⌥</span>
+                  <span className="tab-title">Heat exchanger viewer</span>
+                </span>
+              </span>
+              <span className="top-btn tab-new">＋</span>
+            </nav>
+            <div className="top-tools">
+              <span className="top-btn is-on">⌕</span>
+              <span className="top-btn">⌘</span>
+              <span className="top-btn">◇</span>
+              <span className="top-btn">▶</span>
+            </div>
+          </header>
+          <aside className="side-pane floor-pane" style={{ width: 200 }}>
+            <div className="pane-scroll">
+              <section className="pane-group">
+                <div className="pane-eyebrow is-agent">Sessions</div>
+                <span className="pane-row is-session is-current">
+                  <span className="f-dot is-agent is-pulse" />
+                  <span className="pane-label">Organize the fan work</span>
+                </span>
+              </section>
+              <section className="pane-group">
+                <div className="pane-eyebrow">Vision Code</div>
+                <span className="pane-row is-session">
+                  <span className="f-dot is-warn" />
+                  <span className="pane-label">Heat exchanger viewer</span>
+                  <span className="pane-when">1 ask</span>
+                </span>
+                <span className="pane-row is-session">
+                  <span className="f-dot" />
+                  <span className="pane-label">Valve gear redesign</span>
+                  <span className="pane-when">3d</span>
+                </span>
+              </section>
+            </div>
+          </aside>
+          <section className="session floor-pane" style={{ left: 200, width: 260 }}>
+            <div className="plan">
+              <div className="plan-head">
+                <span className="pane-eyebrow is-agent">Goal</span>
+                <span className="plan-count">1/3</span>
+              </div>
+              <div className="plan-goal">The fan work in one section, with the open questions on a note.</div>
+              <ol className="plan-steps">
+                <li className="plan-step is-done"><span className="plan-box">✓</span><span>Make the section</span></li>
+                <li className="plan-step is-active is-running"><span className="plan-box" /><span>Move the fan cards in</span></li>
+                <li className="plan-step is-pending"><span className="plan-box" /><span>Write the questions</span></li>
+              </ol>
+            </div>
+            <div className="session-list">
+              <div className="s-steps">
+                <span className="s-step is-ok is-link"><span className="step-dot" /><span className="s-step-name">Added a section</span><span className="s-step-detail">Fan</span><span className="s-step-go">↗</span></span>
+                <span className="s-step is-run"><span className="step-dot" /><span className="s-step-name">Updated a card</span></span>
+              </div>
+            </div>
+          </section>
+          <div className="floor-demo-grid">
+            <div className="floor-demo-card is-touched">Fan · touched by the session</div>
+            <div className="floor-demo-card">Rim drive</div>
+          </div>
+          <aside className="search-pane floor-pane" style={{ width: 210 }}>
+            <header className="search-head">
+              <span className="search-glyph">⌕</span>
+              <span className="search-field">fan</span>
+            </header>
+            <div className="search-results">
+              <span className="search-row">
+                <span className="search-row-glyph">▤</span>
+                <span className="search-row-main">
+                  <span className="search-row-title">fan-v3-shroud.step</span>
+                  <span className="search-row-snip">Rim-drive <mark>fan</mark> shroud</span>
+                </span>
+              </span>
+              <span className="search-row">
+                <span className="search-row-glyph">◳</span>
+                <span className="search-row-main">
+                  <span className="search-row-title">FactoryForm</span>
+                  <span className="search-row-snip">stations, work orders</span>
+                </span>
+              </span>
+            </div>
+          </aside>
+        </div>
+        <div className="floor-demo-caption">Side pane · a session (goal, steps; its cards ringed on the grid) · search, dragged from onto the grid</div>
+      </Section>
+
+      <Section title="Chrome on call" note="The grid runs edge to edge. Everything else waits to be called: search is a small pill at the bottom, a card's bar drops in on hover, and an image's icons slide out from behind it.">
+        <div className="oncall-row">
+          <div className="oncall-cell">
             <div className="oncall-hud">
               <button className="hud-search f-glass">
                 <span className="hud-glyph">⌕</span>
                 <span className="hud-label">Search</span>
-                <span className="f-kbd">⌘K</span>
+                <span className="f-kbd">⌘F</span>
               </button>
               <button className="hud-zoom f-glass">64%</button>
             </div>
-            <div className="effect-label">Side pane (⌘\) and the search pill</div>
+            <div className="effect-label">The search pill (opens search at the right) and the zoom</div>
           </div>
           <div className="oncall-cell">
             <div className="frame-anchor chrome-bar oncall-static is-hover" style={{ width: 240 }}>

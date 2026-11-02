@@ -1,18 +1,24 @@
 /**
- * The side pane: everything the capsule used to carry, folded away until
- * called. Boards, tools, the activity feed and settings (night, people, you).
- * Folded, it is one small glass button in the corner. ⌘\ toggles it.
+ * The side pane, drawn on the floor (the paper and its dots run underneath;
+ * the cards fade out at its edge). Folded by the top bar's first button or
+ * ⌘\, resized by its right edge.
+ *
+ * Top to bottom: Sessions — this board's agent sessions and Vision Code's
+ * threads, each opening a tab — then Boards, Activity, Settings, and you.
  */
 
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import type { UserInfo } from "@foundation/protocol";
 import { isNight, setNight } from "@foundation/ui";
 import { appendSectionLocal, requestSnap } from "../state/store";
-import { setUi, useUi } from "../state/ui";
+import { WIDTHS, newSession, openTab, setUi, useUi } from "../state/ui";
+import { refreshLists, useLists } from "../state/sessions";
 import { logout } from "../lib/api";
 import { NightOrb } from "./NightOrb";
-import { PresenceStack, initials, useBoardTick } from "./Presence";
+import { initials, useBoardTick } from "./Presence";
 import { copyMcpCommand } from "./CommandBar";
+import { FloorEdge } from "./FloorEdge";
 
 interface Props {
   user: UserInfo;
@@ -23,119 +29,143 @@ interface Props {
   onUpload(): void;
 }
 
-const paneSpring = { type: "spring", stiffness: 320, damping: 32 } as const;
+const paneSpring = { type: "spring", stiffness: 340, damping: 34 } as const;
 
 export function SidePane({ user, boards, current, onSwitch, onNew, onUpload }: Props) {
   const ui = useUi();
-  const board = useBoardTick();
-  const status = board?.status ?? "connecting";
-  const name = boards.find((b) => b.id === current)?.name ?? current;
+
+  // the lists refresh while the pane is open
+  useEffect(() => {
+    if (!ui.pane) return;
+    void refreshLists();
+    const t = setInterval(() => void refreshLists(), 12_000);
+    return () => clearInterval(t);
+  }, [ui.pane, current]);
 
   return (
-    <>
-      <AnimatePresence initial={false}>
-        {!ui.pane && (
-          <motion.button
-            key="pane-open"
-            className="pane-toggle f-glass"
-            initial={{ opacity: 0, x: -12 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -12 }}
-            transition={paneSpring}
-            onClick={() => setUi({ pane: true })}
-            title="Boards, tools and settings (⌘\)"
-          >
-            <PaneGlyph />
-            <span className={`f-dot ${status === "live" ? "is-ok" : status === "offline" ? "is-warn" : "is-live"}`} />
-          </motion.button>
-        )}
-      </AnimatePresence>
-      <AnimatePresence initial={false}>
-        {ui.pane && (
-          <motion.aside
-            key="pane"
-            className="side-pane f-glass"
-            initial={{ opacity: 0, x: -24 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -24 }}
-            transition={paneSpring}
-          >
-            <header className="pane-head">
-              <div className="pane-board">
-                <span className="f-eyebrow">Board</span>
-                <span className="pane-board-name">{name || "…"}</span>
-              </div>
-              <span className={`f-dot ${status === "live" ? "is-ok" : status === "offline" ? "is-warn" : "is-live"}`} title={status === "live" ? "Live" : status === "offline" ? "Offline — edits will sync when back" : "Connecting…"} />
-              <button className="icon-btn pane-close" onClick={() => setUi({ pane: false })} title="Fold the pane (⌘\)">
-                <PaneGlyph />
+    <AnimatePresence initial={false}>
+      {ui.pane && (
+        <motion.aside
+          key="pane"
+          className="side-pane floor-pane"
+          style={{ width: ui.paneW }}
+          initial={{ opacity: 0, x: -16 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -16 }}
+          transition={paneSpring}
+        >
+          <div className="pane-scroll">
+            <Sessions />
+
+            <section className="pane-group">
+              <div className="pane-eyebrow">Boards</div>
+              {boards.map((b) => (
+                <button key={b.id} className={`pane-row${b.id === current ? " is-current" : ""}`} onClick={() => onSwitch(b.id)}>
+                  <span className="pane-glyph">{b.id === "company" ? "◉" : "▦"}</span>
+                  <span className="pane-label">{b.name}</span>
+                </button>
+              ))}
+              <button className="pane-row is-new" onClick={onNew}>
+                <span className="pane-glyph">＋</span>
+                <span className="pane-label">New board</span>
               </button>
-            </header>
+            </section>
 
-            <div className="pane-scroll">
-              <section className="pane-group">
-                <div className="f-eyebrow">Boards</div>
-                {boards.map((b) => (
-                  <button key={b.id} className={`pane-row${b.id === current ? " is-current" : ""}`} onClick={() => onSwitch(b.id)}>
-                    <span className="pane-glyph">{b.id === "company" ? "◉" : "▦"}</span>
-                    <span className="pane-label">{b.name}</span>
-                  </button>
-                ))}
-                <button className="pane-row is-new" onClick={onNew}>
-                  <span className="pane-glyph">＋</span>
-                  <span className="pane-label">New board</span>
-                </button>
-              </section>
+            <Activity />
 
-              <section className="pane-group">
-                <div className="f-eyebrow">Tools</div>
-                <PaneRow glyph="⌕" label="Search, open, ask" kbd="⌘K" onClick={() => setUi({ command: true })} />
-                <PaneRow glyph="✦" label="Agent" kbd="⌘J" agent active={ui.dock} onClick={() => setUi({ dock: !ui.dock })} />
-                <PaneRow glyph="◇" label="Agent layer" kbd="A" agent active={ui.agentLayer} onClick={() => setUi({ agentLayer: !ui.agentLayer })} />
-                <PaneRow glyph="◳" label="Open an app" kbd="⌘L" onClick={() => setUi({ command: true })} />
-                <PaneRow glyph="⇪" label="Upload files" kbd="⌘U" onClick={onUpload} />
-                <PaneRow glyph="▥" label="New section" onClick={() => appendSectionLocal("New section")} />
-                <PaneRow glyph="⊡" label="Fit the board" kbd="0" onClick={() => requestSnap({ kind: "all" })} />
-                <PaneRow glyph="▶" label="Present" kbd="P" onClick={() => setUi({ presenting: true })} />
-              </section>
+            <section className="pane-group">
+              <div className="pane-eyebrow">Tools</div>
+              <PaneRow glyph="⇪" label="Upload files" kbd="⌘U" onClick={onUpload} />
+              <PaneRow glyph="▥" label="New section" onClick={() => appendSectionLocal("New section")} />
+              <PaneRow glyph="⊡" label="Fit the board" kbd="0" onClick={() => requestSnap({ kind: "all" })} />
+              <PaneRow glyph="⌁" label="Connect Claude Code" onClick={() => void copyMcpCommand()} />
+              <PaneRow glyph="◐" label="Design language" onClick={() => (window.location.hash = "#/design")} />
+            </section>
+          </div>
 
-              <Activity />
+          <footer className="pane-foot">
+            <span className="me-avatar" style={{ background: user.color }} title={user.email}>
+              {initials(user.name)}
+            </span>
+            <span className="pane-me">
+              <b>{user.name}</b>
+              <button
+                className="pane-signout"
+                onClick={async () => {
+                  await logout();
+                  window.location.reload();
+                }}
+              >
+                Sign out
+              </button>
+            </span>
+            <NightOrb onToggle={() => setNight(!isNight())} />
+          </footer>
 
-              <section className="pane-group">
-                <div className="f-eyebrow">Settings</div>
-                <PaneRow glyph="⌁" label="Connect Claude Code" onClick={() => void copyMcpCommand()} />
-                <PaneRow glyph="◐" label="Design language" onClick={() => (window.location.hash = "#/design")} />
-              </section>
-            </div>
+          <FloorEdge side="right" value={ui.paneW} {...WIDTHS.pane} onChange={(w) => setUi({ paneW: w })} label="Side pane" />
+        </motion.aside>
+      )}
+    </AnimatePresence>
+  );
+}
 
-            <footer className="pane-foot">
-              <span className="me-avatar" style={{ background: user.color }} title={user.email}>
-                {initials(user.name)}
-              </span>
-              <span className="pane-me">
-                <b>{user.name}</b>
-                <button
-                  className="pane-signout"
-                  onClick={async () => {
-                    await logout();
-                    window.location.reload();
-                  }}
-                >
-                  Sign out
-                </button>
-              </span>
-              <PresenceStack />
-              <NightOrb onToggle={() => setNight(!isNight())} />
-            </footer>
-          </motion.aside>
+function Sessions() {
+  const ui = useUi();
+  const lists = useLists();
+  const [allT3, setAllT3] = useState(false);
+  const t3 = allT3 ? lists.t3 : lists.t3.slice(0, 6);
+  return (
+    <>
+      <section className="pane-group">
+        <div className="pane-eyebrow is-agent">
+          Sessions
+          <button className="pane-eyebrow-act" onClick={() => newSession()} title="New agent session (⌘J)">
+            ＋
+          </button>
+        </div>
+        {lists.sessions.length === 0 && <div className="pane-empty">Agent sessions on this board show up here. Each one is a tab: its goal, its steps, and what it changed on the grid.</div>}
+        {lists.sessions.slice(0, 8).map((s) => (
+          <button
+            key={s.id}
+            className={`pane-row is-session${ui.tab === s.id ? " is-current" : ""}`}
+            onClick={() => openTab({ id: s.id, kind: "agent", title: s.title })}
+          >
+            <span className={`f-dot ${s.status === "running" ? "is-agent is-pulse" : s.status === "error" ? "is-bad" : "is-agent-dim"}`} />
+            <span className="pane-label">{s.title}</span>
+            <span className="pane-when">{ago(s.updatedAt)}</span>
+          </button>
+        ))}
+      </section>
+
+      <section className="pane-group">
+        <div className="pane-eyebrow">Vision Code</div>
+        {lists.t3Available === false && <div className="pane-empty">Vision Code isn't on this machine (or its store moved). Set T3CODE_HOME on the server to point at it.</div>}
+        {t3.map((t) => (
+          <button
+            key={t.id}
+            className={`pane-row is-session${ui.tab === `t3:${t.id}` ? " is-current" : ""}`}
+            onClick={() => openTab({ id: `t3:${t.id}`, kind: "t3", title: t.title })}
+            title={`${t.project} · ${t.title}`}
+          >
+            <span className={`f-dot ${t.status === "running" ? "is-live is-pulse" : t.status === "waiting" ? "is-warn" : t.status === "error" ? "is-bad" : ""}`} />
+            <span className="pane-label">{t.title}</span>
+            <span className="pane-when">{t.pending > 0 ? `${t.pending} ask` : ago(t.updatedAt)}</span>
+          </button>
+        ))}
+        {lists.t3.length > 6 && (
+          <button className="pane-row is-more" onClick={() => setAllT3((v) => !v)}>
+            <span className="pane-glyph">{allT3 ? "−" : "…"}</span>
+            <span className="pane-label">{allT3 ? "Fewer" : `${lists.t3.length - 6} more`}</span>
+          </button>
         )}
-      </AnimatePresence>
+      </section>
     </>
   );
 }
 
-function PaneRow({ glyph, label, kbd, agent, active, onClick }: { glyph: string; label: string; kbd?: string; agent?: boolean; active?: boolean; onClick(): void }) {
+function PaneRow({ glyph, label, kbd, onClick }: { glyph: string; label: string; kbd?: string; onClick(): void }) {
   return (
-    <button className={`pane-row${agent ? " is-agent" : ""}${active ? " is-on" : ""}`} onClick={onClick}>
+    <button className="pane-row" onClick={onClick}>
       <span className="pane-glyph">{glyph}</span>
       <span className="pane-label">{label}</span>
       {kbd && <span className="f-kbd">{kbd}</span>}
@@ -148,8 +178,8 @@ function Activity() {
   const items = (board?.activity() ?? []).slice(-6).reverse();
   return (
     <section className="pane-group">
-      <div className="f-eyebrow pane-activity-eyebrow">Activity</div>
-      {items.length === 0 && <div className="activity-empty">Quiet so far. Agents and people show up here as they work.</div>}
+      <div className="pane-eyebrow">Activity</div>
+      {items.length === 0 && <div className="pane-empty">Quiet so far. Agents and people show up here as they work.</div>}
       {items.map((a, i) => (
         <button key={a.at + ":" + i} className={`activity-row role-${a.role}`} onClick={() => a.objectId && requestSnap({ kind: "object", id: a.objectId })}>
           <span className={`f-dot ${a.role === "agent" ? "is-agent" : a.role === "human" ? "is-ok" : ""}`} />
@@ -162,19 +192,10 @@ function Activity() {
   );
 }
 
-function ago(at: number) {
+export function ago(at: number) {
   const s = Math.max(1, Math.round((Date.now() - at) / 1000));
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.round(s / 60)}m`;
   if (s < 86400) return `${Math.round(s / 3600)}h`;
   return `${Math.round(s / 86400)}d`;
-}
-
-function PaneGlyph() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
-      <rect x="1.5" y="2.5" width="13" height="11" rx="2.5" />
-      <path d="M6 2.5v11" />
-    </svg>
-  );
 }

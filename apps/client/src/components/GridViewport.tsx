@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion } from "motion/react";
 import { ShaderBackground } from "../gl/background";
 import { Spring, Spring2D, presets } from "../physics/spring";
@@ -30,7 +30,7 @@ import { SectionView } from "./SectionView";
 import { WireLayer } from "./WireLayer";
 import { publishCamera, publishPointer } from "../state/camera";
 import { isNight, onNight } from "@foundation/ui";
-import { setUi, useUi } from "../state/ui";
+import { floorInsets, getUi, setUi, useUi } from "../state/ui";
 import { PeerCursors } from "../shell/Presence";
 import { PortWires } from "../shell/AgentLayer";
 import { openContextMenu } from "./ContextMenu";
@@ -49,9 +49,11 @@ const MIN_SCALE = 0.12;
 const MAX_SCALE = 1.6;
 const FIT_MARGIN = 0.92;
 /** chrome the framing keeps clear of: the search pill below, the side pane when it's open */
-const SAFE_TOP = 20;
+/** breathing room inside the floor's edges, and above the search pill */
+const SAFE_GAP = 20;
 const SAFE_BOTTOM = 68;
-export const PANE_W = 264;
+/** how far the floor's edge fades the cards out (DESIGN.md → The floor) */
+export const FLOOR_FADE = 56;
 
 /**
  * What "frame this section" should show: the cards it holds (plus its header)
@@ -123,8 +125,7 @@ interface Candidate {
 export function GridViewport() {
   const state = useAppState();
   const ui = useUi();
-  const paneOpen = useRef(ui.pane);
-  paneOpen.current = ui.pane;
+  const insets = floorInsets(ui);
   const containerRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const bgRef = useRef<ShaderBackground | null>(null);
@@ -197,9 +198,11 @@ export function GridViewport() {
     (rect: Rect, cap: number) => {
       const vp = viewportRect();
       if (!vp) return null;
-      const left = paneOpen.current ? PANE_W + 12 : 0;
-      const availW = Math.max(160, vp.w - left);
-      const availH = Math.max(120, vp.h - SAFE_TOP - SAFE_BOTTOM);
+      const f = floorInsets(getUi());
+      const left = f.left ? f.left + FLOOR_FADE / 2 : 0;
+      const top = f.top + SAFE_GAP;
+      const availW = Math.max(160, vp.w - left - (f.right ? f.right + FLOOR_FADE / 2 : 0));
+      const availH = Math.max(120, vp.h - top - SAFE_BOTTOM);
       const s = Math.max(
         MIN_SCALE,
         Math.min(cap, (availW * FIT_MARGIN) / rect.w, (availH * FIT_MARGIN) / rect.h),
@@ -207,7 +210,7 @@ export function GridViewport() {
       return {
         scale: s,
         x: left + availW / 2 - (rect.x + rect.w / 2) * s,
-        y: SAFE_TOP + availH / 2 - (rect.y + rect.h / 2) * s,
+        y: top + availH / 2 - (rect.y + rect.h / 2) * s,
       };
     },
     [viewportRect],
@@ -704,6 +707,18 @@ export function GridViewport() {
     [zoom],
   );
 
+  // ----- the floor pushes the view aside -----
+  // when a pane opens (or a session or search does), what you were looking at
+  // slides over to stay in the middle of the paper that's left
+  const lastInsets = useRef(insets);
+  useEffect(() => {
+    const prev = lastInsets.current;
+    lastInsets.current = insets;
+    const dx = (insets.left - prev.left - (insets.right - prev.right)) / 2;
+    const dy = (insets.top - prev.top) / 2;
+    if (dx || dy) camera.to(camera.x.goal + dx, camera.y.goal + dy);
+  }, [insets.left, insets.right, insets.top, camera]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ----- render -----
   const size = gridSize(state.grid);
   const xo = trackOffsets(state.grid.cols);
@@ -728,7 +743,10 @@ export function GridViewport() {
       onPointerLeave={onPointerLeave}
       onWheel={onWheel}
       onDoubleClickCapture={onDoubleClickCapture}
+      style={{ "--floor-l": `${insets.left}px`, "--floor-t": `${insets.top}px`, "--floor-r": `${insets.right}px` } as CSSProperties}
     >
+      {/* the cards live above the paper but under the floor: masked out where the floor is */}
+      <div className="world-mask">
       <div ref={worldRef} className="world">
         {/* ----- grid chrome: track lines + spreadsheet labels ----- */}
         <div className="grid-frame" style={{ width: size.w, height: size.h }} />
@@ -876,19 +894,23 @@ export function GridViewport() {
         <PortWires />
         <PeerCursors />
       </div>
+      </div>
 
       {/* the HUD: a small search pill and the zoom, bottom centre — everything else is called up */}
       <motion.div
         className="hud"
+        style={{ left: insets.left, right: insets.right }}
         initial={{ y: 40, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ type: "spring", stiffness: 210, damping: 22, delay: 0.05 }}
       >
-        <button className="hud-search f-glass" onClick={() => setUi({ command: true })} title="Search, open an app, ask the agent (⌘K)">
-          <span className="hud-glyph">⌕</span>
-          <span className="hud-label">Search</span>
-          <span className="f-kbd">⌘K</span>
-        </button>
+        {!ui.search && (
+          <button className="hud-search f-glass" onClick={() => setUi({ search: true })} title="Search everything and drag it onto the grid (⌘F) · ⌘K for commands">
+            <span className="hud-glyph">⌕</span>
+            <span className="hud-label">Search</span>
+            <span className="f-kbd">⌘F</span>
+          </button>
+        )}
         <button
           className="hud-zoom f-glass"
           title="Zoom — click for 100% (1) · 0 fits all · F frames the focus · double-click zooms in"

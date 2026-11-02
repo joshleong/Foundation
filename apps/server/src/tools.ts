@@ -176,6 +176,16 @@ export const TOOLS: BoardTool[] = [
     },
   }),
   def({
+    name: "set_plan",
+    description:
+      "Show the person the plan for this session: the goal and the steps, each pending, active or done. Call it before work with more than one step, and again whenever a step starts or finishes. The session tab draws it as a checklist.",
+    schema: z.object({
+      goal: z.string().describe("one sentence: what done looks like"),
+      steps: z.array(z.object({ text: z.string(), status: z.enum(["pending", "active", "done"]) })).max(12),
+    }),
+    run: (_ctx, { steps }) => `plan set: ${steps.filter((x) => x.status === "done").length}/${steps.length} done`,
+  }),
+  def({
     name: "add_section",
     description: "Add a new section (a column of the grid) with a name. Use sections to organize: one per project, team or flow.",
     schema: z.object({ name: z.string(), request_id: z.string().optional() }),

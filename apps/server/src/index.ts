@@ -21,7 +21,8 @@ import { parseRepo, repoCommits, repoInfo, repoReadme } from "./github.ts";
 import { companySnapshot, connectorEvents, readConnector, watchFactoryForm } from "./connectors.ts";
 import { createAsk, listAsks, resolveAsk, startHermes } from "./hermes.ts";
 import { getJob, listJobs, startJob } from "./jobs.ts";
-import { runAgent, runtimes } from "./agent.ts";
+import { listSessions, runAgent, runtimes, sessionTurns } from "./agent.ts";
+import { t3Thread, t3Threads } from "./t3.ts";
 import { runTool, TOOLS } from "./tools.ts";
 import { handleMcp } from "./mcp.ts";
 import { seedCompanyBoard } from "./seed.ts";
@@ -318,14 +319,37 @@ r.get("/api/agent/runtimes", (req) => {
   requireUser(req);
   return runtimes();
 });
+r.get("/api/agent/sessions", (req) => {
+  const user = requireUser(req);
+  return { sessions: listSessions(req.query.get("board") || "company", user.id) };
+});
+r.get("/api/agent/sessions/:id", (req) => {
+  const user = requireUser(req);
+  return { turns: sessionTurns(req.params.id, user.id) };
+});
+
+// ---------- Vision Code (T3) sessions, read-only ----------
+
+r.get("/api/t3/threads", async (req) => {
+  requireUser(req);
+  return t3Threads();
+});
+r.get("/api/t3/threads/:id", async (req) => {
+  requireUser(req);
+  const t = await t3Thread(req.params.id);
+  if (!t) throw new HttpError(404, "no such Vision Code thread");
+  return t;
+});
+
 r.post("/api/agent", async (req, res) => {
   const user = requireUser(req);
-  const body = await readJson<{ board?: string; prompt?: string; runtime?: string }>(req);
+  const body = await readJson<{ board?: string; prompt?: string; runtime?: string; session?: string }>(req);
   if (!body.prompt?.trim()) throw new HttpError(400, "say something");
   const send = sse(res);
   const ctrl = new AbortController();
   res.on("close", () => ctrl.abort());
-  await runAgent({ boardId: body.board || "company", user, prompt: body.prompt, runtime: body.runtime, emit: send, signal: ctrl.signal });
+  const session = body.session && /^ses_[a-z0-9]{6,24}$/.test(body.session) ? body.session : undefined;
+  await runAgent({ boardId: body.board || "company", user, prompt: body.prompt, runtime: body.runtime, session, emit: send, signal: ctrl.signal });
   res.end();
 });
 

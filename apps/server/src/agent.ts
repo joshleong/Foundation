@@ -23,7 +23,7 @@ import { join } from "node:path";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type { AgentEvent, AgentRuntime, UserInfo } from "@foundation/protocol";
 import { config } from "./config.ts";
-import { run } from "./db.ts";
+import { all, one, run } from "./db.ts";
 import { boardDigest, editBoard } from "./boards.ts";
 import { runTool, TOOLS, type ToolCtx } from "./tools.ts";
 import { createSession, revokeSession } from "./auth.ts";
@@ -41,6 +41,7 @@ How you work:
 - Ask before deleting anything or acting on someone else's work in a way they would not expect. Deletes need confirm: true.
 - Nothing that spends money or runs third-party tooling starts on its own: reverse-engineering jobs wait for a person to press Run.
 - When a design needs CAD or a decision you don't have, use ask_person rather than guessing.
+- For work with more than one step, call set_plan first (the goal and the steps), and again as each step starts and finishes, so the person can follow along in the session tab.
 - Be brief and concrete. No preamble.`;
 
 const histories = new Map<string, Anthropic.MessageParam[]>();
@@ -78,6 +79,8 @@ export async function runAgent(opts: {
   user: UserInfo;
   prompt: string;
   runtime?: string;
+  /** the session tab this turn belongs to: its own conversation (default: the person's one per board) */
+  session?: string;
   emit: (e: AgentEvent) => void;
   signal: AbortSignal;
 }) {
@@ -91,18 +94,21 @@ export async function runAgent(opts: {
   }
   const runId = `run_${randomBytes(6).toString("hex")}`;
   run(
-    "insert into agent_runs (id, board_id, runtime, prompt, status, created_by, created_at) values (?, ?, ?, ?, 'running', ?, ?)",
-    runId, opts.boardId, runtime, opts.prompt, opts.user.id, Date.now(),
+    "insert into agent_runs (id, board_id, runtime, prompt, status, created_by, created_at, session_id) values (?, ?, ?, ?, 'running', ?, ?, ?)",
+    runId, opts.boardId, runtime, opts.prompt, opts.user.id, Date.now(), opts.session ?? null,
   );
   editBoard(opts.boardId, "agent", (doc) => logActivity(doc, { who: opts.user.name, role: "human", text: `asked the agent: ${opts.prompt.slice(0, 140)}` }));
   const transcript: AgentEvent[] = [];
   const emit = (e: AgentEvent) => {
-    transcript.push(e);
+    // streamed text is stored as one event per run of text, not one per token
+    const last = transcript[transcript.length - 1];
+    if (e.type === "text" && last?.type === "text") transcript[transcript.length - 1] = { type: "text", text: last.text + e.text };
+    else transcript.push(e);
     opts.emit(e);
   };
   try {
     if (runtime === "api") await runApi(opts, emit);
-    else await runSubscription(opts, emit);
+    else await runSubscription(opts, emit, runId);
     run("update agent_runs set status = 'done', transcript_json = ?, finished_at = ? where id = ?", JSON.stringify(transcript), Date.now(), runId);
   } catch (e) {
     const message = (e as Error).message;
@@ -121,9 +127,12 @@ function apiTools(): Anthropic.Tool[] {
   });
 }
 
+/** one conversation per person per board, or per session tab */
+const convKey = (opts: { boardId: string; user: UserInfo; session?: string }) => `${opts.boardId}:${opts.user.id}${opts.session ? `:${opts.session}` : ""}`;
+
 async function runApi(opts: Parameters<typeof runAgent>[0], emit: (e: AgentEvent) => void) {
   const client = new Anthropic({ apiKey: config.anthropic.apiKey });
-  const key = `${opts.boardId}:${opts.user.id}`;
+  const key = convKey(opts);
   const history = histories.get(key) ?? [];
   history.push({
     role: "user",
@@ -183,8 +192,8 @@ async function runApi(opts: Parameters<typeof runAgent>[0], emit: (e: AgentEvent
 
 // ---------- subscription runtime (Claude Code, T3-style session) ----------
 
-async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: AgentEvent) => void) {
-  const key = `${opts.boardId}:${opts.user.id}`;
+async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: AgentEvent) => void, runId: string) {
+  const key = convKey(opts);
   // a short-lived session for this person, so the agent's writes are theirs
   const token = createSession(opts.user.id, 2 * 3600_000);
   const mcpFile = join(config.dataDir, `mcp-${randomBytes(6).toString("hex")}.json`);
@@ -215,7 +224,12 @@ async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: A
     "--allowedTools",
     "mcp__foundation__*",
   ];
-  const resume = claudeSessions.get(key);
+  // the Claude Code session to continue: this server's memory, else the last run of this tab
+  const resume =
+    claudeSessions.get(key) ??
+    (opts.session
+      ? one<{ claude_session: string }>("select claude_session from agent_runs where session_id = ? and created_by = ? and claude_session is not null order by created_at desc limit 1", opts.session, opts.user.id)?.claude_session
+      : undefined);
   if (resume) argv.push("--resume", resume);
 
   emit({ type: "status", status: "thinking" });
@@ -249,7 +263,10 @@ async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: A
       } catch {
         return;
       }
-      if (ev.session_id) claudeSessions.set(key, ev.session_id);
+      if (ev.session_id && claudeSessions.get(key) !== ev.session_id) {
+        claudeSessions.set(key, ev.session_id);
+        run("update agent_runs set claude_session = ? where id = ?", ev.session_id, runId);
+      }
       if (ev.type === "assistant") {
         for (const b of ev.message?.content ?? []) {
           if (b.type === "text" && b.text) emit({ type: "text", text: b.text });
@@ -278,4 +295,44 @@ async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: A
       else reject(new Error(`Claude Code exited ${code}: ${err.slice(-600)}`));
     });
   });
+}
+
+// ---------- sessions (the tabs) ----------
+
+export interface SessionSummary {
+  id: string;
+  title: string;
+  board: string;
+  runs: number;
+  status: "running" | "done" | "error";
+  updatedAt: number;
+}
+
+/** this person's agent sessions on a board, newest first */
+export function listSessions(boardId: string, userId: string, limit = 30): SessionSummary[] {
+  const rows = all<{ session_id: string; first: string; runs: number; updated: number; board_id: string }>(
+    `select session_id, board_id, count(*) as runs, max(created_at) as updated,
+            (select prompt from agent_runs b where b.session_id = a.session_id order by created_at asc limit 1) as first
+       from agent_runs a
+      where board_id = ? and created_by = ? and session_id is not null
+      group by session_id order by updated desc limit ?`,
+    boardId, userId, limit,
+  );
+  return rows.map((r) => {
+    const last = one<{ status: string }>("select status from agent_runs where session_id = ? order by created_at desc limit 1", r.session_id);
+    return { id: r.session_id, title: titleOf(r.first), board: r.board_id, runs: r.runs, status: (last?.status ?? "done") as SessionSummary["status"], updatedAt: r.updated };
+  });
+}
+
+/** a session's turns, as the tab replays them */
+export function sessionTurns(sessionId: string, userId: string) {
+  return all<{ id: string; prompt: string; status: string; runtime: string; transcript_json: string; created_at: number }>(
+    "select id, prompt, status, runtime, transcript_json, created_at from agent_runs where session_id = ? and created_by = ? order by created_at asc",
+    sessionId, userId,
+  ).map((r) => ({ id: r.id, prompt: r.prompt, status: r.status, runtime: r.runtime, at: r.created_at, events: JSON.parse(r.transcript_json) as AgentEvent[] }));
+}
+
+export function titleOf(prompt: string) {
+  const line = prompt.split("\n")[0].trim();
+  return line.length > 60 ? `${line.slice(0, 57)}…` : line;
 }

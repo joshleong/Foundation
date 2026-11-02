@@ -944,11 +944,36 @@ export function setObjectFloat(id: string, float: boolean) {
   } as Partial<AppState>);
 }
 
+/** the section under a world point (null on empty paper or off the grid) */
+export function sectionAtWorld(x: number, y: number): Section | null {
+  const cell = cellAtWorld(x, y);
+  return cell ? sectionCovering(cell.c, cell.r) : null;
+}
+
+/**
+ * Put a card down where it was dropped: floating in its section, its top-left
+ * centred-ish under the pointer (search pane drags). Keeps it inside the body.
+ */
+export function placeAtWorld(id: string, wx: number, wy: number) {
+  const found = findObject(id);
+  if (!found) return;
+  const sec = state.sections[found.obj.sectionId];
+  if (!sec || sec.host === id) return; // an app that became its section's app fills it
+  const card = sectionCardRect(state.grid, sec);
+  const scroll = getLiveScroll(sec.id);
+  const { w } = objectPixelSize(found.obj);
+  const x = Math.max(0, wx - card.x - 1 - CONTENT_PAD + scroll.x - Math.min(w / 2, 120));
+  const y = Math.max(0, wy - card.y - 1 - SECTION_HEADER - CONTENT_PAD + scroll.y - 16);
+  set({
+    [found.key]: { ...(state[found.key] as Record<string, AnyObject>), [id]: { ...found.obj, float: true, x, y } },
+  } as Partial<AppState>);
+}
+
 // ---------- note actions ----------
 
 let noteCount = 0;
 
-export function addNote(sectionId: string, text?: string): NoteMeta {
+export function addNote(sectionId: string, text?: string, opts: { focus?: boolean } = {}): NoteMeta {
   noteCount++;
   const meta: NoteMeta = {
     id: uid("note"),
@@ -965,7 +990,7 @@ export function addNote(sectionId: string, text?: string): NoteMeta {
   set({
     notes: { ...state.notes, [meta.id]: meta },
     activeSectionId: sectionId,
-    snapRequest: { kind: "object", id: meta.id, nonce: Math.random() },
+    ...(opts.focus === false ? {} : { snapRequest: { kind: "object" as const, id: meta.id, nonce: Math.random() } }),
   });
   return meta;
 }
@@ -1008,6 +1033,7 @@ export function addMedia(
   name: string,
   w: number,
   h: number,
+  opts: { focus?: boolean } = {},
 ): MediaMeta {
   // fit oversized media to a sane card size, keep aspect
   const maxW = 560;
@@ -1031,7 +1057,7 @@ export function addMedia(
   set({
     media: { ...state.media, [meta.id]: meta },
     activeSectionId: sectionId,
-    snapRequest: { kind: "object", id: meta.id, nonce: Math.random() },
+    ...(opts.focus === false ? {} : { snapRequest: { kind: "object" as const, id: meta.id, nonce: Math.random() } }),
   });
   return meta;
 }

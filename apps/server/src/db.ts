@@ -143,7 +143,14 @@ const FTS_SQL = `create virtual table search_fts using fts5(
 }
 
 // additive migrations — each is idempotent
-for (const sql of ["alter table asks add column stage_panel_id text", "alter table users add column flowform_user_id text"]) {
+for (const sql of [
+  "alter table asks add column stage_panel_id text",
+  "alter table users add column flowform_user_id text",
+  // agent sessions: each tab is its own conversation, resumable after a restart
+  "alter table agent_runs add column session_id text",
+  "alter table agent_runs add column claude_session text",
+  "create index if not exists agent_runs_session on agent_runs(session_id, created_at)",
+]) {
   try {
     db.exec(sql);
   } catch {

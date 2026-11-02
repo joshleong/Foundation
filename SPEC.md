@@ -151,11 +151,11 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | **Grid** | Original Foundation grid (sections, tracks, springs, tables with formulas, maps, notes, media) | done | Now night-aware and on tokens. Layout memoised per state |
 | **Files** | Upload anything with progress; images and video show instantly, then swap to the shared URL; range streaming; archive-never-delete | done | |
 | | CAD cards (STEP/IGES header text, download, Send to Vision) | partial | No 3D preview yet (Vision's OpenCascade path is the plan) |
-| **Search** | ⌘K: board cards, files (full text and CAD headers), apps, GitHub (token or `gh`), Slack (`search.messages` with a user token) | done (Slack untested) | Local results in ms, remote with a 2.5 s cap. Stemming removed for prefixes |
+| **Search** | ⌘K and the search pane (⌘F): board cards, files (full text and CAD headers), apps, GitHub (token or `gh`), Slack (`search.messages` with a user token) | done (Slack untested) | Local results in ms, remote with a 2.5 s cap. Stemming removed for prefixes |
 | **Panels** | Live app/link/machine frames | done | Mount only on screen at ≥0.3 zoom, poster otherwise. Click to engage, Esc to release. Frame policy probed |
 | | Repo drawer (README, commits), MCP badge, ports, drag-to-connect wires, postMessage bridge | done | Bridge not yet exercised by a real app (§7) |
 | **Agent layer** | Port wires (faint, bright with A), agent rings from presence and running cards, activity feed | done | |
-| **Agent** | ⌘J dock, streaming steps, voice input (Web Speech), runtime picker | done | |
+| **Agent** | Session tabs (below) replace the ⌘J dock: streaming steps, runtime picker. Voice input went with the dock | done | Voice: not carried over yet (§7) |
 | | Subscription runtime (Claude Code + Foundation MCP, resumable sessions) | done | Verified: wrote a note and focused it |
 | | API runtime (Opus 5.5, adaptive thinking, manual tool loop) | partial | Code done, untested (no `ANTHROPIC_API_KEY` here) |
 | **MCP** | `/mcp?board=…`, 19 board tools, `⌘K → Connect Claude Code` copies the `claude mcp add` command | done | |
@@ -163,7 +163,7 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | | (previous note) | | FactoryForm answered from :3001. Vision found T3 and the Archive up. BomForm offline until keyed (§6) |
 | **Hermes** | Ask cards, drop-to-answer, 4-hourly nudges on the board, Slack DM with a bot token | partial | Slack path untested |
 | **REA** | `reverse_engineer` tool queues a job card. A person presses Run; it runs `rea-agents` (local apps) or Claude Code with REA's MCP | partial | Not run in this session: the tool downloads and runs third-party code, so a person should run `npx rea-agents setup` first (§6) |
-| **Vision** | `vision_brief`: brief card, Vision panel, review asks | partial | Vision exposes no design API yet; the T3 bridge is §8 phase 2 |
+| **Vision** | `vision_brief`: brief card, Vision panel, review asks. Vision Code (T3) threads listed in the side pane and replayed in a tab, read from T3's own store | partial | Vision exposes no design API yet. Threads are read-only in Foundation; starting one is §8 phase 2 |
 | **Presentation** | P: chrome fades, camera glides section to section, infinite looping filmstrip with drag/wheel inertia | done | |
 | **Login** | ASCII wind background (light and night), glass card | done | The Details original ("ASCII Cursor 2.0", WebGL2), from Josh's download 2026-11-02; `#/design/sign-in` previews it while signed in. Draws nothing without WebGL2, on software GPUs, or under reduced motion / high contrast |
 | **Design** | `#/design` living page; DESIGN.md | done | |
@@ -175,6 +175,11 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | | Hand-offs (`stage_request`): CAD asks the owner via Hermes and the STEP lands back on the stage. Concept and Simulate write a Vision brief from the stage (chosen concept; CAD size + analysis/loads/target). Review asks every reviewer | done | Vision still runs by hand; phase 2 starts T3 threads |
 | | Complete → output goes down the wire and the next stage opens. "Request changes" at Review reopens CAD and Simulate. Agents drive all of it through the same tools; ⌘K "Start a design pipeline: …" | done | |
 | | Release → BomForm | stub | Completes the stage; nothing is written to BomForm yet |
+| **The floor** (2026-11-02, Josh: the left pane drawn on the grid's dot layer, tabs at the top, T3-style sessions that work on the grid, search on the right with drag-to-grid, resizable panes) | The top bar, side pane, an open session and search are drawn on the paper; the cards are masked out where they are (56 px fade) and the view slides over by half a pane as one opens, so nothing hides under them; framing fits what's left. Every pane resizes from its inner edge; widths, open tabs and the open panes are remembered | done | `docs/evidence/2026-11-02_floor/`. The mask needs its own compositor layer (NOTES.md) |
+| | **Top bar**: fold · tabs (the board, then sessions; ⌘1 board, ⌘2…9, ⌘W) · ＋ new session (⌘J) · people · search ⌘F · commands ⌘K · agent layer · present | done | |
+| | **Agent sessions**: each tab is its own conversation (`session` on `/api/agent`; runs keep `session_id` and the Claude Code session, so a tab resumes after a reload or a server restart). The tab shows the goal and steps the agent keeps with the new `set_plan` tool, every tool step (↗ frames the card it names), and rings the cards it touched on the grid. A run keeps streaming while its tab is in the background | done | Verified with one real subscription turn: plan 0/3 → 3/3, section + two notes made, step ↗ framed the note, rings on all three. `apps/server/test/sessions.test.ts` |
+| | **Vision Code threads** in the side pane and as read-only tabs: messages, reasoning, tool steps (last state per call), proposed plan, status (running / waiting on you / error), "Open in Vision Code ↗". Read from `<T3CODE_HOME>/userdata/state.sqlite`, read-only — no token, nothing written | partial | Read path verified against Josh's 100 threads. Replying happens in Vision Code. The link opens T3's web UI, which wants its own sign-in outside the Vision app |
+| | **Search pane** (⌘F, right): filters with counts, images as tiles, recent files + apps before typing. Press opens (as ⌘K); drag places the card floating where it's dropped, the section under the pointer ringed | done | Verified: dragged a STEP result into a section. Board results already on the board frame instead of copying |
 | **Chrome on call** (2026-11-02) | No top capsule, no logo, no grid reticle. A collapsible side pane (⌘\, remembered) holds boards, tools, activity and settings; a small search pill + zoom at the bottom opens ⌘K. The camera rests wherever pan / pinch / wheel leave it; only the keyboard (0, F, ⇧1/⇧2, arrows) snaps to framings; double-click zooms in on the card or section under the pointer (once framed, the double-click goes through to edit), or 2× on empty paper | done | `docs/evidence/2026-11-02_chrome-on-call/`. Checked: a throw comes to rest at its own position (no snap) |
 | | Cards rest without a bar; a glass bar drops in on hover. Images and video have no bar: mute / remove icons slide out from behind the card, the card is the drag handle, a tap plays/pauses video. Pipeline stages name themselves in their body | done | Tables and maps keep their own headers |
 | | Sections: track lines and gutters only where they divide sections — seams inside a merged section are invisible until hovered. Drag a section past any board edge to append it along that whole side (new track, sized like the section, capped at a normal track); its hole is absorbed by an aligned neighbour | done | Checked in the browser: dropped below the board → full-width row, pipeline section widened into the hole |
@@ -199,7 +204,7 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | File search (BM25 FTS) | `search.ts` | ported (lexical). Semantic (e5/SigLIP + RRF k=60) deferred |
 | Slack search | `search.messages` with a user token | simplified. flowform's per-user OAuth + mirrored visibility is the target (§8) |
 | Messaging (DMs, channels, threads) | — | deferred: the board's activity + asks cover v0; Slack stays the chat |
-| Code tab (T3 gateway, Codex/Claude Code) | Agent dock (subscription runtime); T3 bridge planned | partial |
+| Code tab (T3 gateway, Codex/Claude Code) | Session tabs (subscription runtime, goals + steps); Vision Code threads read-only in the side pane | partial |
 | LOD, media residency, viewport culling, iframe snapshots | zoom-gated frames, IO-mounted panels, idle shader, memoised layout | partial (§5) |
 | Gantt / Timeline & tasks | — | **dropped** (as asked) |
 | Digital twin (factory sim, Kapaʻa 3D, mechanical/electrical benches, deployments, demo scenes) | — | **dropped** (as asked). FactoryForm owns the twin |
@@ -214,7 +219,7 @@ One definition (`apps/server/src/tools.ts`), three doors: the built-in agent, `/
 | Category | Tools |
 |---|---|
 | Reading | `read_board`, `search`, `company`, `read_file`, `read_repo`, `find_repo`, `app_tools` |
-| Organizing | `add_section`, `add_note`, `update_card`, `delete_card` (confirm), `focus` |
+| Organizing | `add_section`, `add_note`, `update_card`, `delete_card` (confirm), `focus`, `set_plan` (the goal and steps a session tab shows; writes nothing) |
 | Apps | `add_panel` (app, link, machine, connector, agent), `connect`, `send_to_port`, `call_app_tool` |
 | People and studios | `ask_person` (Hermes), `vision_brief`, `reverse_engineer` (REA, person-run) |
 | Huddles and Slack | `open_huddle`, `huddle_transcript` (read), `add_slack_channel`, `slack_read`. Agents read Slack; posting stays with people on the card |
@@ -293,6 +298,11 @@ Every integration is off until its key exists; the server always starts. Copy `.
 - **Huddle state lives on the panel object**, which the server writes when people join or leave. A person moving the card at the same moment can overwrite it (last writer per object, as with notes) until the next join or leave.
 - **Slack is polled, not pushed**: 5 s while a card is on screen. Threads show a reply count but can't be opened. Socket Mode would make it live without a public URL.
 - **Inviting a channel to a brand-new huddle waits 400 ms** for the new card to sync before the server can name it. A server-side create-and-invite would remove the wait.
+- **Voice input went with the agent dock.** Session tabs take typing only; bring the mic back to the composer.
+- **With a session and search both open, the grid gets the strip between them** (about 230 px at 1440 wide). Narrow either pane, or fold the side pane.
+- **The floor's fade is a mask over the whole world layer.** Measured smooth here, but it's one more full-screen composite; profile on a big board.
+- **Touched-card rings come from ids in tool inputs and results**, so a card a tool changed without naming it (rare) goes unringed.
+- **Agent session transcripts are saved when a turn ends**: reload mid-turn and the running turn shows only after it finishes.
 - **Cards at rest have no title** (by design); a connector shown as a card (not hosted) reads by its body only. Hosted apps and pipeline stages name themselves.
 
 ---
