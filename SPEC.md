@@ -2,7 +2,7 @@
 
 > The company brain of Form Industries: one shared grid where people, the apps we build, and the agents that work with us meet. This document is the plan every session (human or agent) builds from. **DESIGN.md** is its visual contract. Status is honest: _done_ means it ran and was checked; _partial_ and _stub_ say what's missing.
 
-Last updated 2026-11-02 · branch `main` · evidence in `docs/evidence/2026-11-02_foundation-v0/`
+Last updated 2026-11-02 · branch `main` · evidence in `docs/evidence/2026-11-02_foundation-v0/` (Flowform import: `docs/evidence/2026-11-02_flowform-import/`)
 
 ---
 
@@ -145,7 +145,9 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | Area | Feature | Status | Notes |
 |---|---|---|---|
 | **Monorepo** | npm workspaces, `npm run dev` runs both, Tauri still builds the client | done | Client moved to `apps/client` with `git mv` (history kept). Port 1430: Vision owns 1420 |
-| **Auth** | Google through flowform-server: flowform's own client, PKCE and signup allowlist. Foundation verifies the hand-off at `/auth/me` (email_verified), revokes flowform's bearer and mints its own session. The web path is bound to the browser that started it; the desktop path uses the system browser and the window polls. Also dev login (allowlist), an optional own Google client, hashed 30-day sessions, and the service token | done (`test/flowform.test.ts`; live hand-off to Google verified) | Flowform admins become Foundation admins. Viewers are refused unless `FLOWFORM_ADMIT_VIEWERS=1` |
+| **Auth** | Google through flowform-server: flowform's own client, PKCE and signup allowlist. Foundation verifies the hand-off at `/auth/me` (email_verified), revokes flowform's bearer and mints its own session. The web path is bound to the browser that started it; the desktop path uses the system browser and the window polls. Also dev login (allowlist), an optional own Google client, hashed 30-day sessions, and the service token | done (`test/flowform.test.ts`; live hand-off to Google verified again 2026-11-02, `docs/evidence/2026-11-02_flowform-import/signin.txt`) | Flowform admins become Foundation admins. Viewers are refused unless `FLOWFORM_ADMIT_VIEWERS=1`. A person is matched by Flowform user id before email, so someone the importer linked keeps their boards if their address changes. Completing Google's own page needs the person |
+| **Flowform import** (2026-11-02) | `npm run import:flowform -w @foundation/server -- current.tar.gz --media-dir …` reads Flowform's own daily backup (SQLite snapshot + Yjs v2 room files + agent action rows) read-only. Each room becomes a board `ff-<room>`, each canvas a section, cards become notes / tables / media / file, app and link panels, and media bytes go into files. Room members become board members. Re-runnable through a ledger: upstream changes land only on untouched cards; edits and removals made here win; nothing is deleted. `--dry-run` rehearses on a copy. Mapping and unmapped kinds are in `docs/flowform-import.md` | done on fixtures (`test/flowform-import.test.ts`, 6; `docs/evidence/2026-11-02_flowform-import/`) | Not yet run on production: needs the backup archive and its media (§6 #13). Fixture rooms were written by Flowform's own card writers |
+| **Board membership** (2026-11-02) | `board_members` (owner / editor / viewer). A board with members is members-only for list, sync, tools, MCP, files, search and asks; boards without members stay open; admins and the service token pass | done (`test/flowform-import.test.ts`, `access.txt`) | Viewer writes are not dropped yet (§7). No UI to manage members; imported rooms bring theirs |
 | **Sync** | Yjs board docs, y-protocols wire, update log + compaction, reconnect with backoff, presence/awareness | done | Agent edits verified streaming live into an open browser |
 | | Peer cursors | partial | Code done; needs a second signed-in person to verify by eye |
 | **Grid** | Original Foundation grid (sections, tracks, springs, tables with formulas, maps, notes, media) | done | Now night-aware and on tokens. Layout memoised per state |
@@ -203,6 +205,7 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | LOD, media residency, viewport culling, iframe snapshots | zoom-gated frames, IO-mounted panels, idle shader, memoised layout | partial (§5) |
 | Gantt / Timeline & tasks | — | **dropped** (as asked) |
 | Digital twin (factory sim, Kapaʻa 3D, mechanical/electrical benches, deployments, demo scenes) | — | **dropped** (as asked). FactoryForm owns the twin |
+| Rooms, room_members, room media (S3) | `flowform-import.ts`, `members.ts`, `files.ts` | imported from Flowform's data backup, re-runnable (`docs/flowform-import.md`). Groups, card arrows, dataflow wires, directives, floor plans, camera feeds and board jumps are counted, not carried |
 | Admin (users, audit, crashes, maintenance) | — | deferred |
 
 ---
@@ -266,6 +269,7 @@ Every integration is off until its key exists; the server always starts. Copy `.
 | 10 | **REA** | Reverse engineering | `npx rea-agents setup` once (registers REA's MCP with Claude Code; MIT; verify it's `morluto/rea`). Then use Run on a reverse-engineering card |
 | 11 | **Lufga** | Display face | Install the licensed files locally; the stack falls back to Hanken Grotesk. Don't commit them to a public repo |
 | 12 | **Vision ↔ Foundation** | Agents driving Vision | Phase 2 (§8): Foundation will start threads in Vision Code (T3 :3783) the way Vision's own agent does |
+| 13 | **Flowform production import** | Bring Flowform's rooms, media and members across | Read access to Flowform's daily backup archive and its media bucket. The exact production steps, and an optional Flowform-side export that would remove the need for cloud access, are kept with Flowform (private), not in this public repo; `docs/flowform-import.md` §4 has the command shape |
 
 ---
 
@@ -277,6 +281,10 @@ Every integration is off until its key exists; the server always starts. Copy `.
 - **No offline outbox.** The doc lives in memory; a tab closed while offline loses its edits. Add `y-indexeddb`.
 - **WebSocket auth uses the cookie**, which is fine same-origin. A remote Tauri client needs a header-capable transport (ticket exchange, like T3's `websocket-ticket`).
 - **The REA job runner and the Vision brief are unexercised end to end.**
+- **Imported viewers can write.** `board_members.role = 'viewer'` gates nothing yet beyond seeing the board; drop their writes in `attachConnection` and `runTool` (phase 1's viewer role).
+- **The Flowform import is lossy by design** (see `docs/flowform-import.md` §3). Rich-text formatting, sticky colours, image crop/rotation, to-do assignees, groups, arrows between cards, dataflow wires, directives, floor plans, camera feeds, board jumps and plane frames are not carried. Table formulas arrive as their shown text. Media takes the `source` rendition, so a HEIC or MOV original may not play in a browser where Flowform showed its display/playback variant.
+- **The Flowform import needs the server stopped** (it refuses while the port answers): the server holds boards in memory and its compaction would drop updates written by another process. An admin job inside the server would lift this.
+- **Members can't be managed in the UI** (`GET /api/boards/:id/members` only lists). A board whose members all leave Flowform stays members-only here.
 - **The ASCII wind shows nothing under reduced motion**, on machines without WebGL2, or on software renderers — the Details original's choice; the sign-in page is plain paper there. It also fades out while the window is unfocused.
 - **Hidden windows pause `requestAnimationFrame`.** Overlays catch up when shown. `?rafshim` (dev) drives frames from a timer for headless capture.
 - **Panel iframes use `sandbox` with `allow-same-origin`**, so a hostile app on the same origin could escape. Only add apps you trust; serve third-party apps from their own origins.

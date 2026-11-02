@@ -24,7 +24,7 @@ function ftsQuery(q: string): string {
   return terms.map((t) => `"${t}"*`).join(" ");
 }
 
-export function searchLocal(q: string, boardId?: string, limit = 30): SearchHit[] {
+export function searchLocal(q: string, boardId?: string, limit = 30, hidden?: Set<string>): SearchHit[] {
   const match = ftsQuery(q);
   if (!match) return [];
   const rows = all<{ source: string; ref: string; board_id: string | null; title: string; snip: string; rank: number }>(
@@ -33,7 +33,8 @@ export function searchLocal(q: string, boardId?: string, limit = 30): SearchHit[
        order by rank limit ?`,
     ...(boardId ? [match, boardId, limit] : [match, limit]),
   );
-  return rows.map((r) => ({
+  // members-only boards a person isn't on stay out of their results (members.ts)
+  return rows.filter((r) => !(r.board_id && hidden?.has(r.board_id))).map((r) => ({
     source: r.source as SearchHit["source"],
     id: `${r.source}:${r.ref}`,
     title: r.title,
@@ -91,8 +92,8 @@ export function searchApps(q: string): SearchHit[] {
   ).map((a) => ({ source: "app" as const, id: `app:${a.id}`, title: a.name, snippet: a.description ?? a.url ?? "", url: a.url, score: 2 }));
 }
 
-export async function searchAll(q: string, opts: { boardId?: string; remote?: boolean } = {}): Promise<{ hits: SearchHit[]; sources: Record<string, number> }> {
-  const local = searchLocal(q, opts.boardId);
+export async function searchAll(q: string, opts: { boardId?: string; remote?: boolean; hidden?: Set<string> } = {}): Promise<{ hits: SearchHit[]; sources: Record<string, number> }> {
+  const local = searchLocal(q, opts.boardId, 30, opts.hidden);
   const apps = searchApps(q);
   const [slack, github] = opts.remote === false ? [[], []] : await Promise.all([withTimeout(searchSlack(q), []), withTimeout(searchGithub(q), [])]);
   const hits = [...apps, ...local, ...slack, ...github];

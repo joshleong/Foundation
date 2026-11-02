@@ -156,7 +156,11 @@ export function admitFlowformUser(me: FlowformMe): UserInfo {
     throw new HttpError(403, `Flowform's address for this account (${me.email}) isn't the one Google verified for it`);
   }
   if (me.role === "viewer" && !config.flowformAdmitViewers) throw new HttpError(403, "This Flowform account is view-only");
-  const user = upsertUser(me.email, me.display_name);
+  // the flowform id wins over the email: a person the importer already linked
+  // (with their board memberships) stays that person if their address changed
+  const linked = one<UserInfo>("select id, email, name, color, role from users where flowform_user_id = ?", me.user_id);
+  const user = linked ?? upsertUser(me.email, me.display_name);
+  if (linked && me.display_name && me.display_name !== linked.name) run("update users set name = ? where id = ?", me.display_name, linked.id);
   run("update users set flowform_user_id = ? where id = ?", me.user_id, user.id);
   // flowform's admins are Foundation's admins (as are FOUNDATION_ADMIN_EMAILS)
   if (me.role === "admin" || me.is_admin) {
