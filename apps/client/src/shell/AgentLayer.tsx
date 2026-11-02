@@ -1,84 +1,89 @@
 /**
- * The meta layer above the grid: app-to-app wires between ports (always
- * drawn, faint; bright with the agent layer on), drag-to-connect from an
- * output port, and the rings agents leave on the cards they're working on.
+ * The meta layer above the grid: app and pipeline wires drawn by Vision's
+ * flow-diagram rules (wireGeometry.ts) — 45° roads with straight leads,
+ * parallel lanes into shared cards, tunnels where one wire passes under
+ * another — plus the rings agents leave on the cards they're working on.
  *
- * Geometry runs imperatively per frame and only writes the DOM when a path
- * actually changed, so a still board costs nothing.
+ * Wires are interactive: hover shows what flows, click selects (Delete
+ * removes), drag from an output magnetises to compatible inputs within 32 px,
+ * and grabbing a connected input lifts its wire off to re-route or drop.
+ *
+ * Geometry runs per frame but writes the DOM only when a route changes;
+ * crossings are recomputed only when the set of routes changes.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LinkDoc } from "@foundation/protocol";
-import { addLink, getState, gridSize, objectWorldRect, uid, updatePanel, useAppState, type PanelMeta } from "../state/store";
-import { useUi } from "../state/ui";
+import { addLink, getState, gridSize, objectWorldRect, removeLink, uid, updatePanel, useAppState, type PanelMeta } from "../state/store";
+import { toast, useUi } from "../state/ui";
 import { useBoardTick } from "./Presence";
 import { toWorld, camera } from "../state/camera";
+import { pipeCrossings, polyline, route, tunnelGeometry, typesCompatible, type P } from "./wireGeometry";
+import { describeValue, portLayout, portPoint, toneOf } from "./ports";
 
-const PORT_GAP = 26;
-const PORT_TOP = 52;
+const SNAP_RADIUS = 32;
 
-/** world position of a port on a panel: outputs on the right edge, inputs on the left */
-export function portPoint(p: PanelMeta, portId: string) {
-  const r = objectWorldRect(p);
-  if (!r) return null;
-  const port = p.ports.find((x) => x.id === portId);
-  if (!port) return null;
-  const same = p.ports.filter((x) => x.dir === port.dir);
-  const i = same.indexOf(port);
-  return { x: port.dir === "out" ? r.x + r.w : r.x, y: r.y + PORT_TOP + i * PORT_GAP };
-}
+// ---------- drag to connect (magnetic) ----------
 
-/**
- * A wire from an output (right edge) to an input (left edge). Forward wires
- * are one smooth S; backward wires (the target sits left of the source) loop
- * out, around through a lane between the cards, and back in, instead of
- * cutting straight across the board.
- */
-type Rect = { x: number; y: number; w: number; h: number };
-
-function wireGeometry(a: { x: number; y: number }, b: { x: number; y: number }, ra?: Rect | null, rb?: Rect | null) {
-  if (b.x >= a.x + 40) {
-    const k = Math.max(60, (b.x - a.x) * 0.5);
-    return { d: `M ${a.x} ${a.y} C ${a.x + k} ${a.y}, ${b.x - k} ${b.y}, ${b.x} ${b.y}`, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
-  }
-  const k = 90;
-  // the lane runs through the gap between the two cards' rows, or under both
-  let lane = Math.max(a.y, b.y) + 150;
-  if (ra && rb) {
-    const [top, bottom] = ra.y < rb.y ? [ra, rb] : [rb, ra];
-    lane = top.y + top.h < bottom.y ? (top.y + top.h + bottom.y) / 2 : Math.max(ra.y + ra.h, rb.y + rb.h) + 44;
-  }
-  const mx = (a.x + b.x) / 2;
-  return {
-    d: `M ${a.x} ${a.y} C ${a.x + k} ${a.y}, ${a.x + k} ${lane}, ${mx} ${lane} C ${b.x - k} ${lane}, ${b.x - k} ${b.y}, ${b.x} ${b.y}`,
-    mx,
-    my: lane,
-  };
-}
-
-function pathFor(a: { x: number; y: number }, b: { x: number; y: number }) {
-  return wireGeometry(a, b).d;
-}
-
-// ---------- drag to connect ----------
-
-type Drag = { from: { panel: string; port: string }; x: number; y: number; over: string | null };
+type Drag = {
+  from: { panel: string; port: string };
+  type?: string;
+  x: number;
+  y: number;
+  snap: { panel: string; port: string; x: number; y: number } | null;
+  /** a card under the pointer with no compatible port in reach — dropping uses or creates one */
+  overPanel: string | null;
+  detached?: LinkDoc;
+};
 let drag: Drag | null = null;
 const dragListeners = new Set<() => void>();
 const notifyDrag = () => dragListeners.forEach((f) => f());
 
-/** start a connection from an output port (called by the port dot's pointerdown) */
-export function beginConnect(e: React.PointerEvent, panel: string, port: string) {
-  e.stopPropagation();
-  e.preventDefault();
-  const at = () => toWorld(e.clientX - camera.left, e.clientY - camera.top);
-  drag = { from: { panel, port }, ...at(), over: null };
+function portType(panelId: string, portId: string) {
+  return getState().panels[panelId]?.ports.find((p) => p.id === portId)?.type;
+}
+
+/** light up every input this wire could land on; mark the one it's snapped to */
+function markTargets(on: boolean) {
+  document.body.classList.toggle("is-connecting", on);
+  document.querySelectorAll<HTMLElement>(".port.port-in").forEach((el) => {
+    const compatible = on && drag && el.dataset.panel !== drag.from.panel && typesCompatible(drag.type, el.dataset.type);
+    el.classList.toggle("is-target", Boolean(compatible));
+    el.classList.toggle("is-snap", Boolean(on && drag?.snap && el.dataset.portId === drag.snap.port));
+  });
+}
+
+function startDrag(e: React.PointerEvent, from: { panel: string; port: string }, detached?: LinkDoc) {
+  const w = toWorld(e.clientX - camera.left, e.clientY - camera.top);
+  drag = { from, type: portType(from.panel, from.port), x: w.x, y: w.y, snap: null, overPanel: null, detached };
+  markTargets(true);
   notifyDrag();
+
   const move = (ev: PointerEvent) => {
     if (!drag) return;
-    const w = toWorld(ev.clientX - camera.left, ev.clientY - camera.top);
+    const p = toWorld(ev.clientX - camera.left, ev.clientY - camera.top);
+    let best: Drag["snap"] = null;
+    let bestD = SNAP_RADIUS;
+    const st = getState();
+    const links = Object.values(st.links);
+    for (const panel of Object.values(st.panels)) {
+      if (panel.id === drag.from.panel) continue;
+      for (const port of panel.ports) {
+        if (port.dir !== "in" || !typesCompatible(drag.type, port.type)) continue;
+        const pt = portPoint(panel, port.id, undefined, links);
+        if (!pt) continue;
+        const dist = Math.hypot(pt.x - p.x, pt.y - p.y);
+        if (dist < bestD) {
+          bestD = dist;
+          best = { panel: panel.id, port: port.id, x: pt.x, y: pt.y };
+        }
+      }
+    }
     const hit = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest<HTMLElement>("[data-panel-id]");
-    drag = { ...drag, x: w.x, y: w.y, over: hit?.dataset.panelId && hit.dataset.panelId !== panel ? hit.dataset.panelId : null };
+    const over = hit?.dataset.panelId && hit.dataset.panelId !== drag.from.panel ? hit.dataset.panelId : null;
+    const changed = best?.port !== drag.snap?.port;
+    drag = { ...drag, x: p.x, y: p.y, snap: best, overPanel: best ? null : over };
+    if (changed) markTargets(true);
     notifyDrag();
   };
   const up = () => {
@@ -86,24 +91,58 @@ export function beginConnect(e: React.PointerEvent, panel: string, port: string)
     window.removeEventListener("pointerup", up);
     const d = drag;
     drag = null;
+    markTargets(false);
     notifyDrag();
-    if (!d?.over) return;
+    if (!d) return;
     const st = getState();
-    const src = st.panels[d.from.panel];
-    const dst = st.panels[d.over];
-    if (!src || !dst) return;
-    const outPort = src.ports.find((p) => p.id === d.from.port);
-    let inPort = dst.ports.find((p) => p.dir === "in" && (p.name === outPort?.name || p.type === outPort?.type));
-    if (!inPort) inPort = dst.ports.find((p) => p.dir === "in");
-    if (!inPort) {
-      inPort = { id: uid("port"), name: outPort?.name ?? "in", dir: "in", type: outPort?.type };
-      updatePanel(dst.id, { ports: [...dst.ports, inPort] });
+    let to = d.snap ? { panel: d.snap.panel, port: d.snap.port } : null;
+    if (!to && d.overPanel) {
+      const dst = st.panels[d.overPanel];
+      if (dst) {
+        const name = st.panels[d.from.panel]?.ports.find((p) => p.id === d.from.port)?.name ?? "in";
+        let inPort = dst.ports.find((p) => p.dir === "in" && typesCompatible(d.type, p.type));
+        if (!inPort) {
+          inPort = { id: uid("port"), name, dir: "in", type: d.type };
+          updatePanel(dst.id, { ports: [...dst.ports, inPort] });
+        }
+        to = { panel: dst.id, port: inPort.id };
+      }
     }
-    const exists = Object.values(st.links).some((l) => l.from.port === d.from.port && l.to.port === inPort!.id);
-    if (!exists) addLink({ from: d.from, to: { panel: dst.id, port: inPort.id }, label: outPort?.name });
+    if (!to) {
+      if (d.detached) toast("Disconnected");
+      return;
+    }
+    const exists = Object.values(st.links).some((l) => l.from.port === d.from.port && l.to.port === to!.port);
+    if (!exists) addLink({ from: d.from, to, label: d.detached?.label ?? st.panels[d.from.panel]?.ports.find((p) => p.id === d.from.port)?.name });
   };
   window.addEventListener("pointermove", move);
   window.addEventListener("pointerup", up);
+}
+
+/** Drag a new wire out of an output port. */
+export function beginConnect(e: React.PointerEvent, panel: string, port: string) {
+  e.stopPropagation();
+  e.preventDefault();
+  startDrag(e, { panel, port });
+}
+
+/** Grab a connected input: lift the wire landing nearest the pointer off it, to re-route or drop. */
+export function beginDetach(e: React.PointerEvent, panel: string, port: string) {
+  const st = getState();
+  const attached = Object.values(st.links).filter((l) => l.to.panel === panel && l.to.port === port);
+  if (!attached.length) return;
+  e.stopPropagation();
+  e.preventDefault();
+  const p = toWorld(e.clientX - camera.left, e.clientY - camera.top);
+  const all = Object.values(st.links);
+  const target = st.panels[panel];
+  const dist = (l: LinkDoc) => {
+    const pt = target ? portPoint(target, port, l.id, all) : null;
+    return pt ? Math.hypot(pt.x - p.x, pt.y - p.y) : 1e9;
+  };
+  const nearest = [...attached].sort((a, b) => dist(a) - dist(b))[0];
+  removeLink(nearest.id);
+  startDrag(e, nearest.from, nearest);
 }
 
 function useDrag() {
@@ -118,6 +157,59 @@ function useDrag() {
   return drag;
 }
 
+// ---------- routes ----------
+
+interface Frame {
+  pts: P[];
+  d: string;
+}
+
+function routesFor(links: LinkDoc[]): Map<string, Frame> {
+  const st = getState();
+  const frames = new Map<string, Frame>();
+  // lanes: wires into the same card share a run, centred and ordered by where they come from; same out of a card
+  const intoCard = new Map<string, LinkDoc[]>();
+  const outOfCard = new Map<string, LinkDoc[]>();
+  for (const l of links) {
+    if (!intoCard.has(l.to.panel)) intoCard.set(l.to.panel, []);
+    if (!outOfCard.has(l.from.panel)) outOfCard.set(l.from.panel, []);
+    intoCard.get(l.to.panel)!.push(l);
+    outOfCard.get(l.from.panel)!.push(l);
+  }
+  const yOf = (id: string) => {
+    const p = st.panels[id];
+    return (p && objectWorldRect(p)?.y) ?? 0;
+  };
+  const laneOf = new Map<string, number>();
+  const srcLaneOf = new Map<string, number>();
+  for (const list of intoCard.values())
+    [...list].sort((a, b) => yOf(a.from.panel) - yOf(b.from.panel) || a.id.localeCompare(b.id)).forEach((l, i, arr) => laneOf.set(l.id, i - (arr.length - 1) / 2));
+  for (const list of outOfCard.values())
+    [...list].sort((a, b) => yOf(a.to.panel) - yOf(b.to.panel) || a.id.localeCompare(b.id)).forEach((l, i, arr) => srcLaneOf.set(l.id, i - (arr.length - 1) / 2));
+
+  for (const l of links) {
+    const a = st.panels[l.from.panel];
+    const b = st.panels[l.to.panel];
+    if (!a || !b) continue;
+    const pa = portPoint(a, l.from.port, l.id, links);
+    const pb = portPoint(b, l.to.port, l.id, links);
+    if (!pa || !pb) continue;
+    const pts = route(pa, pb, { src: objectWorldRect(a), dst: objectWorldRect(b), lane: laneOf.get(l.id) ?? 0, srcLane: srcLaneOf.get(l.id) ?? 0 });
+    frames.set(l.id, { pts, d: polyline(pts) });
+  }
+  return frames;
+}
+
+/** a wire's label sits over the middle of its longest horizontal run */
+function labelAt(pts: P[]) {
+  let best = { x: (pts[0].x + pts[pts.length - 1].x) / 2, y: (pts[0].y + pts[pts.length - 1].y) / 2, len: -1 };
+  for (let i = 1; i < pts.length; i++) {
+    const len = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    if (Math.abs(pts[i].y - pts[i - 1].y) < 0.5 && len > best.len) best = { x: (pts[i].x + pts[i - 1].x) / 2, y: pts[i].y, len };
+  }
+  return best;
+}
+
 // ---------- the layer ----------
 
 export function PortWires() {
@@ -128,62 +220,113 @@ export function PortWires() {
   const groups = useRef(new Map<string, SVGGElement>());
   const ghost = useRef<SVGPathElement>(null);
   const rings = useRef(new Map<string, SVGRectElement>());
+  const [selected, setSelected] = useState<string | null>(null);
+  const [hover, setHover] = useState<{ id: string; x: number; y: number } | null>(null);
 
   const links: LinkDoc[] = useMemo(() => Object.values(state.links), [state.links]);
   const agentFocus = useMemo(() => {
     const out = new Map<string, { name: string }>();
     for (const p of board?.peers() ?? []) if (p.focus) out.set(p.focus, { name: p.user.name });
-    // agents working right now: cards with status running
     for (const p of Object.values(state.panels)) if (p.status === "running") out.set(p.id, { name: p.createdBy ?? "agent" });
     return out;
   }, [board, state.panels, board?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Delete / Backspace removes the selected wire; Esc or a click elsewhere lets go
+  useEffect(() => {
+    if (!selected) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        e.stopPropagation();
+        removeLink(selected);
+        setSelected(null);
+        toast("Connection removed");
+      } else if (e.key === "Escape") setSelected(null);
+    };
+    const onDown = (e: PointerEvent) => {
+      if (!(e.target as Element).closest?.(".pipe-hit")) setSelected(null);
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("pointerdown", onDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("pointerdown", onDown, true);
+    };
+  }, [selected]);
+
   useEffect(() => {
     let raf = 0;
-    const last = new Map<string, string>();
+    const lastD = new Map<string, string>();
+    let lastSignature = "";
     const tick = () => {
-      const st = getState();
+      const frames = routesFor(links);
       for (const l of links) {
         const g = groups.current.get(l.id);
-        const a = st.panels[l.from.panel];
-        const b = st.panels[l.to.panel];
-        const pa = a && portPoint(a, l.from.port);
-        const pb = b && portPoint(b, l.to.port);
+        const f = frames.get(l.id);
         if (!g) continue;
-        if (!pa || !pb) {
+        if (!f) {
           g.style.display = "none";
           continue;
         }
         g.style.display = "";
-        const geo = wireGeometry(pa, pb, objectWorldRect(a), objectWorldRect(b));
-        const dStr = geo.d;
-        if (last.get(l.id) !== dStr) {
-          last.set(l.id, dStr);
-          g.querySelectorAll("path").forEach((p) => p.setAttribute("d", dStr));
-          const [c1, c2] = g.querySelectorAll("circle");
-          c1?.setAttribute("cx", String(pa.x));
-          c1?.setAttribute("cy", String(pa.y));
-          c2?.setAttribute("cx", String(pb.x));
-          c2?.setAttribute("cy", String(pb.y));
-          const label = g.querySelector("text");
-          if (label) {
-            label.setAttribute("x", String(geo.mx));
-            label.setAttribute("y", String(geo.my - 8));
-          }
+        if (lastD.get(l.id) === f.d) continue;
+        lastD.set(l.id, f.d);
+        g.querySelectorAll<SVGPathElement>("path[data-route]").forEach((p) => p.setAttribute("d", f.d));
+        // the tunnel mask covers just this wire (+40 px): a huge mask fails to rasterise
+        const xs = f.pts.map((p) => p.x);
+        const ys = f.pts.map((p) => p.y);
+        const box = { x: Math.min(...xs) - 40, y: Math.min(...ys) - 40, width: Math.max(...xs) - Math.min(...xs) + 80, height: Math.max(...ys) - Math.min(...ys) + 80 };
+        const mask = g.querySelector("mask");
+        const rect = mask?.querySelector("rect");
+        for (const [k, v] of Object.entries(box)) {
+          mask?.setAttribute(k, String(v));
+          rect?.setAttribute(k, String(v));
+        }
+        const ends = g.querySelectorAll("circle");
+        ends[0]?.setAttribute("cx", String(f.pts[0].x));
+        ends[0]?.setAttribute("cy", String(f.pts[0].y));
+        ends[1]?.setAttribute("cx", String(f.pts[f.pts.length - 1].x));
+        ends[1]?.setAttribute("cy", String(f.pts[f.pts.length - 1].y));
+        const label = g.querySelector("text");
+        if (label) {
+          const at = labelAt(f.pts);
+          label.setAttribute("x", String(at.x));
+          label.setAttribute("y", String(at.y - 9));
+        }
+      }
+      // over / under: tunnels recomputed only when some route moved
+      const signature = [...frames.values()].map((f) => f.d).join("|");
+      if (signature !== lastSignature) {
+        lastSignature = signature;
+        const crossings = pipeCrossings([...frames].map(([id, f]) => ({ id, points: f.pts })));
+        for (const [id, f] of frames) {
+          const g = groups.current.get(id);
+          if (!g) continue;
+          const t = tunnelGeometry(f.pts, crossings.get(id) ?? [], 13);
+          g.querySelector(".tunnel-cut")?.setAttribute("d", t.cut);
+          g.querySelector(".pipe-terminal")?.setAttribute("d", t.terminals);
+          g.classList.toggle("is-under", t.cut.length > 0);
         }
       }
       if (ghost.current && drag) {
-        const a = st.panels[drag.from.panel];
+        const a = getState().panels[drag.from.panel];
         const pa = a && portPoint(a, drag.from.port);
-        if (pa) ghost.current.setAttribute("d", pathFor(pa, { x: drag.x, y: drag.y }));
+        if (pa) {
+          const end = drag.snap ?? { x: drag.x, y: drag.y };
+          ghost.current.setAttribute("d", polyline(route(pa, end, { leadOut: drag.snap ? 48 : 0, src: objectWorldRect(a) })));
+          ghost.current.classList.toggle("is-snapped", Boolean(drag.snap));
+        }
       }
       for (const [id, rect] of rings.current) {
+        const st = getState();
         const o = st.panels[id] ?? st.notes[id] ?? st.tables[id] ?? st.media[id] ?? st.maps[id];
         const r = o && objectWorldRect(o);
         if (!r) continue;
         const key = `${r.x},${r.y},${r.w},${r.h}`;
-        if (last.get(`ring:${id}`) === key) continue;
-        last.set(`ring:${id}`, key);
+        if (lastD.get(`ring:${id}`) === key) continue;
+        lastD.set(`ring:${id}`, key);
         rect.setAttribute("x", String(r.x - 8));
         rect.setAttribute("y", String(r.y - 8));
         rect.setAttribute("width", String(r.w + 16));
@@ -197,41 +340,89 @@ export function PortWires() {
 
   const size = gridSize(state.grid);
   if (links.length === 0 && !d && agentFocus.size === 0) return null;
+  const hovered = hover ? state.links[hover.id] : undefined;
+  const hoverValue = hovered ? state.panels[hovered.from.panel]?.outputs?.[hovered.from.port] : undefined;
 
   return (
-    <svg className={`port-layer${ui.agentLayer ? " is-on" : ""}`} width={size.w} height={size.h} style={{ overflow: "visible" }}>
-      {[...agentFocus.entries()].map(([id, a]) => (
-        <g key={`ring-${id}`} className="agent-ring">
-          <rect
-            rx={14}
-            ref={(el) => {
-              if (el) rings.current.set(id, el);
-              else rings.current.delete(id);
-            }}
-          />
-          <title>{a.name} is working here</title>
-        </g>
-      ))}
-      {links.map((l) => {
-        const live = state.panels[l.from.panel]?.outputs?.[l.from.port] !== undefined;
-        return (
-          <g
-            key={l.id}
-            className={`port-wire${live ? " is-live" : ""}`}
-            ref={(el) => {
-              if (el) groups.current.set(l.id, el);
-              else groups.current.delete(l.id);
-            }}
-          >
-            <path className="port-wire-glow" />
-            <path className="port-wire-line" />
-            <circle r={4.5} className="port-wire-end" />
-            <circle r={4.5} className="port-wire-end" />
-            {l.label && <text className="port-wire-label">{l.label}</text>}
+    <>
+      <svg className={`port-layer${ui.agentLayer ? " is-on" : ""}${d ? " is-dragging" : ""}`} width={size.w} height={size.h} style={{ overflow: "visible" }}>
+        {[...agentFocus.entries()].map(([id, a]) => (
+          <g key={`ring-${id}`} className="agent-ring">
+            <rect
+              rx={14}
+              ref={(el) => {
+                if (el) rings.current.set(id, el);
+                else rings.current.delete(id);
+              }}
+            />
+            <title>{a.name} is working here</title>
           </g>
-        );
-      })}
-      {d && <path ref={ghost} className="port-wire-ghost" />}
-    </svg>
+        ))}
+        {links.map((l) => {
+          const type = portType(l.from.panel, l.from.port);
+          const live = state.panels[l.from.panel]?.outputs?.[l.from.port] !== undefined;
+          return (
+            <g
+              key={l.id}
+              className={`pipe${live ? " is-live" : ""}${selected === l.id ? " is-selected" : ""}${hover?.id === l.id ? " is-hover" : ""}`}
+              style={{ ["--wire-tone" as string]: toneOf(type) }}
+              ref={(el) => {
+                if (el) groups.current.set(l.id, el);
+                else groups.current.delete(l.id);
+              }}
+            >
+              <defs>
+                <mask id={`tun-${l.id}`} maskUnits="userSpaceOnUse">
+                  <rect fill="white" />
+                  <path className="tunnel-cut" fill="black" />
+                </mask>
+              </defs>
+              <path className="pipe-trace" data-route />
+              <g mask={`url(#tun-${l.id})`}>
+                <path className="pipe-lane" data-route />
+                <path className="pipe-wire" data-route />
+                <path className="pipe-pulse" data-route />
+              </g>
+              <path className="pipe-terminal" />
+              <circle r={3.5} className="pipe-end" />
+              <circle r={3.5} className="pipe-end" />
+              {l.label && <text className="pipe-label">{l.label}</text>}
+              <path
+                className="pipe-hit"
+                data-route
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  setSelected(l.id);
+                }}
+                onPointerEnter={(e) => {
+                  const w = toWorld(e.clientX - camera.left, e.clientY - camera.top);
+                  setHover({ id: l.id, x: w.x, y: w.y });
+                }}
+                onPointerLeave={() => setHover(null)}
+              />
+            </g>
+          );
+        })}
+        {d && <path ref={ghost} className={`pipe-ghost${d.snap ? " is-snapped" : ""}`} style={{ ["--wire-tone" as string]: toneOf(d.type) }} />}
+      </svg>
+      {hovered && hover && (
+        <div className="pipe-tip" style={{ transform: `translate3d(${hover.x}px, ${hover.y}px, 0) scale(${1 / camera.scale})` }}>
+          <b>
+            {hovered.label ?? "data"} <i style={{ color: toneOf(portType(hovered.from.panel, hovered.from.port)) }}>{portType(hovered.from.panel, hovered.from.port) ?? "json"}</i>
+          </b>
+          <span>
+            {state.panels[hovered.from.panel]?.name} → {state.panels[hovered.to.panel]?.name}
+          </span>
+          <span className="pipe-tip-value">{describeValue(hoverValue)}</span>
+          <span className="pipe-tip-hint">click to select · ⌫ removes</span>
+        </div>
+      )}
+    </>
   );
+}
+
+/** the shared port layout for a card (PanelView renders its pills from this) */
+export function usePortLayout(panel: PanelMeta) {
+  const state = useAppState();
+  return useMemo(() => portLayout(panel, Object.values(state.links)), [panel, state.links]); // eslint-disable-line react-hooks/exhaustive-deps
 }

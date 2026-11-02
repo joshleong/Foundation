@@ -10,6 +10,7 @@ import { durations, easings, isNight, setNight, springs } from "@foundation/ui";
 import { AsciiWind } from "../login/asciiWind";
 import { Mark } from "../login/Login";
 import { NightOrb } from "../shell/NightOrb";
+import { pipeCrossings, polyline, route, tunnelGeometry } from "../shell/wireGeometry";
 
 const SURFACES = ["void", "abyss", "panel", "raise"];
 const INKS = ["frost", "mist", "dim"];
@@ -178,12 +179,8 @@ export function DesignPage() {
             <div className="effect-label">Agent ring · violet, breathing 2.4 s</div>
           </div>
           <div className="effect-card effect-wire">
-            <svg viewBox="0 0 260 120" width="100%" height="120">
-              <path className="port-wire-line demo" d="M 20 90 C 120 90, 140 30, 240 30" />
-              <circle cx="20" cy="90" r="4.5" className="port-wire-end" />
-              <circle cx="240" cy="30" r="4.5" className="port-wire-end" />
-            </svg>
-            <div className="effect-label">App wire · output → input, live dash when data flows</div>
+            <WireDemo />
+            <div className="effect-label">Wires · 45° roads, lanes, and a tunnel where one passes under</div>
           </div>
         </div>
       </Section>
@@ -236,5 +233,46 @@ function Swatch({ name }: { name: string }) {
       <div className="swatch-chip" style={{ background: `var(--color-${name})` }} />
       <code>--color-{name}</code>
     </div>
+  );
+}
+
+/** The wire rules, drawn by the real router: a forward road, a road heading back round two cards, and the crossing between them. */
+function WireDemo() {
+  const cardA = { x: 20, y: 30, w: 70, h: 50 };
+  const cardB = { x: 250, y: 120, w: 70, h: 50 };
+  const cardC = { x: 150, y: 20, w: 70, h: 40 };
+  const forward = route({ x: 90, y: 50 }, { x: 250, y: 140 }, { src: cardA, dst: cardB });
+  const back = route({ x: 220, y: 40 }, { x: 20, y: 60 }, { src: cardC, dst: cardA, lane: 0 });
+  const crossings = pipeCrossings([
+    { id: "a-forward", points: forward },
+    { id: "b-back", points: back },
+  ]);
+  const t = tunnelGeometry(forward, crossings.get("a-forward") ?? [], 13);
+  return (
+    <svg viewBox="0 0 340 200" width="100%" height="200" className="wire-demo">
+      {[cardA, cardB, cardC].map((r, i) => (
+        <rect key={i} x={r.x} y={r.y} width={r.w} height={r.h} rx={6} className="wire-demo-card" />
+      ))}
+      <defs>
+        <mask id="demo-tun" maskUnits="userSpaceOnUse" x={0} y={0} width={340} height={200}>
+          <rect x={0} y={0} width={340} height={200} fill="white" />
+          <path d={t.cut} fill="black" />
+        </mask>
+      </defs>
+      <g className="pipe is-live is-under" style={{ ["--wire-tone" as string]: "var(--viz-2)", ["--pipe-opacity" as string]: 1 }}>
+        <path className="pipe-trace" d={polyline(forward)} />
+        <g mask="url(#demo-tun)">
+          <path className="pipe-lane" d={polyline(forward)} />
+          <path className="pipe-wire" d={polyline(forward)} />
+          <path className="pipe-pulse" d={polyline(forward)} />
+        </g>
+        <path className="pipe-terminal" d={t.terminals} />
+      </g>
+      <g className="pipe is-live" style={{ ["--wire-tone" as string]: "var(--color-pulse)", ["--pipe-opacity" as string]: 1 }}>
+        <path className="pipe-lane" d={polyline(back)} />
+        <path className="pipe-wire" d={polyline(back)} />
+        <path className="pipe-pulse" d={polyline(back)} />
+      </g>
+    </svg>
   );
 }

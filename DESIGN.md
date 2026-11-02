@@ -53,8 +53,7 @@ Never write a hex or `rgba()` in a component; mix tokens (`color-mix(in srgb, va
 | **Capsule** | Glass pill, 48 tall, floating 12 px from the top. Order: brand → board switcher → sync dot → ⌘K field → Layer · Present · Agent → presence → orb → me. One primary at most |
 | **Pill (`.f-pill`)** | Secondary by default; `.is-primary` ink-filled (one per bar); `.is-accent` blue (one forward action); `.is-agent` violet (an agent will act) |
 | **Card (frame)** | Paper on the desk, 8 px radius, 34 px header with grip · glyph + title · actions (repo, MCP, open, ✦ ask, dock/float, ✕). Body clips; ports and rings sit outside it |
-| **Ports** | 12 px rings on the card edge — inputs left, outputs right, 52 px from the top, 26 px apart; filled when carrying a value. Drag from an output to any card to wire |
-| **Wires** | App wires: blue, 1.6 px, faint (28 %) until the agent layer is on; dashed and flowing while data moves. Formula wires: green. Ghost wire while dragging: violet dashed |
+| **Ports** | Pill intakes on the card edge (Vision's pipe-intake): 14 px wide, inputs left, outputs right, from 52 px down, 26 px rows. A port grows 18 px per extra wire so each wire owns a landing, ordered by where its other end sits. Tinted with the type's tone; filled when data is on it. Hover shows name · type · current value · what a drag will do |
 | **Agent ring** | Violet 2 px rounded rect around a card an agent is working on, breathing 2.4 s |
 | **⌘K** | Glass pane, 680 wide, 14 vh from the top. Rows 40 tall: glyph · label · hint · kbd. Search hits lead with a source tag (BOARD / FILE / SLACK / GITHUB / APP) and highlight matches in blue |
 | **Dock** | Glass pane at the right, 420 wide. Steps as violet chips that turn green/red; thinking as three violet dots; your turns ink bubbles |
@@ -63,7 +62,21 @@ Never write a hex or `rgba()` in a component; mix tokens (`color-mix(in srgb, va
 | **Empty section** | Never a void. An eyebrow with the section name, "Bring work here" (display 24), four actions as 2-up cards (open an app ⌘L, drop files ⌘U, ask the agent ⌘J (violet), write a note), then a pill shelf of company apps from the registry |
 | **Section header** | Solid (no blur). Name 14/600, coords as a moss pill, card count as a neutral pill, actions fade in on hover: ◳ app, ⊞ table, ◍ map, ▤ note, ⇪ upload · ◫ ⬓ split · ⤢ expand, ✦ agent (violet), ✕ |
 | **Pipeline stage** | 460×440 card in a 3×2 snake (Brief → Concept → CAD over Simulate → Review → Release), 520/560 px pitch, a fourth column for Vision briefs. Head: stage glyph tile · status pill (Waiting grey, Active blue with a 3 px blue halo on the card, Done green) · owner pill · n/m checklist. Waiting stages dim to 55% except their drop zone, which says what they wait on. Artifacts are 132 px tiles (210 px for CAD and data, so the measurement reads); ★ marks what goes forward. Footer: the hand-off as a violet pill on the left, Complete → (ink) on the right; Review has Request changes / Approve |
-| **Wire routing** | Forward: one S-curve. Backward (target left of source): out, down a lane in the gap between the two cards' rows (or under both), across, and back in. Never a straight line through the board |
+| **Wires** | See §5.1 |
+
+### 5.1 Wires — the flow-diagram rules (shared with Vision)
+
+Ported from Vision (`apps/vision/src/components/wireGeometry.ts`, `@pacific/ui/data-pipes`); Foundation's copy is `apps/client/src/shell/wireGeometry.ts`, tested in `apps/client/test/wires.test.ts`.
+
+1. **Roads, not strings.** Only horizontal, vertical and 45° segments; turns are 14 px chamfers; joins bevelled, caps round.
+2. **Straight leads.** Every wire leaves an output to the right and enters an input from the left on a 48 px straight lead (shorter when the cards are close).
+3. **Shortest road.** With room ahead: lead, run, one diagonal, run, lead. Too steep: a vertical mid-run with a 45° step at each end.
+4. **Going back.** A wire whose target is behind its source goes out and round beside the source, across through the gap between the two cards (or 28 px clear of both, whichever way is shorter), and round into the target. Never through a card.
+5. **Lanes.** Wires into the same card share a run in parallel lanes 4 px apart, ordered by where they come from (likewise out of a card); offsets are intersected so lanes stay even through bends.
+6. **Over and under.** Where two wires cross, the one with the earlier id goes *under* — a stable order, so nothing flickers. The under-wire is cut for the crossing (≈18 px + 3), with a portal mark at each mouth and a faint 7 % trace through; packets don't show in the tunnel. Crossings within 36 px of a port never tunnel; near-duplicate crossings merge.
+7. **Look.** A 9 px road at 8 % ink, a 2.6 px wire tinted by the port type (json blue, image rose, cad amber, data green, bom violet, decision green, number teal, text slate), and 10/150 packets moving at 160 px / 4 s while the source port holds a value. Faint (38 %) until the agent layer is on, hovered or selected.
+8. **Interaction.** Hover: the wire thickens and a tooltip says what it carries, from → to, and its current value. Click: selected (heavier, in its tone); ⌫ removes. Drag from an output: every compatible input lights (others step back to 20 %), the ghost is routed by the same rules, and it magnetises to an input within 32 px; dropping on a card body uses its first compatible input or makes one. Grab a connected input to lift the nearest wire off — drop it elsewhere to re-route, or on nothing to disconnect.
+9. **Types.** A wire may join ports of the same type, or any port to a `json` port.
 
 ## 6. Motion
 

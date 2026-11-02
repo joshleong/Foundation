@@ -13,7 +13,8 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { MINI_HEADER, emitPort, getState, inputValue, movePanel, removePanel, resizePanel, updatePanel, type PanelMeta } from "../state/store";
 import { ObjectFrame } from "../components/ObjectFrame";
-import { beginConnect } from "../shell/AgentLayer";
+import { beginConnect, beginDetach, usePortLayout } from "../shell/AgentLayer";
+import { describeValue, toneOf } from "../shell/ports";
 import { api, serverUrl, uploadFile } from "../lib/api";
 import { askAgent, setUi, toast, useUi } from "../state/ui";
 import { onCamera } from "../state/camera";
@@ -27,8 +28,6 @@ interface Props {
   getScale(): number;
 }
 
-const PORT_TOP = 52;
-const PORT_GAP = 26;
 
 const GLYPH: Record<PanelMeta["panel"], string> = {
   app: "◳",
@@ -43,23 +42,33 @@ const GLYPH: Record<PanelMeta["panel"], string> = {
 
 export const PanelView = memo(function PanelView({ panel, pos, isActive, getScale }: Props) {
   const ui = useUi();
+  const layout = usePortLayout(panel);
   const ports = (
     <>
-      {(["in", "out"] as const).map((dir) =>
-        panel.ports
-          .filter((p) => p.dir === dir)
-          .map((p, i) => (
-            <div
-              key={p.id}
-              className={`port port-${dir}${panel.outputs?.[p.id] !== undefined ? " has-value" : ""}`}
-              style={{ top: PORT_TOP + i * PORT_GAP }}
-              title={`${dir === "in" ? "input" : "output"} · ${p.name}${p.type ? ` (${p.type})` : ""}${dir === "out" ? " — drag to connect" : ""}`}
-              onPointerDown={dir === "out" ? (e) => beginConnect(e, panel.id, p.id) : undefined}
-            >
-              <span className="port-label">{p.name}</span>
-            </div>
-          )),
-      )}
+      {panel.ports.map((p) => {
+        const l = layout.get(p.id);
+        if (!l) return null;
+        const connected = l.slots.size > 0;
+        const value = p.dir === "out" ? panel.outputs?.[p.id] : inputValue(panel.id, p.id);
+        return (
+          <div
+            key={p.id}
+            className={`port port-${p.dir}${connected ? " is-connected" : ""}${value !== undefined ? " has-value" : ""}`}
+            data-panel={panel.id}
+            data-port-id={p.id}
+            data-type={p.type ?? "json"}
+            style={{ top: l.y, height: l.height, ["--wire-tone" as string]: toneOf(p.type) }}
+            onPointerDown={(e) => (p.dir === "out" ? beginConnect(e, panel.id, p.id) : connected ? beginDetach(e, panel.id, p.id) : undefined)}
+          >
+            <span className="port-label">
+              <b>{p.name}</b>
+              <i>{p.type ?? "json"}</i>
+              <span className="port-value">{describeValue(value)}</span>
+              <span className="port-hint">{p.dir === "out" ? "drag to connect" : connected ? "drag to re-route" : "drop a wire here"}</span>
+            </span>
+          </div>
+        );
+      })}
     </>
   );
 

@@ -269,59 +269,159 @@ body.is-presenting .ctx-corners {
   pointer-events: none;
   z-index: 55;
 }
-.port-wire-line {
-  fill: none;
-  stroke: var(--color-wire);
-  stroke-width: 1.6;
-  opacity: 0.28;
-  transition: opacity var(--dur-pane) var(--ease-out-soft);
+
+/* Wires, after Vision's data pipes: a translucent road, an ink wire on it,
+   short packets of the port type's tone moving when data flows. 45° bends,
+   bevelled joins. A wire that passes under another is cut there, with portal
+   marks either side and a faint trace through. */
+.pipe {
+  --pipe-opacity: 0.38;
 }
-.port-wire-glow {
+.port-layer.is-on .pipe,
+.pipe.is-hover,
+.pipe.is-selected {
+  --pipe-opacity: 1;
+}
+.pipe-lane,
+.pipe-wire,
+.pipe-pulse,
+.pipe-trace,
+.pipe-hit,
+.pipe-ghost {
   fill: none;
-  stroke: var(--color-wire);
-  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-linejoin: bevel;
+}
+.pipe-lane {
+  stroke: color-mix(in srgb, var(--color-frost) 8%, transparent);
+  stroke-width: 9;
+  opacity: var(--pipe-opacity);
+}
+.pipe-wire {
+  stroke: color-mix(in srgb, var(--wire-tone) 55%, var(--color-frost) 15%);
+  stroke-width: 2.6;
+  opacity: var(--pipe-opacity);
+  transition: stroke-width var(--dur-quick) var(--ease-out-soft);
+}
+.pipe-pulse {
+  stroke: color-mix(in srgb, var(--wire-tone) 85%, transparent);
+  stroke-width: 2.6;
+  stroke-dasharray: 10 150;
   opacity: 0;
 }
-.port-wire-end {
-  fill: var(--color-raise);
-  stroke: var(--color-wire);
-  stroke-width: 1.6;
-  opacity: 0.5;
+.pipe.is-live .pipe-pulse {
+  opacity: var(--pipe-opacity);
+  animation: pipe-flow 4s linear infinite;
 }
-.port-wire-label {
-  font: 500 var(--text-11) / 1 var(--font-sans);
+@keyframes pipe-flow {
+  to {
+    stroke-dashoffset: -160;
+  }
+}
+.pipe-trace {
+  stroke: color-mix(in srgb, var(--color-frost) 7%, transparent);
+  stroke-width: 1.4;
+  opacity: 0;
+}
+.pipe.is-under .pipe-trace {
+  opacity: var(--pipe-opacity);
+}
+.pipe-terminal {
+  fill: none;
+  stroke: color-mix(in srgb, var(--color-frost) 34%, transparent);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  opacity: var(--pipe-opacity);
+}
+.pipe-end {
+  fill: var(--color-raise);
+  stroke: var(--wire-tone);
+  stroke-width: 1.4;
+  opacity: var(--pipe-opacity);
+}
+.pipe-label {
+  font: 600 var(--text-11) / 1 var(--font-sans);
   fill: var(--color-mist);
+  paint-order: stroke;
+  stroke: var(--color-void);
+  stroke-width: 4px;
+  stroke-linejoin: round;
   text-anchor: middle;
   opacity: 0;
   transition: opacity var(--dur-pane) var(--ease-out-soft);
 }
-.port-wire.is-live .port-wire-line {
-  stroke-dasharray: 6 8;
-  animation: wire-flow 1.4s linear infinite;
-}
-@keyframes wire-flow {
-  to {
-    stroke-dashoffset: -28;
-  }
-}
-.port-layer.is-on .port-wire-line,
-.port-wire-line.demo {
-  opacity: 0.95;
-}
-.port-layer.is-on .port-wire-glow {
-  opacity: 0.1;
-}
-.port-layer.is-on .port-wire-end {
+.port-layer.is-on .pipe-label,
+.pipe.is-hover .pipe-label,
+.pipe.is-selected .pipe-label {
   opacity: 1;
 }
-.port-layer.is-on .port-wire-label {
+.pipe-hit {
+  stroke: transparent;
+  stroke-width: 16;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.port-layer.is-dragging .pipe-hit {
+  pointer-events: none;
+}
+.pipe.is-hover .pipe-wire {
+  stroke-width: 3.4;
+}
+.pipe.is-selected .pipe-wire {
+  stroke-width: 3.6;
+  stroke: var(--wire-tone);
+}
+.pipe.is-selected .pipe-lane {
+  stroke: color-mix(in srgb, var(--wire-tone) 22%, transparent);
+  stroke-width: 12;
+}
+.pipe-ghost {
+  stroke: var(--wire-tone);
+  stroke-width: 2.4;
+  stroke-dasharray: 6 6;
+  opacity: 0.8;
+}
+.pipe-ghost.is-snapped {
+  stroke-dasharray: none;
   opacity: 1;
 }
-.port-wire-ghost {
-  fill: none;
-  stroke: var(--color-agent);
-  stroke-width: 2;
-  stroke-dasharray: 5 6;
+.pipe-tip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 70;
+  margin: 14px 0 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: max-content;
+  max-width: 300px;
+  padding: 8px 10px;
+  border-radius: var(--radius-card);
+  background: var(--glass-fill-strong);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--shadow-glass);
+  font-size: var(--text-12);
+  color: var(--color-frost);
+  pointer-events: none;
+  transform-origin: 0 0;
+}
+.pipe-tip span {
+  color: var(--color-mist);
+}
+.pipe-tip b i {
+  font-style: normal;
+  font-weight: 600;
+  margin-left: 4px;
+}
+.pipe-tip .pipe-tip-value {
+  font-family: var(--font-code);
+  font-size: 11px;
+  color: var(--color-frost);
+}
+.pipe-tip .pipe-tip-hint {
+  color: var(--color-dim);
+  font-size: var(--text-11);
 }
 .agent-ring rect {
   fill: none;
@@ -381,60 +481,119 @@ body.is-presenting .ctx-corners {
   inset: 0;
   pointer-events: none;
 }
+/* Ports are pill intakes (Vision's pipe-intake): one landing per wire, the
+   pill growing as wires join; filled with the type's tone when data is on it. */
 .port {
   position: absolute;
-  width: 12px;
-  height: 12px;
-  margin-top: -6px;
-  border-radius: 50%;
-  background: var(--color-raise);
-  border: 2px solid var(--color-wire);
+  width: 14px;
+  min-height: 14px;
+  margin-top: 0;
+  translate: 0 -50%;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--wire-tone) 45%, var(--color-raise));
+  background:
+    linear-gradient(100deg, color-mix(in srgb, white 55%, transparent), transparent 60%),
+    color-mix(in srgb, var(--wire-tone) 14%, var(--color-raise));
+  box-shadow:
+    inset 0 1px 1px rgb(255 255 255 / 0.6),
+    0 1px 3px color-mix(in srgb, var(--color-frost) 14%, transparent);
   pointer-events: auto;
-  opacity: 0.55;
+  opacity: 0.7;
+  z-index: 3;
   transition:
     transform var(--dur-quick) var(--ease-spring),
-    opacity var(--dur-quick) var(--ease-out-soft);
-  z-index: 3;
+    opacity var(--dur-quick) var(--ease-out-soft),
+    box-shadow var(--dur-quick) var(--ease-out-soft);
 }
 .port-in {
-  left: -7px;
+  left: -8px;
 }
 .port-out {
-  right: -7px;
+  right: -8px;
   cursor: crosshair;
 }
-.port.has-value {
-  background: var(--color-wire);
+.port-in.is-connected {
+  cursor: grab;
 }
+.port.is-connected,
 .panel-card:hover .port,
 .panel-card.show-ports .port {
   opacity: 1;
 }
+.port.has-value {
+  background:
+    linear-gradient(100deg, color-mix(in srgb, white 45%, transparent), transparent 60%),
+    color-mix(in srgb, var(--wire-tone) 70%, var(--color-raise));
+}
 .port:hover {
-  transform: scale(1.35);
+  transform: scale(1.25);
+}
+/* while a wire is being dragged: compatible inputs glow, the rest step back */
+body.is-connecting .port-in {
+  opacity: 0.2;
+}
+body.is-connecting .port-in.is-target {
+  opacity: 1;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--wire-tone) 22%, transparent);
+}
+body.is-connecting .port-in.is-snap {
+  transform: scale(1.45);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--wire-tone) 32%, transparent);
 }
 .port-label {
   position: absolute;
-  top: -3px;
+  top: 50%;
+  translate: 0 -50%;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   white-space: nowrap;
-  font: 600 10px / 1 var(--font-sans);
-  color: var(--color-mist);
-  background: var(--color-raise);
-  padding: 2px 5px;
-  border-radius: var(--radius-paper);
+  font: 600 10.5px / 1 var(--font-sans);
+  color: var(--color-frost);
+  background: var(--glass-fill-strong);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--shadow-sheet);
+  padding: 4px 7px;
+  border-radius: var(--radius-card);
   opacity: 0;
   transition: opacity var(--dur-quick) var(--ease-out-soft);
   pointer-events: none;
 }
+.port-label i {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--wire-tone);
+}
+.port-label .port-value {
+  font: 400 10.5px / 1 var(--font-code);
+  color: var(--color-mist);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.port-label .port-hint {
+  font-weight: 400;
+  color: var(--color-dim);
+}
 .port-in .port-label {
-  right: 14px;
+  right: 18px;
 }
 .port-out .port-label {
-  left: 14px;
+  left: 18px;
 }
-.port:hover .port-label,
-.panel-card.show-ports .port-label {
+.port:hover .port-label {
   opacity: 1;
+}
+.panel-card.show-ports .port-label {
+  opacity: 0.92;
+}
+.panel-card.show-ports .port-label .port-value,
+.panel-card.show-ports .port-label .port-hint {
+  display: none;
+}
+.panel-card.show-ports .port:hover .port-label .port-value,
+.panel-card.show-ports .port:hover .port-label .port-hint {
+  display: inline;
 }
 
 /* live frames */
@@ -1680,10 +1839,7 @@ body.is-presenting .ctx-corners {
     outline-color: color-mix(in srgb, var(--color-agent) 35%, transparent);
   }
 }
-.port-wire-line.demo {
-  stroke-dasharray: 6 8;
-  animation: wire-flow 1.4s linear infinite;
-}
+
 .adapt-row {
   display: flex;
   gap: var(--space-5);
@@ -2088,4 +2244,8 @@ body.is-presenting .ctx-corners {
 .artifact.kind-data {
   /* the measurement / summary is the point: give it room */
   flex-basis: 210px;
+}
+.wire-demo-card {
+  fill: var(--color-raise);
+  stroke: var(--color-line-strong);
 }
