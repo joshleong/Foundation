@@ -6,27 +6,21 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import type { UserInfo } from "@foundation/protocol";
-import { isNight, onNight, setNight } from "@foundation/ui";
-import { AsciiWind } from "./asciiWind";
+import { isNight, setNight } from "@foundation/ui";
+import { initAsciiWind2 } from "./asciiWind2";
 import { authConfig, devLogin, serverUrl } from "../lib/api";
 import { NightOrb } from "../shell/NightOrb";
 
 export function Login({ onSignedIn }: { onSignedIn(u: UserInfo): void }) {
-  const canvas = useRef<HTMLCanvasElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   const [cfg, setCfg] = useState<{ google: boolean; devLogin: boolean } | null>(null);
   const [email, setEmail] = useState(() => localStorage.getItem("foundation-last-email") ?? "");
   const [name, setName] = useState(() => localStorage.getItem("foundation-last-name") ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    const wind = new AsciiWind(canvas.current!, { night: isNight() });
-    const off = onNight((n) => wind.setNight(n));
-    return () => {
-      off();
-      wind.dispose();
-    };
-  }, []);
+  // the wind follows night through the tokens on its own
+  useEffect(() => initAsciiWind2(root.current!, "wind"), []);
 
   useEffect(() => {
     authConfig()
@@ -51,8 +45,7 @@ export function Login({ onSignedIn }: { onSignedIn(u: UserInfo): void }) {
   };
 
   return (
-    <div className="login">
-      <canvas ref={canvas} className="login-wind" aria-hidden />
+    <div className="login ascii-wind" ref={root} data-ascii-wind>
       <div className="login-orb">
         <NightOrb onToggle={() => setNight(!isNight())} />
       </div>

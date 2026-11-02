@@ -56,7 +56,7 @@ Never write a hex or `rgba()` in a component; mix tokens (`color-mix(in srgb, va
 | **Pill (`.f-pill`)** | Secondary by default; `.is-primary` ink-filled (one per bar); `.is-accent` blue (one forward action); `.is-agent` violet (an agent will act) |
 | **Card (frame)** | Paper on the desk, 8 px radius, **no bar at rest** — the card is its content. On hover a glass bar (30 tall, 5 px inset) drops in over the top edge: grip · glyph + title · actions (repo, MCP, open, ✦ ask, dock/float, ✕); it is the drag handle. Cards whose title matters at rest name themselves in their body (pipeline stages). Body clips; ports and rings sit outside it. Tables and maps keep their own headers (the sheet needs them) |
 | **Media card** | Images and video have no bar at all. Round 28 px glass icons wait behind the card's right edge and slide out (spring, 40 ms stagger) while the pointer is on it: mute (video) and remove. The whole card is the drag handle; a tap on a video plays/pauses it |
-| **App section** | A section can **host an app** (`SectionDoc.host`, schema 2): the app fills the section body, the section's header is the app's (glyph, name, repo / MCP / open / ✦), and the app's ports sit on the section's left and right edges. An app opened into an empty section is hosted by it; "Show as a card" lets it go. Wires between apps run section to section |
+| **App section** | A section can **host an app** (`SectionDoc.host`, schema 2): the app fills the section body, the section's header is the app's (glyph, name, repo / MCP / open / ✦), and **each wire lands on whichever edge faces the app at its other end** — across the wider gap, so apps in a row use left/right and stacked apps top/bottom; both ends choose symmetrically. A landing sits at the middle of the stretch the two sections share along that edge (so neighbours join by one straight segment), level with a card's port, or as near the other end as the edge allows; landings bound for the same app sit 18 px apart, 28 px from corners, below the header on the sides. Unwired ports wait in the usual left/right stack so a wire can be dragged out. An app opened into an empty section is hosted by it; "Show as a card" lets it go. Wires between apps run section to section |
 | **Ports** | Pill intakes on the card (or app section) edge (Vision's pipe-intake): 14 px wide, centred exactly on the edge where the wire lands (the rail matches the card's border box; checked to 0 px), inputs left, outputs right, from 52 px down, 26 px rows. A port grows 18 px per extra wire so each wire owns a landing, ordered by where its other end sits. Tinted with the type's tone; filled when data is on it. Hover shows name · type · current value · what a drag will do |
 | **Agent ring** | Violet 2 px rounded rect around a card an agent is working on, breathing 2.4 s |
 | **⌘K** | Glass pane, 680 wide, 14 vh from the top. Rows 40 tall: glyph · label · hint · kbd. Search hits lead with a source tag (BOARD / FILE / SLACK / GITHUB / APP) and highlight matches in blue |
@@ -74,7 +74,7 @@ Never write a hex or `rgba()` in a component; mix tokens (`color-mix(in srgb, va
 Ported from Vision (`apps/vision/src/components/wireGeometry.ts`, `@pacific/ui/data-pipes`); Foundation's copy is `apps/client/src/shell/wireGeometry.ts`, tested in `apps/client/test/wires.test.ts`.
 
 1. **Roads, not strings.** Only horizontal, vertical and 45° segments; joins bevelled, caps round. **Turns are long 45° runs**: a turn takes as much of the runs either side as it can (up to 480 px each way, sharing a run with the next turn) without entering a card, so a change of height reads as one clean diagonal; in a tight gap it falls back towards a 14 px step.
-2. **Straight leads.** Every wire leaves an output to the right and enters an input from the left on a 48 px straight lead (shorter when the cards are close).
+2. **Straight leads.** Every wire leaves its port square to the edge and enters square to the edge on a 48 px straight lead (shorter when the cards are close). Cards leave right and enter left; app sections leave and enter by the edge facing the other app. Facing edges are turned a quarter at a time onto the right→left case and use the same router; a corner pair (right→top) takes the cheapest L or Z, and an L is one long diagonal. Labels on hops under 160 px (neighbouring apps) show on hover.
 3. **Shortest road.** With room ahead: lead, one long diagonal, lead. Too steep: diagonals that take all the room ahead, with a vertical run between them.
 4. **Going back.** A wire whose target is behind its source goes out and round beside the source, across through the gap between the two cards (or 28 px clear of both, whichever way is shorter), and round into the target. Never through a card.
 5. **Lanes.** Wires into the same card share a run in parallel lanes 4 px apart, ordered by where they come from (likewise out of a card); offsets are intersected so lanes stay even through bends.
@@ -102,7 +102,7 @@ Ported from Vision (`apps/vision/src/components/wireGeometry.ts`, `@pacific/ui/d
 | `--ease-spring` | `(.22, 1.4, .36, 1)` | small pops (buttons, ports) |
 | `--ease-settle` | `(.22, 1.3, .36, 1)` | layout settling |
 
-Durations: press 80 · quick 160 · pane 280 · lift 350 · rise 800 (ms). Continuous motion (pan, zoom, drag, fling) runs on the shared spring engine and writes `transform` directly — never React state. `prefers-reduced-motion` collapses transitions to 1 ms and freezes the ASCII wind on one frame.
+Durations: press 80 · quick 160 · pane 280 · lift 350 · rise 800 (ms). Continuous motion (pan, zoom, drag, fling) runs on the shared spring engine and writes `transform` directly — never React state. `prefers-reduced-motion` collapses transitions to 1 ms and turns the ASCII wind off (paper only).
 
 ### 6.1 Presentation (after Details "Infinite Gallery")
 
@@ -110,13 +110,12 @@ Durations: press 80 · quick 160 · pane 280 · lift 350 · rise 800 (ms). Conti
 - The filmstrip is an **infinite loop**: each slide sits at its nearest wrapped distance `d` from a continuous offset `x`; `translateX = d · 218`, `scale = 1 − min(|d|,3) · .047`, `opacity = max(.35, 1 − min(|d|,3) · .22)`.
 - Drag adds velocity; release projects 0.18 s ahead and settles on the nearest slide (k 120, c 24). Wheel scrolls it; 120 ms of quiet snaps.
 - Titles rise 14 px over 600 ms on `--ease-out-soft`, words staggered 40 ms.
-- **To do:** tune against the Vault original once the Details MCP is authenticated (SPEC §6.9).
 
 ## 7. Effects
 
 | Effect | Where | Spec | Budget |
 |---|---|---|---|
-| **ASCII wind** | sign-in, design page | Characters ` .·:-~=+*≈%#` on a 14 px cell (8.7 px advance), domain-warped value noise stretched 1 : 10 horizontally, drifting left→right at 5.5 cells/s with a slow row swell. The pointer is a gust: radius 170 px, pushes the field and lights it in the accent. Ink on paper by day; pale federal blue on navy by night. Our implementation of the effect from Details' "ASCII Cursor 2.0" (vault/ascii-wind-2) — tune against the original | < 5 ms/frame, paused when hidden |
+| **ASCII wind** | sign-in, design page | Details' "ASCII Cursor 2.0" (vault/ascii-wind-2), the original: monospace glyphs on a 6.5 px cell, lit by gusting curl noise that blows at a random angle each visit (one of three glyph sets: mixed, lettered, figured). The pointer leaves a warm wake; a press sends a ripple that lights glyphs in the glow colour. Calmer in an ellipse behind the card. Ink is `--ascii-color` (frost), glow `--ascii-glow` (pulse): ink on paper by day, frost on navy by night. Code: `login/asciiWind2.js`; untouched original in `docs/reference/details/` | WebGL2 at 25 fps, self-throttling; paused when hidden or unfocused |
 | **Paper shader** | grid | Vision's paper: grain ±.018 at 2 Hz, a 28 px dot grid synced to the camera, pointer light σ 220 px, vignette .965; mixes to navy with `uNight` | ≤ 2 draws/s idle |
 | **Glass** | chrome | fill abyss 72 % (strong 86 %), edge frost 14 %, blur 18 + saturate 1.4, inset highlight | one region each |
 | **Wire flow** | agent layer | dash 6/8 moving 28 px per 1.4 s while a source port has a value | CSS only |

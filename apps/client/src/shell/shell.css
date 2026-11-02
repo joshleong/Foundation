@@ -1611,6 +1611,24 @@ body.is-connecting .port-in.is-snap {
 
 /* ---------- login ---------- */
 
+/* ASCII wind (login/asciiWind2.js): draws a canvas at z -1 inside the root, so the
+   root isolates; ink and glow are registered colours so they resolve to rgb
+   and follow the night transition. */
+@property --ascii-color {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+@property --ascii-glow {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+.ascii-wind {
+  isolation: isolate;
+  --ascii-color: var(--color-frost);
+  --ascii-glow: var(--color-pulse);
+}
 .login {
   position: relative;
   height: 100%;
@@ -1619,12 +1637,6 @@ body.is-connecting .port-in.is-snap {
   justify-content: center;
   overflow: hidden;
   background: var(--color-void);
-}
-.login-wind {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
 }
 .login-orb {
   position: absolute;
@@ -1884,8 +1896,6 @@ body.is-connecting .port-in.is-snap {
 .effect-wind {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
 }
 .effect-label {
   position: absolute;
@@ -2405,4 +2415,32 @@ body.is-connecting .port-in.is-snap {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+}
+
+/* landings on an app section's top and bottom edges: the label sits beyond the edge */
+.port-at-top .port-label,
+.port-at-bottom .port-label {
+  left: 50%;
+  right: auto;
+  top: auto;
+  translate: -50% 0;
+}
+.port-at-top .port-label {
+  bottom: 20px;
+}
+.port-at-bottom .port-label {
+  top: 20px;
+}
+.port-at-left .port-label {
+  left: auto;
+  right: 20px;
+}
+.port-at-right .port-label {
+  right: auto;
+  left: 20px;
+}
+
+/* a short hop between neighbouring apps: its label waits for hover */
+.port-layer.is-on .pipe.is-short:not(.is-hover):not(.is-selected) .pipe-label {
+  opacity: 0;
 }

@@ -21,7 +21,10 @@ function useHashRoute() {
   return hash;
 }
 
-/** Sign-in gate → the shell. #/design is the living design language page. */
+/**
+ * Sign-in gate → the shell. #/design is the living design language page;
+ * #/design/sign-in shows the sign-in page even when signed in.
+ */
 function App() {
   const [user, setUser] = useState<UserInfo | null | undefined>(undefined);
   const route = useHashRoute();
@@ -32,6 +35,7 @@ function App() {
       .catch(() => setUser(null));
   }, []);
 
+  if (route.startsWith("#/design/sign-in")) return <Login onSignedIn={setUser} />;
   if (route.startsWith("#/design")) return <DesignPage />;
   if (user === undefined) return <div className="boot" />;
   if (!user) return <Login onSignedIn={setUser} />;

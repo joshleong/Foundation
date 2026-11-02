@@ -12,3 +12,12 @@ Checked in the browser at 1440×900 (`?rafshim`), day and night, on the live com
 | Tests | client 13 (wires incl. one-long-diagonal and turn-shortens-at-a-card), server 9 |
 
 00-before is the board as it was (capsule, reticle, connectors as cards in one section).
+
+## Follow-up: ports on all four section edges
+
+| Check | Result |
+|---|---|
+| Sides chosen | company board: 4 left, 4 right, 3 top, 3 bottom landings — every neighbouring pair joins through facing edges |
+| Port alignment | 24 of 24 wire ends at **0.00 px** from their pill centre at 94% |
+| Shape | neighbours: one straight segment across the 40 px gap; offset apps: leads square to each edge with one long 45° run (`#/design` → Effects → App sections) |
+| Tests | client 15 (side choice is symmetric; straight drop; offset and corner pairs stay on 45° roads with one long diagonal) |

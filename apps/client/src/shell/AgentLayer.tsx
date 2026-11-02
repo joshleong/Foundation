@@ -18,9 +18,9 @@ import { addLink, getState, gridSize, objectWorldRect, removeLink, uid, updatePa
 import { toast, useUi } from "../state/ui";
 import { useBoardTick } from "./Presence";
 import { toWorld, camera } from "../state/camera";
-import { polyline, route, routeAvoiding, tunnelGeometry, typesCompatible, type P } from "./wireGeometry";
+import { polyline, route, routeSides, tunnelGeometry, typesCompatible, type P } from "./wireGeometry";
 import { allCrossings, publishRoutes, routesVersion, unpublishRoutes } from "./routeRegistry";
-import { cardRects, describeValue, endRect, obstaclesFor, portLayout, portPoint, toneOf } from "./ports";
+import { cardRects, describeValue, endRect, obstaclesFor, portLayout, portPoint, portSide, toneOf } from "./ports";
 
 const SNAP_RADIUS = 32;
 
@@ -196,11 +196,15 @@ function routesFor(links: LinkDoc[]): Map<string, Frame> {
     const pa = portPoint(a, l.from.port, l.id, links);
     const pb = portPoint(b, l.to.port, l.id, links);
     if (!pa || !pb) continue;
-    const pts = routeAvoiding(pa, pb, {
+    // cards leave right and enter left; an app section uses the edge facing the other app
+    const sa = portSide(a, l.from.port, l.id);
+    const sb = portSide(b, l.to.port, l.id);
+    const classic = sa === "right" && sb === "left";
+    const pts = routeSides(pa, sa, pb, sb, {
       src: endRect(rects, a.id),
       dst: endRect(rects, b.id),
-      lane: laneOf.get(l.id) ?? 0,
-      srcLane: srcLaneOf.get(l.id) ?? 0,
+      lane: classic ? (laneOf.get(l.id) ?? 0) : 0,
+      srcLane: classic ? (srcLaneOf.get(l.id) ?? 0) : 0,
       obstacles: obstaclesFor(rects, a.id, b.id),
     });
     frames.set(l.id, { pts, d: polyline(pts) });
@@ -297,6 +301,10 @@ export function PortWires() {
         ends[0]?.setAttribute("cy", String(f.pts[0].y));
         ends[1]?.setAttribute("cx", String(f.pts[f.pts.length - 1].x));
         ends[1]?.setAttribute("cy", String(f.pts[f.pts.length - 1].y));
+        // a short hop across the gap between two apps keeps its label for hover
+        let length = 0;
+        for (let i = 1; i < f.pts.length; i++) length += Math.hypot(f.pts[i].x - f.pts[i - 1].x, f.pts[i].y - f.pts[i - 1].y);
+        g.classList.toggle("is-short", length < 160);
         const label = g.querySelector("text");
         if (label) {
           const at = labelAt(f.pts);

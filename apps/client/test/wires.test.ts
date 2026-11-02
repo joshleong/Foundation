@@ -4,7 +4,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { offsetRoute, pipeCrossings, road, route, segmentOverlap, tunnelGeometry, typesCompatible, type P } from "../src/shell/wireGeometry.ts";
+import { offsetRoute, pipeCrossings, road, route, routeSides, segmentOverlap, sideToward, tunnelGeometry, typesCompatible, type P } from "../src/shell/wireGeometry.ts";
 
 function angles(pts: P[]) {
   return pts.slice(1).map((p, i) => {
@@ -150,4 +150,31 @@ test("a long turn shortens rather than cut through a card", () => {
   const pts = road([{ x: 0, y: 0 }, { x: 400, y: 0 }, { x: 400, y: 400 }, { x: 800, y: 400 }], [card]);
   for (let i = 1; i < pts.length; i++) assert.ok(segmentOverlap(pts[i - 1], pts[i], card) < 0.5, "no segment enters the card");
   for (const ang of angles(pts)) assert.ok(ang % 45 === 0);
+});
+
+test("an app section talks through the edge facing the other app, and both ends agree", () => {
+  const a = { x: 0, y: 0, w: 500, h: 400 };
+  const right = { x: 540, y: 0, w: 500, h: 400 };
+  const below = { x: 200, y: 440, w: 800, h: 400 };
+  const farDiag = { x: 1200, y: 900, w: 400, h: 300 };
+  assert.equal(sideToward(a, right, "right"), "right");
+  assert.equal(sideToward(right, a, "left"), "left");
+  assert.equal(sideToward(a, below, "right"), "bottom");
+  assert.equal(sideToward(below, a, "left"), "top");
+  const s1 = sideToward(a, farDiag, "right");
+  const s2 = sideToward(farDiag, a, "left");
+  assert.ok((s1 === "right" && s2 === "left") || (s1 === "bottom" && s2 === "top"), `${s1}/${s2} face each other`);
+});
+
+test("stacked apps join by a straight drop; offset ones by roads that leave and arrive square", () => {
+  const straight = routeSides({ x: 300, y: 400 }, "bottom", { x: 300, y: 440 }, "top");
+  assert.equal(straight.length, 2, "one straight segment across the gap");
+  const offset = routeSides({ x: 100, y: 400 }, "bottom", { x: 700, y: 900 }, "top");
+  for (const ang of angles(offset)) assert.ok(ang % 45 === 0, `angle ${ang}`);
+  assert.equal(offset[1].x, 100, "leaves straight down");
+  assert.equal(offset[offset.length - 2].x, 700, "arrives straight down");
+  const corner = routeSides({ x: 0, y: 0 }, "right", { x: 600, y: 500 }, "top");
+  const diag = corner.slice(1).filter((p, i) => Math.abs(p.x - corner[i].x) > 0.5 && Math.abs(p.y - corner[i].y) > 0.5);
+  assert.equal(diag.length, 1, "a corner pair turns once, on one long diagonal");
+  assert.ok(Math.abs(diag[0].x - corner[corner.indexOf(diag[0]) - 1].x) > 300, "and it is long");
 });

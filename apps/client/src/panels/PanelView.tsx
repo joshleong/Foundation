@@ -11,10 +11,10 @@
  */
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { MINI_HEADER, emitPort, getState, inputValue, movePanel, removePanel, resizePanel, updatePanel, type PanelMeta } from "../state/store";
+import { MINI_HEADER, emitPort, getState, inputValue, movePanel, removePanel, resizePanel, sectionBodyRect, updatePanel, type PanelMeta } from "../state/store";
 import { ObjectFrame } from "../components/ObjectFrame";
 import { beginConnect, beginDetach, usePortLayout } from "../shell/AgentLayer";
-import { describeValue, toneOf } from "../shell/ports";
+import { describeValue, landingsOf, toneOf } from "../shell/ports";
 import { api, serverUrl, uploadFile } from "../lib/api";
 import { askAgent, setUi, toast, useUi } from "../state/ui";
 import { onCamera } from "../state/camera";
@@ -91,7 +91,54 @@ export const PanelView = memo(function PanelView({ panel, pos, isActive, getScal
       <AgentBody panel={panel} />
     );
 
-  if (hosted)
+  if (hosted) {
+    // an app section: each wire lands on the edge facing its other end; unwired ports wait on the sides
+    const st = getState();
+    const sec = st.sections[panel.sectionId];
+    const bodyRect = sec ? sectionBodyRect(st.grid, sec) : null;
+    const landings = landingsOf(panel.id);
+    const hostedPorts = panel.ports.map((p) => {
+      const mine = landings.filter((l) => l.port === p.id);
+      const value = p.dir === "out" ? panel.outputs?.[p.id] : inputValue(panel.id, p.id);
+      const label = (
+        <span className="port-label">
+          <b>{p.name}</b>
+          <i>{p.type ?? "json"}</i>
+          <span className="port-value">{describeValue(value)}</span>
+          <span className="port-hint">{p.dir === "out" ? "drag to connect" : "drag to re-route"}</span>
+        </span>
+      );
+      if (!mine.length || !bodyRect) {
+        const l = layout.get(p.id);
+        if (!l) return null;
+        return (
+          <div
+            key={p.id}
+            className={`port port-${p.dir}${value !== undefined ? " has-value" : ""}`}
+            data-panel={panel.id}
+            data-port-id={p.id}
+            data-type={p.type ?? "json"}
+            style={{ top: l.y, height: l.height, ["--wire-tone" as string]: toneOf(p.type) }}
+            onPointerDown={(e) => (p.dir === "out" ? beginConnect(e, panel.id, p.id) : undefined)}
+          >
+            {label}
+          </div>
+        );
+      }
+      return mine.map((l) => (
+        <div
+          key={l.link}
+          className={`port port-${p.dir} port-at-${l.side} is-connected${value !== undefined ? " has-value" : ""}`}
+          data-panel={panel.id}
+          data-port-id={p.id}
+          data-type={p.type ?? "json"}
+          style={{ left: l.x - bodyRect.x - 7, right: "auto", top: l.y - bodyRect.y, height: 14, ["--wire-tone" as string]: toneOf(p.type) }}
+          onPointerDown={(e) => (p.dir === "out" ? beginConnect(e, panel.id, p.id) : beginDetach(e, panel.id, p.id))}
+        >
+          {label}
+        </div>
+      ));
+    });
     return (
       <div
         className={`hosted-app panel-card kind-${panel.panel}${panel.status ? ` status-${panel.status}` : ""}${ui.agentLayer ? " show-ports" : ""}`}
@@ -101,9 +148,10 @@ export const PanelView = memo(function PanelView({ panel, pos, isActive, getScal
         <div className={`panel-body panel-${panel.panel}`}>
           <div className="panel-inner">{body}</div>
         </div>
-        {panel.ports.length > 0 && <div className="port-rail">{ports}</div>}
+        {panel.ports.length > 0 && <div className="port-rail">{hostedPorts}</div>}
       </div>
     );
+  }
 
   return (
     <ObjectFrame

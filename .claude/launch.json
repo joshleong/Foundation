@@ -4,8 +4,38 @@
     {
       "name": "foundation",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 1430
+    },
+    {
+      "name": "factoryform",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/sibling.mjs",
+        "factoryform"
+      ],
+      "port": 3001
+    },
+    {
+      "name": "creation",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/sibling.mjs",
+        "creation"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "creation-hub",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/sibling.mjs",
+        "creation-hub"
+      ],
+      "port": 4317
     }
   ]
 }

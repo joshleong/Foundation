@@ -10,7 +10,7 @@ Last updated 2026-11-02 · branch `main` · evidence in `docs/evidence/2026-11-0
 
 - [ ] **Repo visibility** — `joshleong/Foundation` is public; decide private / move to the Form Industries org (§6.1)
 - [ ] **Phase 1 · Solid ground** — proposed as its own session (§8): Y.Text notes, per-table cells, viewer role, offline, perf trace
-- [ ] **Keys and setup** — Google OAuth, Slack, BomForm + CA, API credits, `npx rea-agents setup`, Details MCP auth (§6)
+- [ ] **Keys and setup** — Google OAuth, Slack, BomForm + CA, API credits, `npx rea-agents setup` (§6)
 - [ ] **Vision loop** — the Simulate/Concept hand-off writes the brief today; next it should start a Vision Code (T3) thread and attach what comes back (§8 phase 2)
 - [ ] **Release → BomForm** — write BOM lines from the Release stage once BomForm's write tools are keyed
 
@@ -150,8 +150,8 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | **Hermes** | Ask cards, drop-to-answer, 4-hourly nudges on the board, Slack DM with a bot token | partial | Slack path untested |
 | **REA** | `reverse_engineer` tool queues a job card. A person presses Run; it runs `rea-agents` (local apps) or Claude Code with REA's MCP | partial | Not run in this session: the tool downloads and runs third-party code, so a person should run `npx rea-agents setup` first (§6) |
 | **Vision** | `vision_brief`: brief card, Vision panel, review asks | partial | Vision exposes no design API yet; the T3 bridge is §8 phase 2 |
-| **Presentation** | P: chrome fades, camera glides section to section, infinite looping filmstrip with drag/wheel inertia | done | Tune against the Details "Infinite Gallery" once the Vault is reachable |
-| **Login** | ASCII wind background (light and night), glass card | done | Our own implementation; compare against Details' "ASCII Cursor 2.0" (§6) |
+| **Presentation** | P: chrome fades, camera glides section to section, infinite looping filmstrip with drag/wheel inertia | done | |
+| **Login** | ASCII wind background (light and night), glass card | done | The Details original ("ASCII Cursor 2.0", WebGL2), from Josh's download 2026-11-02; `#/design/sign-in` previews it while signed in. Draws nothing without WebGL2, on software GPUs, or under reduced motion / high contrast |
 | **Design** | `#/design` living page; DESIGN.md | done | |
 | **Desktop** | Tauri config points at :1430 | partial | Not rebuilt this session |
 | **Grid feel** (2026-11-02) | ~~Magnetic snapping~~ (replaced by keyboard-only framing, see Chrome on call). Safe-area framing clear of the side pane and search pill. Sections frame their cards (sparse sections at ~105% instead of ~55%). Trackpad pinch 1:1, two-finger pan everywhere. Keys 0 / ⇧1 / F / ⇧2 / 1 / + / −, Space-drag. Live zoom % in the HUD. Cards lift and lean when dragged | done | `docs/evidence/2026-11-02_grid-feel/`. Not yet measured on a real trackpad (headless only) |
@@ -165,6 +165,7 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | | Cards rest without a bar; a glass bar drops in on hover. Images and video have no bar: mute / remove icons slide out from behind the card, the card is the drag handle, a tap plays/pauses video. Pipeline stages name themselves in their body | done | Tables and maps keep their own headers |
 | | Sections: track lines and gutters only where they divide sections — seams inside a merged section are invisible until hovered. Drag a section past any board edge to append it along that whole side (new track, sized like the section, capped at a normal track); its hole is absorbed by an aligned neighbour | done | Checked in the browser: dropped below the board → full-width row, pipeline section widened into the hole |
 | | **Sections host apps** (schema 2). An app fills its section; the section header is the app's; ports sit on the section's edges; wires run section to section and treat every other section as an obstacle. The company board migrated to one section per app. An app opened into an empty section (people or `add_panel`) is hosted; "Show as a card" / "Let it fill the section" toggles | done | Gaps between sections widened to 40 px so wires have a road |
+| | App sections use all four edges: each wire lands on the edge facing the other app (wider gap wins; symmetric), centred on the stretch the two share — neighbours join by one straight segment across the gap, offset apps by one long diagonal. Unwired ports wait on the sides. Short hops hide their label until hover | done | Company board: 14 landings on all four sides, 24/24 wire ends at 0.00 px. `wires.test.ts` (15). `#/design` → Effects → App sections |
 | | Wires: turns are long 45° runs (up to 480 px a side, shortened where they'd enter a card) instead of 14 px chamfers; a height change with room ahead is one diagonal. Port pills centred exactly on the wire's landing (was 1–2 px off: the section border wasn't counted) | done | Measured: 24 of 24 wire ends at 0.00 px from their pill centre. `wires.test.ts` (13) |
 | **Interface pass 1** (2026-11-02) | Connector status pills and offline states. Foundation's own live counts. Backward wires loop through the gap between rows. Empty sections offer open/drop/ask/note and a company app shelf. Panels opened from the shelf carry the registry's repo and MCP. Section headers solid with a card count. Glass pill HUD. Presentation title scrim, HUD hidden. Capsule truly centred. The grid can't be scrolled by focus. My avatar shown once | done | Evidence in `docs/evidence/2026-11-02_interface-pass/` |
 
@@ -219,7 +220,7 @@ One definition (`apps/server/src/tools.ts`), three doors: the built-in agent, `/
 | Live frames | ≤ the frames on screen | IntersectionObserver plus zoom ≥ 0.3 gate; posters otherwise; pointer events only when engaged |
 | Connectors | Poll only while visible | 20 s while on screen; server cache 20 s |
 | Search | Local < 20 ms; remote ≤ 2.5 s | FTS5 with prefix indexes; remote sources raced against a timeout |
-| ASCII wind | < 5 ms/frame at 1440×900 | Alpha-bucketed `fillText`; paused when hidden; one still frame under reduced motion |
+| ASCII wind | < 5 ms/frame at 1440×900 | WebGL2, two draws a frame at 25 fps (100 fps only while a ripple runs); backs off then suspends on late frames; paused when hidden or unfocused; settles after 3 min until touched |
 
 **To measure next:**
 - A Playwright trace of pan, zoom and drag with 200 cards and 20 live frames.
@@ -243,7 +244,6 @@ Every integration is off until its key exists; the server always starts. Copy `.
 | 6 | **FactoryForm** | Live factory data | Run it on :3001 (`FACTORYFORM_URL`). For writes over MCP, `FACTORY_MCP_TOKEN` |
 | 7 | **Slack** | Search and Hermes DMs | User token (`SLACK_USER_TOKEN`, scope `search:read`) for search. Bot token (`SLACK_BOT_TOKEN`, `users:read.email` + `chat:write`) for DMs |
 | 8 | **GitHub** | Repo discovery across the org | `GITHUB_TOKEN` (falls back to the `gh` login) and `FOUNDATION_GITHUB_ORG` |
-| 9 | **Details.so Vault** | The ASCII wind and Infinite Gallery originals, and the paid library | Authenticate the Details MCP once: `/mcp` → details → Authenticate (configured in `.mcp.json`). Then ask an agent to pull "ASCII Cursor 2.0" and "Infinite Gallery" into `docs/reference/details/` and tune `login/asciiWind.ts` and `shell/Present.tsx` against them. Agents cannot sign in for you |
 | 10 | **REA** | Reverse engineering | `npx rea-agents setup` once (registers REA's MCP with Claude Code; MIT; verify it's `morluto/rea`). Then use Run on a reverse-engineering card |
 | 11 | **Lufga** | Display face | Install the licensed files locally; the stack falls back to Hanken Grotesk. Don't commit them to a public repo |
 | 12 | **Vision ↔ Foundation** | Agents driving Vision | Phase 2 (§8): Foundation will start threads in Vision Code (T3 :3783) the way Vision's own agent does |
@@ -258,9 +258,10 @@ Every integration is off until its key exists; the server always starts. Copy `.
 - **No offline outbox.** The doc lives in memory; a tab closed while offline loses its edits. Add `y-indexeddb`.
 - **WebSocket auth uses the cookie**, which is fine same-origin. A remote Tauri client needs a header-capable transport (ticket exchange, like T3's `websocket-ticket`).
 - **The REA job runner and the Vision brief are unexercised end to end.**
+- **The ASCII wind shows nothing under reduced motion**, on machines without WebGL2, or on software renderers — the Details original's choice; the sign-in page is plain paper there. It also fades out while the window is unfocused.
 - **Hidden windows pause `requestAnimationFrame`.** Overlays catch up when shown. `?rafshim` (dev) drives frames from a timer for headless capture.
 - **Panel iframes use `sandbox` with `allow-same-origin`**, so a hostile app on the same origin could escape. Only add apps you trust; serve third-party apps from their own origins.
-- **Wires between packed app sections stay in the 40 px gaps**, so their diagonals there are short; the long 45° runs show inside sections and across open board. Ports on all four section edges (choose the side facing the other app) would give section wires real diagonals — not built.
+- **Landing collisions push apart along an edge but not at the far end**, so two different apps crowding one edge can tilt one wire into a short diagonal. Rare on the company board (none today).
 - **The "+" add-section buttons sit in the gaps between sections**, so a double-click aimed at the gap can hit one and add a section. Move them off the gap or require a single deliberate click target.
 - **Throw momentum is generous** (velocity × 125 ms); tune on a real trackpad.
 - **The old toolbar CSS** (`.app-bar`) is still in `App.css`; prune it. A few small hover transitions on `background` remain in `App.css` and lag the night fade the way pills did.

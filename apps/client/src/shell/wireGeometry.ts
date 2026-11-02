@@ -459,3 +459,95 @@ export function routeAvoiding(a: P, b: P, opts: AvoidOpts = {}): P[] {
   memo.set(key, best);
   return best;
 }
+
+// ---------- any side to any side (apps hosted by sections) ----------
+
+/** The edge a port sits on. Cards keep inputs left and outputs right; an app section uses whichever edge faces the other app. */
+export type Side = "left" | "right" | "top" | "bottom";
+
+export const NORMAL: Record<Side, P> = { left: { x: -1, y: 0 }, right: { x: 1, y: 0 }, top: { x: 0, y: -1 }, bottom: { x: 0, y: 1 } };
+const OPPOSITE: Record<Side, Side> = { left: "right", right: "left", top: "bottom", bottom: "top" };
+
+/**
+ * The edge of `me` that faces `other`: across whichever gap is wider, so two
+ * apps in a row talk through their facing sides and two stacked apps through
+ * top and bottom. Symmetric — the other end picks the opposite edge. Rects that
+ * overlap (a card inside the section) fall back.
+ */
+export function sideToward(me: Rect, other: Rect, fallback: Side): Side {
+  const gx = Math.max(other.x - (me.x + me.w), me.x - (other.x + other.w));
+  const gy = Math.max(other.y - (me.y + me.h), me.y - (other.y + other.h));
+  if (gx < 0 && gy < 0) return fallback;
+  if (gx >= gy) return other.x + other.w / 2 > me.x + me.w / 2 ? "right" : "left";
+  return other.y + other.h / 2 > me.y + me.h / 2 ? "bottom" : "top";
+}
+
+/** quarter turns that carry a side's outward normal onto +x (and back) */
+const TURN_TO_RIGHT: Record<Side, [(p: P) => P, (p: P) => P]> = {
+  right: [(p) => p, (p) => p],
+  left: [(p) => ({ x: -p.x, y: -p.y }), (p) => ({ x: -p.x, y: -p.y })],
+  bottom: [(p) => ({ x: p.y, y: -p.x }), (p) => ({ x: -p.y, y: p.x })],
+  top: [(p) => ({ x: -p.y, y: p.x }), (p) => ({ x: p.y, y: -p.x })],
+};
+
+function turnRect(r: Rect, f: (p: P) => P): Rect {
+  const a = f({ x: r.x, y: r.y });
+  const b = f({ x: r.x + r.w, y: r.y + r.h });
+  return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
+}
+
+/**
+ * The road from a port on side `sa` to a port on side `sb`, by the same rules.
+ * Facing sides (right→left, bottom→top, …) turn the problem a quarter at a time
+ * onto the classic right→left one and use the full router, cards and all. Any
+ * other pair (a corner: right→top; or same side) takes the cheapest L or Z
+ * between the two leads — an L becomes one long diagonal.
+ */
+export function routeSides(a: P, sa: Side, b: P, sb: Side, opts: AvoidOpts = {}): P[] {
+  if (sa === "right" && sb === "left") return routeAvoiding(a, b, opts);
+  if (OPPOSITE[sa] === sb) {
+    const [to, back] = TURN_TO_RIGHT[sa];
+    const pts = routeAvoiding(to(a), to(b), {
+      ...opts,
+      src: opts.src ? turnRect(opts.src, to) : opts.src,
+      dst: opts.dst ? turnRect(opts.dst, to) : opts.dst,
+      obstacles: (opts.obstacles ?? []).map((r) => turnRect(r, to)),
+    });
+    return pts.map(back);
+  }
+  const na = NORMAL[sa];
+  const nb = NORMAL[sb];
+  const L1 = { x: a.x + na.x * LEAD, y: a.y + na.y * LEAD };
+  const L2 = { x: b.x + nb.x * LEAD, y: b.y + nb.y * LEAD };
+  const horizontal = (s: Side) => s === "left" || s === "right";
+  const outer = (s: Side, u: number, v: number) => (s === "right" || s === "bottom" ? Math.max(u, v) : Math.min(u, v));
+  const mids: P[][] = [
+    [{ x: L2.x, y: L1.y }],
+    [{ x: L1.x, y: L2.y }],
+    horizontal(sa) ? [{ x: (L1.x + L2.x) / 2, y: L1.y }, { x: (L1.x + L2.x) / 2, y: L2.y }] : [{ x: L1.x, y: (L1.y + L2.y) / 2 }, { x: L2.x, y: (L1.y + L2.y) / 2 }],
+  ];
+  if (sa === sb) {
+    // same side: out past both, along, and back in
+    mids.push(horizontal(sa) ? [{ x: outer(sa, L1.x, L2.x), y: L1.y }, { x: outer(sa, L1.x, L2.x), y: L2.y }] : [{ x: L1.x, y: outer(sa, L1.y, L2.y) }, { x: L2.x, y: outer(sa, L1.y, L2.y) }]);
+  }
+  const ends = [opts.src, opts.dst].filter((r): r is Rect => Boolean(r));
+  const avoid = [...(opts.obstacles ?? []), ...ends];
+  const dot = (p: P, q: P, n: P) => (q.x - p.x) * n.x + (q.y - p.y) * n.y;
+  let best: P[] | null = null;
+  let bestCost = Infinity;
+  for (const mid of mids) {
+    const skeleton = dedupe([a, L1, ...mid, L2, b]);
+    // never fold back over a lead
+    const i1 = skeleton.findIndex((p) => p.x === L1.x && p.y === L1.y);
+    const i2 = skeleton.findIndex((p) => p.x === L2.x && p.y === L2.y);
+    if (i1 >= 0 && skeleton[i1 + 1] && dot(skeleton[i1], skeleton[i1 + 1], na) < -0.5) continue;
+    if (i2 > 0 && dot(skeleton[i2 - 1], skeleton[i2], nb) > 0.5) continue;
+    const pts = road(skeleton, avoid, { start: LEAD / 2, end: LEAD / 2 });
+    const k = cost(pts, opts.obstacles ?? [], ends);
+    if (k < bestCost) {
+      best = pts;
+      bestCost = k;
+    }
+  }
+  return best ?? road([a, L1, L2, b], avoid);
+}

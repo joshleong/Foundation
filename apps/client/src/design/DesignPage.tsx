@@ -7,10 +7,11 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { durations, easings, isNight, setNight, springs } from "@foundation/ui";
-import { AsciiWind } from "../login/asciiWind";
+import { initAsciiWind2 } from "../login/asciiWind2";
 import { Mark } from "../login/Login";
 import { NightOrb } from "../shell/NightOrb";
-import { pipeCrossings, polyline, route, tunnelGeometry } from "../shell/wireGeometry";
+import { pipeCrossings, polyline, route, routeSides, sideToward, type Side } from "../shell/wireGeometry";
+import { tunnelGeometry } from "../shell/wireGeometry";
 
 const SURFACES = ["void", "abyss", "panel", "raise"];
 const INKS = ["frost", "mist", "dim"];
@@ -25,21 +26,9 @@ const TYPE = [
 ];
 
 export function DesignPage() {
-  const wind = useRef<HTMLCanvasElement>(null);
+  const wind = useRef<HTMLDivElement>(null);
   const [replay, setReplay] = useState(0);
-  useEffect(() => {
-    const w = new AsciiWind(wind.current!, { night: isNight(), cell: 12 });
-    const off = (() => {
-      const on = () => w.setNight(isNight());
-      const mo = new MutationObserver(on);
-      mo.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-      return () => mo.disconnect();
-    })();
-    return () => {
-      off();
-      w.dispose();
-    };
-  }, []);
+  useEffect(() => initAsciiWind2(wind.current!, "wind"), []);
 
   return (
     <div className="design-page">
@@ -169,8 +158,10 @@ export function DesignPage() {
       <Section title="Effects" note="ASCII wind (sign-in), the paper shader (grid), agent rings, live wires. Each has a frame budget and a reduced-motion still.">
         <div className="effects">
           <div className="effect-card">
-            <canvas ref={wind} className="effect-wind" />
-            <div className="effect-label">ASCII wind · move the cursor</div>
+            <div ref={wind} className="effect-wind ascii-wind" data-ascii-wind />
+            <a className="effect-label" href="#/design/sign-in">
+              ASCII wind · move the cursor, press to ripple · full size ↗
+            </a>
           </div>
           <div className="effect-card effect-ring">
             <div className="ring-card">
@@ -181,6 +172,10 @@ export function DesignPage() {
           <div className="effect-card effect-wire">
             <WireDemo />
             <div className="effect-label">Wires · 45° roads, lanes, and a tunnel where one passes under</div>
+          </div>
+          <div className="effect-card effect-wire">
+            <AppSectionsDemo />
+            <div className="effect-label">App sections · neighbours join straight across the gap; apps apart, by one long diagonal from facing edges</div>
           </div>
         </div>
       </Section>
@@ -323,6 +318,37 @@ function WireDemo() {
         <path className="pipe-wire" d={polyline(back)} />
         <path className="pipe-pulse" d={polyline(back)} />
       </g>
+    </svg>
+  );
+}
+
+/** Three app sections and the roads between them, by the real side choice and router. */
+function AppSectionsDemo() {
+  const A = { x: 10, y: 14, w: 110, h: 70 };
+  const B = { x: 130, y: 14, w: 110, h: 70 };
+  const C = { x: 200, y: 120, w: 130, h: 70 };
+  const land = (r: typeof A, s: Side, at: number) =>
+    s === "right" ? { x: r.x + r.w, y: at } : s === "left" ? { x: r.x, y: at } : s === "bottom" ? { x: at, y: r.y + r.h } : { x: at, y: r.y };
+  const sab = sideToward(A, B, "right");
+  const sba = sideToward(B, A, "left");
+  const sac = sideToward(A, C, "right");
+  const sca = sideToward(C, A, "left");
+  const ab = routeSides(land(A, sab, 50), sab, land(B, sba, 50), sba, { src: A, dst: B });
+  const acFrom = land(A, sac, sac === "bottom" ? 60 : 64);
+  const acTo = land(C, sca, sca === "top" ? 290 : 160);
+  const ac = routeSides(acFrom, sac, acTo, sca, { src: A, dst: C, obstacles: [B] });
+  return (
+    <svg viewBox="0 0 340 200" width="100%" height="200" className="wire-demo">
+      {[A, B, C].map((r, i) => (
+        <rect key={i} x={r.x} y={r.y} width={r.w} height={r.h} rx={8} className="wire-demo-card" />
+      ))}
+      {[ab, ac].map((pts, i) => (
+        <g key={i} className="pipe is-live" style={{ ["--wire-tone" as string]: i ? "var(--viz-3)" : "var(--color-pulse)", ["--pipe-opacity" as string]: 1 }}>
+          <path className="pipe-lane" d={polyline(pts)} />
+          <path className="pipe-wire" d={polyline(pts)} />
+          <path className="pipe-pulse" d={polyline(pts)} />
+        </g>
+      ))}
     </svg>
   );
 }
