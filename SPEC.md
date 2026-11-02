@@ -11,7 +11,8 @@ Last updated 2026-11-02 · branch `main` · evidence in `docs/evidence/2026-11-0
 - [ ] **Repo visibility** — `joshleong/Foundation` is public; decide private / move to the Form Industries org (§6.1)
 - [ ] **Phase 1 · Solid ground** — proposed as its own session (§8): Y.Text notes, per-table cells, viewer role, offline, perf trace
 - [ ] **Keys and setup** — Google OAuth, Slack, BomForm + CA, API credits, `npx rea-agents setup`, Details MCP auth (§6)
-- [ ] **Vision loop** — start Vision Code (T3) threads from briefs (§8 phase 2)
+- [ ] **Vision loop** — the Simulate/Concept hand-off writes the brief today; next it should start a Vision Code (T3) thread and attach what comes back (§8 phase 2)
+- [ ] **Release → BomForm** — write BOM lines from the Release stage once BomForm's write tools are keyed
 
 ## 0. How this brief was framed
 
@@ -153,6 +154,12 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | **Login** | ASCII wind background (light and night), glass card | done | Our own implementation; compare against Details' "ASCII Cursor 2.0" (§6) |
 | **Design** | `#/design` living page; DESIGN.md | done | |
 | **Desktop** | Tauri config points at :1430 | partial | Not rebuilt this session |
+| **Grid feel** (2026-11-02) | Magnetic snapping (settle only when near a framing). Safe-area framing clear of the capsule and HUD. Sections frame their cards (sparse sections at ~105% instead of ~55%). Trackpad pinch 1:1, two-finger pan everywhere. Keys 0 / ⇧1 / F / ⇧2 / 1 / + / −, Space-drag. Live zoom % in the HUD. Cards lift and lean when dragged | done | `docs/evidence/2026-11-02_grid-feel/`. Not yet measured on a real trackpad (headless only) |
+| **Design pipelines** (2026-11-02) | Brief → Concept → CAD → Simulate → Review → Release as six wired stage panels in their own section | done (Vision run is manual) | `docs/evidence/2026-11-02_design-pipeline/`, `apps/server/test/pipeline.test.ts` |
+| | Stages: status (waiting / active / done), owner, editable brief, artifacts (renders, STEP measured on arrival, results, decisions), self-ticking checklist where the evidence is clear, ★ to choose what goes forward | done | |
+| | Hand-offs (`stage_request`): CAD asks the owner via Hermes and the STEP lands back on the stage. Concept and Simulate write a Vision brief from the stage (chosen concept; CAD size + analysis/loads/target). Review asks every reviewer | done | Vision still runs by hand; phase 2 starts T3 threads |
+| | Complete → output goes down the wire and the next stage opens. "Request changes" at Review reopens CAD and Simulate. Agents drive all of it through the same tools; ⌘K "Start a design pipeline: …" | done | |
+| | Release → BomForm | stub | Completes the stage; nothing is written to BomForm yet |
 | **Interface pass 1** (2026-11-02) | Connector status pills and offline states. Foundation's own live counts. Backward wires loop through the gap between rows. Empty sections offer open/drop/ask/note and a company app shelf. Panels opened from the shelf carry the registry's repo and MCP. Section headers solid with a card count. Glass pill HUD. Presentation title scrim, HUD hidden. Capsule truly centred. The grid can't be scrolled by focus. My avatar shown once | done | Evidence in `docs/evidence/2026-11-02_interface-pass/` |
 
 ### 3.1 flowform → Foundation port map
@@ -185,6 +192,7 @@ One definition (`apps/server/src/tools.ts`), three doors: the built-in agent, `/
 | Organizing | `add_section`, `add_note`, `update_card`, `delete_card` (confirm), `focus` |
 | Apps | `add_panel` (app, link, machine, connector, agent), `connect`, `send_to_port`, `call_app_tool` |
 | People and studios | `ask_person` (Hermes), `vision_brief`, `reverse_engineer` (REA, person-run) |
+| Design pipelines | `start_design_pipeline`, `pipeline_status`, `stage_attach`, `stage_choose`, `stage_check`, `stage_settings`, `stage_request` (hand-off), `complete_stage` (Review: approved / changes) |
 
 **Invariants**, from flowform and tested in `apps/server/test`:
 - Every write names its board.

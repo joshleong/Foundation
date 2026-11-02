@@ -18,6 +18,7 @@ import { api, serverUrl, uploadFile } from "../lib/api";
 import { askAgent, setUi, toast, useUi } from "../state/ui";
 import { onCamera } from "../state/camera";
 import { activeBoard } from "../sync/board";
+import { StageBody } from "./StageView";
 
 interface Props {
   panel: PanelMeta;
@@ -37,6 +38,7 @@ const GLYPH: Record<PanelMeta["panel"], string> = {
   agent: "✦",
   connector: "◉",
   ask: "✉",
+  stage: "◆",
 };
 
 export const PanelView = memo(function PanelView({ panel, pos, isActive, getScale }: Props) {
@@ -111,6 +113,8 @@ export const PanelView = memo(function PanelView({ panel, pos, isActive, getScal
           <ConnectorBody panel={panel} />
         ) : panel.panel === "ask" ? (
           <AskBody panel={panel} />
+        ) : panel.panel === "stage" ? (
+          <StageBody panel={panel} />
         ) : (
           <AgentBody panel={panel} />
         )}

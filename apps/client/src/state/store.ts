@@ -1167,6 +1167,7 @@ const PANEL_SIZE: Record<PanelMeta["panel"], [number, number]> = {
   agent: [420, 360],
   connector: [460, 320],
   ask: [380, 220],
+  stage: [460, 440],
 };
 
 export function addPanel(

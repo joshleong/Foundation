@@ -140,6 +140,8 @@ export function CommandBar() {
       );
     }
     if (term) list.push({ id: "ask", glyph: "✦", label: `Ask the agent: “${term}”`, keys: "⌘↵", run: () => askAgent(term) });
+    if (term && !looksLikeUrl(term))
+      list.push({ id: "pipeline-named", glyph: "◆", label: `Start a design pipeline: “${term}”`, hint: "Brief → Concept → CAD → Simulate → Review → Release", run: () => startPipeline(term) });
     list.push(
       { id: "present", glyph: "▶", label: "Present this board", keys: "P", run: () => setUi({ presenting: true }) },
       { id: "layer", glyph: "◇", label: `${getUi().agentLayer ? "Hide" : "Show"} the agent layer`, hint: "who's working on what, and how apps are wired", keys: "A", run: () => setUi({ agentLayer: !getUi().agentLayer }) },
@@ -149,6 +151,7 @@ export function CommandBar() {
       { id: "section", glyph: "▥", label: "New section", run: () => void appendSectionLocal(term && !looksLikeUrl(term) ? term : "New section") },
       { id: "upload", glyph: "⇪", label: "Upload files…", hint: "designs, CAD, PDFs, video", run: () => void window.dispatchEvent(new CustomEvent("foundation:upload")) },
       { id: "cad", glyph: "✉", label: "Ask someone for the latest CAD…", hint: "Hermes keeps following up", run: () => askAgent("Ask ") },
+      { id: "pipeline", glyph: "◆", label: "Start a design pipeline…", hint: "design → CAD → simulation → release, panel by panel", run: () => askAgent("Start a design pipeline for ") },
       { id: "vision", glyph: "◈", label: "Design something with Vision…", run: () => askAgent("Brief Vision: design ") },
       { id: "connect", glyph: "⌁", label: "Connect Claude Code / Codex to this board", hint: "copies an MCP command", run: copyMcpCommand },
       { id: "design", glyph: "◐", label: "Design language", hint: "tokens, type, motion, effects", run: () => {
@@ -162,7 +165,7 @@ export function CommandBar() {
     );
     if (!term || looksLikeUrl(term)) return list;
     const t = term.toLowerCase();
-    return list.filter((a) => a.id === "ask" || a.id === "section" || a.label.toLowerCase().includes(t) || a.hint?.toLowerCase().includes(t));
+    return list.filter((a) => a.id === "ask" || a.id === "section" || a.id === "pipeline-named" || a.label.toLowerCase().includes(t) || a.hint?.toLowerCase().includes(t));
   }, [q]);
 
   const rows: Array<{ kind: "action"; a: Action } | { kind: "hit"; h: SearchHit }> = [
@@ -272,6 +275,21 @@ function openHit(h: SearchHit) {
     return;
   }
   if (h.url) window.open(h.url, "_blank", "noopener");
+}
+
+/** a pipeline straight from ⌘K: the six stages land in a new section and the camera goes there */
+async function startPipeline(name: string) {
+  try {
+    const board = activeBoard()?.boardId ?? "company";
+    const r = await api<{ result: { section: string } }>(`/api/boards/${encodeURIComponent(board)}/tools/start_design_pipeline`, {
+      method: "POST",
+      json: { name, goal: `Write the brief for ${name}: what it is, for whom, and how we'll know it's right.` },
+    });
+    requestSnap({ kind: "section", id: r.result.section });
+    toast(`Pipeline “${name}” — start with the brief`, "ok");
+  } catch (e) {
+    toast((e as Error).message, "bad");
+  }
 }
 
 async function copyMcpCommand() {

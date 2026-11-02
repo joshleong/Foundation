@@ -1741,3 +1741,351 @@ body.is-presenting .ctx-corners {
     display: none !important;
   }
 }
+
+/* ---------- design pipeline stages ---------- */
+
+.panel-card.kind-stage .panel-inner {
+  background: var(--color-raise);
+}
+.panel-card.kind-stage.status-open {
+  border-color: color-mix(in srgb, var(--color-pulse) 55%, var(--color-line-strong));
+  box-shadow: 0 0 0 3px var(--color-pulse-dim), var(--shadow-sheet);
+}
+.panel-card.kind-stage.status-done {
+  border-color: color-mix(in srgb, var(--color-ok) 45%, var(--color-line-strong));
+}
+.stage-body {
+  position: absolute;
+  inset: 0;
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  container-type: inline-size;
+}
+.stage-body.tone-idle > :not(.stage-head):not(.stage-artifacts) {
+  opacity: 0.55;
+}
+.stage-text.is-editable {
+  cursor: text;
+  border-radius: var(--radius-paper);
+  margin: -2px -4px;
+  padding: 2px 4px;
+}
+.stage-text.is-editable:hover {
+  background: var(--color-pulse-dim);
+}
+.stage-edit {
+  min-height: 84px;
+  resize: none;
+  padding: var(--space-3);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-pulse);
+  background: var(--color-abyss);
+  color: var(--color-frost);
+  font: 400 var(--text-13) / 1.45 var(--font-sans);
+  outline: none;
+  user-select: text;
+}
+.stage-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.stage-glyph {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-card);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-pulse-dim);
+  color: var(--color-pulse);
+  font-size: 14px;
+}
+.tone-done .stage-glyph {
+  background: color-mix(in srgb, var(--color-ok) 12%, transparent);
+  color: var(--color-ok);
+}
+.tone-idle .stage-glyph {
+  background: var(--color-panel);
+  color: var(--color-dim);
+}
+.stage-status {
+  height: 22px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-pill);
+  font: 600 var(--text-11) / 1 var(--font-sans);
+}
+.stage-status.is-open {
+  background: var(--color-pulse-dim);
+  color: var(--color-pulse);
+}
+.stage-status.is-done {
+  background: color-mix(in srgb, var(--color-ok) 12%, transparent);
+  color: var(--color-ok);
+}
+.stage-status.is-idle {
+  background: var(--color-panel);
+  color: var(--color-dim);
+}
+.stage-status.is-error {
+  background: color-mix(in srgb, var(--color-bad) 12%, transparent);
+  color: var(--color-bad);
+}
+.stage-owner {
+  height: 22px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-line);
+  color: var(--color-mist);
+  font-size: var(--text-11);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stage-progress {
+  margin-left: auto;
+  color: var(--color-dim);
+  font: 600 var(--text-11) / 1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+.stage-text {
+  color: var(--color-mist);
+  font-size: var(--text-12);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.stage-text.is-brief {
+  color: var(--color-frost);
+  font-size: var(--text-13);
+  -webkit-line-clamp: 5;
+}
+.stage-settings {
+  display: grid;
+  grid-template-columns: 110px 1fr 1fr;
+  gap: var(--space-2);
+}
+.stage-settings select,
+.stage-settings input {
+  height: var(--h-pill);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-line);
+  background: var(--color-abyss);
+  color: var(--color-frost);
+  font: 400 var(--text-12) / 1 var(--font-sans);
+  padding: 0 var(--space-3);
+  min-width: 0;
+  outline: none;
+  user-select: text;
+}
+.stage-settings input:focus,
+.stage-settings select:focus {
+  border-color: var(--color-pulse);
+}
+.stage-artifacts {
+  display: flex;
+  gap: var(--space-3);
+  overflow-x: auto;
+  min-height: 92px;
+  padding-bottom: 2px;
+}
+.stage-drop {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  border: 1.5px dashed var(--color-line-strong);
+  border-radius: var(--radius-card);
+  color: var(--color-dim);
+  font-size: var(--text-12);
+  text-align: center;
+}
+.artifact {
+  position: relative;
+  flex: 0 0 132px;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-line);
+  background: var(--color-abyss);
+  overflow: hidden;
+}
+.artifact.is-chosen {
+  border-color: var(--color-pulse);
+  box-shadow: 0 0 0 2px var(--color-pulse-dim);
+}
+.artifact-face {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-panel);
+  color: var(--color-pulse);
+  text-decoration: none;
+}
+.artifact-face img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.artifact-glyph {
+  font-size: 22px;
+}
+.artifact.kind-cad .artifact-face {
+  background: radial-gradient(circle at 50% 40%, var(--color-pulse-dim), var(--color-panel) 70%);
+}
+.artifact.kind-decision .artifact-glyph {
+  color: var(--color-ok);
+}
+.artifact-meta {
+  padding: 4px 6px 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.artifact-name {
+  font: 600 var(--text-11) / 1.3 var(--font-sans);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.artifact-note {
+  font: 400 10.5px / 1.3 var(--font-code);
+  color: var(--color-mist);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.artifact-star {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-raise) 80%, transparent);
+  color: var(--color-dim);
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-quick) var(--ease-out-soft), transform var(--dur-press) var(--ease-out-soft);
+}
+.artifact:hover .artifact-star,
+.artifact-star.is-on {
+  opacity: 1;
+}
+.artifact-star.is-on {
+  color: var(--color-warn);
+}
+.artifact-star:active {
+  transform: scale(0.88);
+}
+.stage-checklist {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stage-checklist button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 3px 4px;
+  border: 0;
+  border-radius: var(--radius-paper);
+  background: transparent;
+  color: var(--color-frost);
+  font: 400 var(--text-12) / 1.3 var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.stage-checklist button:hover {
+  background: var(--color-pulse-dim);
+}
+.stage-checklist button.is-done {
+  color: var(--color-dim);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--color-dim) 50%, transparent);
+}
+.tick {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-paper);
+  border: 1.5px solid var(--color-line-strong);
+  font-size: 10px;
+  color: #fff;
+}
+.is-done .tick {
+  background: var(--color-ok);
+  border-color: var(--color-ok);
+}
+.stage-actions {
+  margin-top: auto;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-3);
+}
+.stage-actions .f-pill.is-agent {
+  margin-right: auto;
+}
+.stage-done-note {
+  color: var(--color-ok);
+  font-size: var(--text-12);
+}
+.stage-waiting {
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  translate: -50% -50%;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--color-raise);
+  border: 1px solid var(--color-line);
+  color: var(--color-mist);
+  font-size: var(--text-12);
+  box-shadow: var(--shadow-sheet);
+}
+.stage-over {
+  position: absolute;
+  inset: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-card);
+  border: 2px dashed var(--color-pulse);
+  background: color-mix(in srgb, var(--color-pulse) 8%, var(--color-raise));
+  color: var(--color-pulse);
+  font-weight: 600;
+  pointer-events: none;
+}
+@container (max-width: 380px) {
+  .stage-settings {
+    grid-template-columns: 1fr 1fr;
+  }
+  .stage-owner {
+    display: none;
+  }
+}
+.artifact.kind-cad,
+.artifact.kind-data {
+  /* the measurement / summary is the point: give it room */
+  flex-basis: 210px;
+}

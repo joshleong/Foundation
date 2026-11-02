@@ -26,13 +26,14 @@ export interface AskRow {
   due_at: number | null;
   last_nudged_at: number | null;
   resolved_file_id: string | null;
+  stage_panel_id: string | null;
 }
 
 const NUDGE_EVERY = 4 * 3600_000;
 
 export function createAsk(
   ctx: ToolCtx,
-  a: { assignee: string; prompt: string; kind: string; section?: string; dueHours?: number },
+  a: { assignee: string; prompt: string; kind: string; section?: string; dueHours?: number; stagePanelId?: string },
 ): { id: string; panelId: string } {
   const id = `ask_${randomBytes(6).toString("hex")}`;
   const panelId = editBoard(ctx.boardId, "hermes", (doc) => {
@@ -62,14 +63,14 @@ export function createAsk(
     return panel.id;
   });
   run(
-    "insert into asks (id, board_id, panel_id, assignee, kind, prompt, status, created_by, created_at, due_at) values (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)",
-    id, ctx.boardId, panelId, a.assignee, a.kind, a.prompt, ctx.actor, Date.now(), a.dueHours ? Date.now() + a.dueHours * 3600_000 : null,
+    "insert into asks (id, board_id, panel_id, assignee, kind, prompt, status, created_by, created_at, due_at, stage_panel_id) values (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)",
+    id, ctx.boardId, panelId, a.assignee, a.kind, a.prompt, ctx.actor, Date.now(), a.dueHours ? Date.now() + a.dueHours * 3600_000 : null, a.stagePanelId ?? null,
   );
   void slackDm(a.assignee, `Foundation · ${ctx.actor} asks: ${a.prompt}\nDrop it on the card: ${config.clientUrl}/?board=${ctx.boardId}&focus=${panelId}`);
   return { id, panelId };
 }
 
-export function resolveAsk(id: string, by: string, fileId?: string) {
+export async function resolveAsk(id: string, by: string, fileId?: string) {
   const ask = one<AskRow>("select * from asks where id = ?", id);
   if (!ask) throw new Error("no such ask");
   run("update asks set status = 'done', resolved_file_id = ? where id = ?", fileId ?? null, id);
@@ -88,6 +89,11 @@ export function resolveAsk(id: string, by: string, fileId?: string) {
       }
       logActivity(doc, { who: "Hermes", role: "agent", text: `${by} answered: ${ask.prompt}`, objectId: ask.panel_id! });
     });
+  }
+  // an ask raised by a pipeline stage delivers its file to that stage
+  if (fileId && ask.stage_panel_id) {
+    const { attachToStage } = await import("./pipeline.ts");
+    await attachToStage(ask.board_id, ask.stage_panel_id, { fileId }, by).catch(() => {});
   }
   return { ok: true };
 }

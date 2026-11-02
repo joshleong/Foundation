@@ -142,6 +142,15 @@ const FTS_SQL = `create virtual table search_fts using fts5(
   }
 }
 
+// additive migrations — each is idempotent
+for (const sql of ["alter table asks add column stage_panel_id text"]) {
+  try {
+    db.exec(sql);
+  } catch {
+    /* already applied */
+  }
+}
+
 export type Row = Record<string, unknown>;
 
 export function one<T = Row>(sql: string, ...params: unknown[]): T | undefined {

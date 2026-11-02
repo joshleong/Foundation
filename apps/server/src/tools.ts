@@ -33,6 +33,8 @@ import { companySnapshot, readConnector } from "./connectors.ts";
 import { createAsk } from "./hermes.ts";
 import { queueJob } from "./jobs.ts";
 import { readFileText } from "./files.ts";
+import { attachToStage, chooseArtifact, completeStage, describePipeline, setChecklist, startPipeline, updateStageSettings } from "./pipeline.ts";
+import { stageDef } from "@foundation/protocol";
 
 export interface ToolCtx {
   boardId: string;
@@ -49,6 +51,8 @@ export interface BoardTool<S extends z.ZodTypeAny = z.ZodTypeAny> {
 }
 
 const seenRequests = new Map<string, unknown>();
+/** Vision briefs land in the pipeline's fourth column, level with the stage that wrote them */
+const BRIEF_X = 1560;
 
 /** typed at the definition, erased in the list */
 function def<S extends z.ZodTypeAny>(t: BoardTool<S>): BoardTool {
@@ -69,6 +73,7 @@ const PANEL_SIZES: Record<PanelKind, [number, number]> = {
   agent: [420, 360],
   connector: [460, 320],
   ask: [380, 220],
+  stage: [460, 440],
 };
 
 function sectionOrCreate(doc: Y.Doc, section?: string) {
@@ -432,6 +437,136 @@ export const TOOLS: BoardTool[] = [
       });
       touch(ctx, p.id, `queued reverse-engineering of ${target}`);
       return { job: job.id, card: p.id, note: "waiting for a person to press Run on the card" };
+    },
+  }),
+  // ---------- design pipelines: design → CAD → simulation → release ----------
+  def({
+    name: "start_design_pipeline",
+    description:
+      "Start a design pipeline for a new part or product: a section with six wired stage panels — Brief → Concept → CAD → Simulate → Review → Release. Each stage collects artifacts and hands its output to the next when completed.",
+    schema: z.object({
+      name: z.string().describe("short product/part name, e.g. 'Rim-drive fan v3'"),
+      goal: z.string().describe("the brief: what it is, for whom, and how we know it's right"),
+      owner: z.string().optional(),
+      cad_owner: z.string().optional().describe("who models it (Hermes will ask them for the STEP)"),
+      reviewers: z.array(z.string()).optional(),
+      analysis: z.string().optional().describe("what to simulate: CFD, FEA, thermal, RF, motion …"),
+      request_id: z.string().optional(),
+    }),
+    write: true,
+    run: (ctx, i) => {
+      const r = startPipeline(ctx.boardId, ctx.actor, { name: i.name, goal: i.goal, owner: i.owner, cadOwner: i.cad_owner, reviewers: i.reviewers, analysis: i.analysis });
+      touch(ctx, r.stages[0].id, `started the design pipeline “${i.name}”`);
+      return r;
+    },
+  }),
+  def({
+    name: "pipeline_status",
+    description: "Read a design pipeline: each stage, its status (idle = waiting, open = active, done), owner and artifacts (CAD with its measured size).",
+    schema: z.object({ pipeline: z.string() }),
+    run: (ctx, { pipeline }) => describePipeline(ctx.boardId, pipeline) || "no such pipeline",
+  }),
+  def({
+    name: "stage_attach",
+    description: "Attach an uploaded file (by file_id) or a link to a pipeline stage. STEP files are measured (units, bounding box, faces) and the stage checklist ticks itself where the evidence is clear.",
+    schema: z.object({ stage_panel: z.string(), file_id: z.string().optional(), url: z.string().optional(), name: z.string().optional(), note: z.string().optional() }),
+    write: true,
+    run: async (ctx, i) => {
+      if (!i.file_id && !i.url) throw new Error("give a file_id or a url");
+      const art = await attachToStage(ctx.boardId, i.stage_panel, { fileId: i.file_id, url: i.url, name: i.name, note: i.note }, ctx.actor);
+      touch(ctx, i.stage_panel, `attached ${art.name}`);
+      return art;
+    },
+  }),
+  def({
+    name: "stage_choose",
+    description: "Star the artifact a stage takes forward (e.g. the chosen concept render).",
+    schema: z.object({ stage_panel: z.string(), artifact_id: z.string() }),
+    write: true,
+    run: (ctx, i) => {
+      chooseArtifact(ctx.boardId, i.stage_panel, i.artifact_id);
+      return "chosen";
+    },
+  }),
+  def({
+    name: "stage_check",
+    description: "Tick or untick a stage checklist item by its index.",
+    schema: z.object({ stage_panel: z.string(), index: z.number().int(), done: z.boolean() }),
+    write: true,
+    run: (ctx, i) => {
+      setChecklist(ctx.boardId, i.stage_panel, i.index, i.done);
+      return "ok";
+    },
+  }),
+  def({
+    name: "stage_settings",
+    description: "Set a stage's settings (e.g. simulate: analysis=CFD, loads='3 m/s inlet', target='< 45 dB') and/or its owner.",
+    schema: z.object({ stage_panel: z.string(), settings: z.record(z.string()).default({}), owner: z.string().optional() }),
+    write: true,
+    run: (ctx, i) => {
+      updateStageSettings(ctx.boardId, i.stage_panel, i.settings, i.owner);
+      return "ok";
+    },
+  }),
+  def({
+    name: "complete_stage",
+    description:
+      "Complete a pipeline stage: its chosen (or latest) artifact goes out on its wire and the next stage opens. For the Review stage pass decision 'approved' or 'changes' (changes reopens CAD and Simulate). Only complete a stage when its work is really done — ask the person if unsure.",
+    schema: z.object({ stage_panel: z.string(), decision: z.enum(["approved", "changes"]).optional() }),
+    write: true,
+    run: (ctx, i) => {
+      const r = completeStage(ctx.boardId, i.stage_panel, ctx.actor, i.decision);
+      touch(ctx, r.next ?? i.stage_panel, r.sentBack ? "sent the design back for changes" : "completed a stage");
+      return r;
+    },
+  }),
+  def({
+    name: "stage_request",
+    description:
+      "Run a stage's hand-off to people and studios: for CAD, Hermes asks the CAD owner for the STEP and delivers it to the stage when it lands; for Concept or Simulate, writes a Vision brief from the stage (with the chosen concept or the CAD and the analysis settings) and opens Vision; for Review, asks every reviewer.",
+    schema: z.object({ stage_panel: z.string(), who: z.string().optional().describe("override the person to ask") }),
+    write: true,
+    run: (ctx, { stage_panel, who }) => {
+      const doc = getBoard(ctx.boardId).doc;
+      const p = boardMaps(doc).objects.get(stage_panel);
+      if (!p || p.kind !== "panel" || p.panel !== "stage") throw new Error("not a stage panel");
+      const def = stageDef(p.stage)!;
+      const section = boardMaps(doc).sections.get(p.sectionId)?.name;
+      const product = (section ?? "the design").replace(/^Design · /, "");
+      if (p.stage === "cad") {
+        const assignee = who ?? p.assignee;
+        if (!assignee) throw new Error("who models it? set the CAD owner (stage_settings owner) or pass who");
+        const ask = createAsk(ctx, { assignee, prompt: `Upload the STEP for ${product} to its CAD stage.`, kind: "cad_upload", section, stagePanelId: p.id });
+        touch(ctx, p.id, `asked ${assignee} for the ${product} CAD`);
+        return { ask: ask.id, card: ask.panelId };
+      }
+      if (p.stage === "review") {
+        const people = (who ?? p.assignee ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+        if (!people.length) throw new Error("who reviews it? set reviewers on the stage or pass who");
+        const asks = people.map((r) => createAsk(ctx, { assignee: r, prompt: `Review ${product}: the CAD and the simulation results, then approve or request changes on the Review stage.`, kind: "review", section }));
+        touch(ctx, p.id, `asked ${people.join(", ")} to review ${product}`);
+        return { asks: asks.map((a) => a.id) };
+      }
+      if (p.stage === "concept" || p.stage === "simulate") {
+        const stages = [...boardMaps(doc).objects.values()].filter((o): o is PanelDoc => o.kind === "panel" && o.panel === "stage" && o.pipeline === p.pipeline);
+        const brief = stages.find((s) => s.stage === "brief");
+        const cad = stages.find((s) => s.stage === "cad");
+        const cadArt = cad?.artifacts?.filter((a) => a.kind === "cad").pop();
+        const settings = Object.entries(p.settings ?? {}).map(([k, v]) => `${k}: ${v}`).join(" · ");
+        const md =
+          p.stage === "concept"
+            ? `## Concepts for ${product}\n\n**Brief** ${brief?.text ?? ""}\n\nExplore at least two directions in Vision; drop renders on the Concept stage and star the one to take forward.`
+            : `## Simulate ${product}\n\n**Model** ${cadArt ? `${cadArt.name}${cadArt.note ? ` — ${cadArt.note}` : ""}` : "(no CAD yet)"}\n\n**Analysis** ${settings || "set analysis and loads on the stage"}\n\nRun it in Vision and drop the results (plots, CSV, report) on the Simulate stage.`;
+        const noteId = editBoard(ctx.boardId, "agent", (d) => {
+          const n: NoteDoc = { id: uid("note"), kind: "note", sectionId: p.sectionId, name: `Vision brief · ${def.title}`, x: BRIEF_X, y: p.y, float: true, bornAt: Date.now(), w: 420, h: 260, text: md };
+          boardMaps(d).objects.set(n.id, n);
+          return n.id;
+        });
+        if (p.status === "idle") editBoard(ctx.boardId, "agent", (d) => boardMaps(d).objects.set(p.id, { ...p, status: "open" }));
+        touch(ctx, p.id, `briefed Vision for ${def.title.toLowerCase()} of ${product}`);
+        return { brief: noteId, vision: process.env.VISION_URL || "http://localhost:1420" };
+      }
+      throw new Error(`${def.title} has no hand-off — complete it when it's done`);
     },
   }),
 ];

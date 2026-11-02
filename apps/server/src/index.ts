@@ -104,6 +104,13 @@ r.delete("/api/files/:id", (req) => {
   archiveFile(req.params.id);
   return { archived: true };
 });
+r.get("/api/files/:id/cad", async (req) => {
+  requireUser(req);
+  const { cadSummaryForFile } = await import("./cad.ts");
+  const s = await cadSummaryForFile(req.params.id);
+  if (!s) throw new HttpError(404, "no such file");
+  return s;
+});
 r.get("/files/:id", (req, res) => {
   requireUser(req);
   serveFile(req, res, req.params.id);

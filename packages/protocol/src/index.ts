@@ -86,7 +86,8 @@ export type PanelKind =
   | "machine" // a VM, container or remote desktop reached by URL (noVNC, ttyd, code-server)
   | "agent" // an agent session working on the board
   | "connector" // live company data (BomForm, FactoryForm, Vision …)
-  | "ask"; // a Hermes request to a person (e.g. "upload the latest CAD")
+  | "ask" // a Hermes request to a person (e.g. "upload the latest CAD")
+  | "stage"; // one step of a design pipeline (brief → concept → CAD → simulate → review → release)
 
 export interface Port {
   id: string;
@@ -120,6 +121,98 @@ export interface PanelDoc extends ObjectBaseDoc {
   createdBy?: string;
   /** last value each output port emitted (JSON-able) */
   outputs?: Record<string, unknown>;
+  // ---- design pipeline stages (panel === "stage") ----
+  pipeline?: string;
+  stage?: StageKey;
+  artifacts?: Artifact[];
+  checklist?: Array<{ text: string; done: boolean }>;
+  /** stage-specific settings, e.g. { analysis: "CFD", loads: "…" } */
+  settings?: Record<string, string>;
+}
+
+// ---------- design pipelines: design → CAD → simulation → release ----------
+
+export type StageKey = "brief" | "concept" | "cad" | "simulate" | "review" | "release";
+
+export interface Artifact {
+  id: string;
+  name: string;
+  /** "image" | "cad" | "doc" | "data" | "link" | "decision" */
+  kind: string;
+  fileId?: string;
+  url?: string;
+  mime?: string;
+  /** e.g. the CAD bounding box "212 × 212 × 64 mm" */
+  note?: string;
+  by: string;
+  at: number;
+  chosen?: boolean;
+}
+
+export interface StageDef {
+  key: StageKey;
+  title: string;
+  glyph: string;
+  /** what this stage hands to the next */
+  out: { name: string; type: string };
+  purpose: string;
+  checklist: string[];
+}
+
+/** The six stages, in order. One definition for the server, the client and agents. */
+export const STAGES: StageDef[] = [
+  {
+    key: "brief",
+    title: "Brief",
+    glyph: "✎",
+    out: { name: "brief", type: "json" },
+    purpose: "What we're making, for whom, and how we'll know it's right.",
+    checklist: ["Goal and use case written", "Constraints: size, mass, cost, materials", "Success criteria agreed"],
+  },
+  {
+    key: "concept",
+    title: "Concept",
+    glyph: "◈",
+    out: { name: "concept", type: "image" },
+    purpose: "Sketches and renders — from Vision, the team, or references. Star the one we take forward.",
+    checklist: ["At least two directions explored", "One direction chosen (★)"],
+  },
+  {
+    key: "cad",
+    title: "CAD",
+    glyph: "⬡",
+    out: { name: "cad", type: "cad" },
+    purpose: "The model. Drop a STEP (or ask the owner — Hermes follows up until it lands).",
+    checklist: ["STEP uploaded", "Units and envelope check out", "Part numbers assigned"],
+  },
+  {
+    key: "simulate",
+    title: "Simulate",
+    glyph: "≋",
+    out: { name: "results", type: "data" },
+    purpose: "Test it before it's made: CFD, FEA, thermal or RF in Vision. Results land here.",
+    checklist: ["Analysis and load cases set", "Run in Vision", "Results attached and read"],
+  },
+  {
+    key: "review",
+    title: "Review",
+    glyph: "◎",
+    out: { name: "approved", type: "decision" },
+    purpose: "The people who own it look at the design and the results, and decide.",
+    checklist: ["Reviewers asked", "Comments resolved", "Decision recorded"],
+  },
+  {
+    key: "release",
+    title: "Release",
+    glyph: "⇢",
+    out: { name: "release", type: "bom" },
+    purpose: "Hand it to BomForm and FactoryForm: part numbers, BOM lines, a revision.",
+    checklist: ["BOM lines in BomForm", "Revision tagged", "FactoryForm notified"],
+  },
+];
+
+export function stageDef(key: StageKey | undefined): StageDef | undefined {
+  return STAGES.find((s) => s.key === key);
 }
 
 export type ObjectDoc = TableDoc | MapDoc | NoteDoc | MediaDoc | PanelDoc;
