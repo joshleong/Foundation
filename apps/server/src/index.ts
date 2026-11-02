@@ -18,7 +18,7 @@ import { archiveFile, listFiles, reindexFilesIfNeeded, serveFile, uploadFile } f
 import { integrationStatus, searchAll } from "./search.ts";
 import { listApps, probeApp, saveApp } from "./apps.ts";
 import { parseRepo, repoCommits, repoInfo, repoReadme } from "./github.ts";
-import { companySnapshot, readConnector } from "./connectors.ts";
+import { companySnapshot, connectorEvents, readConnector, watchFactoryForm } from "./connectors.ts";
 import { createAsk, listAsks, resolveAsk, startHermes } from "./hermes.ts";
 import { getJob, listJobs, startJob } from "./jobs.ts";
 import { runAgent, runtimes } from "./agent.ts";
@@ -159,6 +159,18 @@ r.get("/api/company", async (req) => {
   requireUser(req);
   return companySnapshot(req.query.get("fresh") === "1");
 });
+/** pushed connector changes (FactoryForm's live stream), so cards refetch at once */
+r.get("/api/connectors/events", (req, res) => {
+  requireUser(req);
+  const send = sse(res);
+  const on = (id: string) => send({ id });
+  connectorEvents.on("change", on);
+  const ping = setInterval(() => res.write(": ping\n\n"), 20_000);
+  res.on("close", () => {
+    clearInterval(ping);
+    connectorEvents.off("change", on);
+  });
+});
 r.get("/api/connectors/:id", async (req) => {
   requireUser(req);
   return readConnector(req.params.id, req.query.get("fresh") === "1");
@@ -270,6 +282,7 @@ server.on("upgrade", (rawReq, socket, head) => {
 });
 
 reindexFilesIfNeeded();
+watchFactoryForm();
 seedCompanyBoard();
 migrateAllBoards();
 startHermes();

@@ -2444,3 +2444,100 @@ body.is-connecting .port-in.is-snap {
 .port-layer.is-on .pipe.is-short:not(.is-hover):not(.is-selected) .pipe-label {
   opacity: 0;
 }
+
+/* connector extras: live badge, provenance, strips, lists */
+.connector-live,
+.connector-provenance {
+  flex-shrink: 0;
+  height: 18px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-pill);
+  font: 600 10px / 1 var(--font-sans);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.connector-live {
+  margin-left: auto;
+  color: var(--color-ok);
+  background: color-mix(in srgb, var(--color-ok) 10%, transparent);
+}
+.connector-live::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: f-breathe 2.4s var(--ease-out-soft) infinite;
+}
+.connector-provenance {
+  color: var(--color-dim);
+  border: 1px dashed var(--color-line-strong);
+}
+.connector-live + .connector-provenance {
+  margin-left: 0;
+}
+.connector-head .connector-provenance:first-of-type:not(.connector-live + .connector-provenance) {
+  margin-left: auto;
+}
+.connector-strip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.connector-strip-label {
+  font: 600 var(--text-11) / 1 var(--font-sans);
+  color: var(--color-dim);
+  margin-right: 4px;
+  min-width: 56px;
+}
+.strip-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-paper);
+  background: var(--color-panel);
+  border: 1px solid var(--color-line);
+}
+.strip-dot.tone-ok {
+  background: color-mix(in srgb, var(--color-ok) 70%, var(--color-raise));
+  border-color: transparent;
+}
+.strip-dot.tone-warn {
+  background: color-mix(in srgb, var(--color-warn) 75%, var(--color-raise));
+  border-color: transparent;
+}
+.strip-dot.tone-bad {
+  background: var(--color-bad);
+  border-color: transparent;
+}
+.connector-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.connector-list-item {
+  font-size: var(--text-12);
+  padding-left: 10px;
+  position: relative;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.connector-list-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-dim);
+}
+.connector-list-item.tone-warn::before {
+  background: var(--color-warn);
+}
+.connector-list-item.tone-bad::before {
+  background: var(--color-bad);
+}

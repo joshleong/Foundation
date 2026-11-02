@@ -13,6 +13,7 @@
  * view can draw any of them the same way, and says plainly when it's offline.
  */
 
+import { EventEmitter } from "node:events";
 import { config } from "./config.ts";
 import { callMcpTool } from "./mcpclient.ts";
 import { one } from "./db.ts";
@@ -24,6 +25,16 @@ export interface ConnectorState {
   url: string;
   summary: string;
   metrics: Array<{ label: string; value: string | number; tone?: "ok" | "warn" | "bad" }>;
+  /** small visual strips: one dot per thing (stations by status, cert items …) */
+  strips?: Array<{ label: string; dots: Array<{ name: string; tone: "ok" | "warn" | "bad" | "idle" }> }>;
+  /** short lists worth reading: open alerts, overdue POs … */
+  lists?: Array<{ title: string; items: Array<{ text: string; tone?: "ok" | "warn" | "bad" }> }>;
+  /** where the numbers come from, when it isn't the live system of record */
+  provenance?: string;
+  /** the badge: "prototype", "demo data" … */
+  provenanceLabel?: string;
+  /** pushed live (event stream) rather than polled */
+  live?: boolean;
   detail?: unknown;
   checkedAt: number;
 }
@@ -61,43 +72,121 @@ async function getJson<T>(url: string, headers: Record<string, string> = {}): Pr
   return (await res.json()) as T;
 }
 
+interface FfBootstrap {
+  stations?: Array<{ id: string; name: string; shortName?: string; status: string; wip?: number; provenance?: string }>;
+  units?: Array<{ id: string; serial: string; status: string; stationId?: string | null; provenance?: string }>;
+  alerts?: Array<{ id: string; title: string; severity: string; status: string; provenance?: string }>;
+  purchaseOrders?: Array<{ id: string; status?: string; provenance?: string }>;
+  bom?: unknown[];
+  deployments?: unknown[];
+  meta?: { mode?: string; demoData?: boolean; sourceSnapshotDate?: string };
+}
+
 async function factoryform(): Promise<ConnectorState> {
   const base = config.connectors.factoryform.replace(/\/$/, "");
-  const s = await getJson<{
-    items: number;
-    inventoryValue: number;
-    negativeStock: number;
-    belowReorderPoint: number;
-    openPurchaseOrders: number;
-    overduePurchaseOrders: number;
-    openSalesOrders: number;
-    buildsThisMonth: number;
-  }>(`${base}/api/erp/summary`);
-  let stations: Array<{ id: string; name: string; status: string; wip?: number }> = [];
-  try {
-    const boot = await getJson<{ stations?: typeof stations }>(`${base}/api/bootstrap`);
-    stations = boot.stations ?? [];
-  } catch {
-    /* summary alone is enough */
-  }
+  const [s, boot] = await Promise.all([
+    getJson<{ items: number; inventoryValue: number; negativeStock: number; belowReorderPoint: number; openPurchaseOrders: number; overduePurchaseOrders: number; buildsThisMonth: number }>(`${base}/api/erp/summary`),
+    getJson<FfBootstrap>(`${base}/api/bootstrap`).catch(() => ({}) as FfBootstrap),
+  ]);
+  const stations = boot.stations ?? [];
+  const units = boot.units ?? [];
+  const alerts = (boot.alerts ?? []).filter((a) => a.status !== "resolved" && a.status !== "closed");
+  const inProgress = units.filter((u) => u.status !== "completed" && u.status !== "shipped").length;
+  const completed = units.filter((u) => u.status === "completed" || u.status === "shipped").length;
   const attention = stations.filter((st) => st.status === "attention").length;
+  // FactoryForm's rule: provenance is shown, never hidden — say exactly what's demo and what's imported
+  const count = (xs: Array<{ provenance?: string }>, p: string) => xs.filter((x) => x.provenance === p).length;
+  const parts: string[] = [];
+  if (count(stations, "demo")) parts.push(`stations demo`);
+  if (count(units, "imported")) parts.push(`${count(units, "imported")} units imported${boot.meta?.sourceSnapshotDate ? ` (snapshot ${boot.meta.sourceSnapshotDate})` : ""}`);
+  if (count(boot.alerts ?? [], "demo")) parts.push(`${count(boot.alerts ?? [], "demo")} demo alerts`);
+  const provenance = boot.meta?.demoData || boot.meta?.mode === "prototype" ? `${boot.meta?.mode ?? "demo"}: ${parts.join(" · ")}` : undefined;
+  const provenanceLabel = boot.meta?.mode === "prototype" ? "prototype" : provenance ? "demo data" : undefined;
+  const erp = s.items > 0;
+  const tone = (st: string) => (st === "running" ? "ok" : st === "attention" ? "warn" : st === "down" || st === "blocked" ? "bad" : "idle") as "ok" | "warn" | "bad" | "idle";
   return {
     id: "factoryform",
     name: "FactoryForm",
     ok: true,
     url: base,
-    summary: `${s.items} items · $${Math.round(s.inventoryValue).toLocaleString()} on hand · ${s.openPurchaseOrders} open POs · ${s.buildsThisMonth} builds this month`,
+    live: watching.has("factoryform"),
+    provenance,
+    provenanceLabel,
+    summary: `${stations.length} stations · ${inProgress} units in progress · ${completed} completed${erp ? ` · $${Math.round(s.inventoryValue).toLocaleString()} on hand` : ""}`,
     metrics: [
-      { label: "Inventory value", value: `$${Math.round(s.inventoryValue).toLocaleString()}` },
-      { label: "Below reorder", value: s.belowReorderPoint, tone: s.belowReorderPoint ? "warn" : "ok" },
-      { label: "Negative stock", value: s.negativeStock, tone: s.negativeStock ? "bad" : "ok" },
-      { label: "Open POs", value: s.openPurchaseOrders },
-      { label: "Overdue POs", value: s.overduePurchaseOrders, tone: s.overduePurchaseOrders ? "warn" : "ok" },
+      { label: "Units in progress", value: inProgress },
       { label: "Stations needing attention", value: attention, tone: attention ? "warn" : "ok" },
+      { label: "Open alerts", value: alerts.length, tone: alerts.length ? "warn" : "ok" },
+      ...(erp
+        ? [
+            { label: "Inventory value", value: `$${Math.round(s.inventoryValue).toLocaleString()}` },
+            { label: "Below reorder", value: s.belowReorderPoint, tone: s.belowReorderPoint ? ("warn" as const) : ("ok" as const) },
+            { label: "Overdue POs", value: s.overduePurchaseOrders, tone: s.overduePurchaseOrders ? ("warn" as const) : ("ok" as const) },
+          ]
+        : [
+            { label: "Purchase orders", value: (boot.purchaseOrders ?? []).length },
+            { label: "BOM lines", value: (boot.bom ?? []).length },
+            { label: "Inventory (ERP)", value: "not imported" },
+          ]),
     ],
-    detail: { summary: s, stations },
+    strips: stations.length ? [{ label: "Stations", dots: stations.map((st) => ({ name: `${st.shortName ?? st.name} · ${st.status}${st.wip ? ` · ${st.wip} WIP` : ""}`, tone: tone(st.status) })) }] : undefined,
+    lists: alerts.length ? [{ title: "Open alerts", items: alerts.slice(0, 3).map((a) => ({ text: a.title, tone: a.severity === "critical" ? ("bad" as const) : ("warn" as const) })) }] : undefined,
+    detail: { summary: s, stations, alerts },
     checkedAt: Date.now(),
   };
+}
+
+// ---------- live: FactoryForm's event stream ----------
+
+/** emits "change" with a connector id whenever a pushed update lands */
+export const connectorEvents = new EventEmitter();
+connectorEvents.setMaxListeners(200);
+const watching = new Set<string>();
+
+/**
+ * Follow FactoryForm's SSE stream (/api/events): every `refresh` drops the
+ * cached state and tells every open Foundation client to refetch — the floor
+ * updates on the board within a second instead of the 20 s poll.
+ */
+export function watchFactoryForm() {
+  const base = config.connectors.factoryform.replace(/\/$/, "");
+  let backoff = 1000;
+  const connect = async () => {
+    try {
+      const res = await fetch(`${base}/api/events`, { headers: { accept: "text/event-stream" } });
+      if (!res.ok || !res.body) throw new Error(`${res.status}`);
+      watching.add("factoryform");
+      backoff = 1000;
+      cache.delete("factoryform");
+      connectorEvents.emit("change", "factoryform");
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i: number;
+        while ((i = buf.indexOf("\n\n")) >= 0) {
+          const chunk = buf.slice(0, i);
+          buf = buf.slice(i + 2);
+          if (/^event:\s*refresh/m.test(chunk)) {
+            cache.delete("factoryform");
+            connectorEvents.emit("change", "factoryform");
+          }
+        }
+      }
+      throw new Error("stream ended");
+    } catch {
+      if (watching.delete("factoryform")) {
+        cache.delete("factoryform");
+        connectorEvents.emit("change", "factoryform");
+      }
+      setTimeout(connect, backoff);
+      backoff = Math.min(30_000, backoff * 2);
+    }
+  };
+  void connect();
 }
 
 async function bomform(): Promise<ConnectorState> {
@@ -162,6 +251,30 @@ function foundation(): ConnectorState {
   };
 }
 
+async function creation(): Promise<ConnectorState> {
+  const app = process.env.CREATION_URL || "http://127.0.0.1:5173";
+  const hubUrl = process.env.CREATION_HUB_URL || "http://127.0.0.1:4317";
+  const [appUp, hub] = await Promise.all([
+    timed(fetch(app), 1500).then((r) => r.ok).catch(() => false),
+    timed(fetch(`${hubUrl}/v1/health`), 1500)
+      .then((r) => (r.ok ? (r.json() as Promise<{ version?: string }>) : null))
+      .catch(() => null),
+  ]);
+  if (!appUp && !hub) throw new Error("not running — `npm run services` starts it beside Foundation");
+  return {
+    id: "creation",
+    name: "Creation",
+    ok: true,
+    url: app,
+    summary: [appUp ? `studio at ${app.replace(/^https?:\/\//, "")}` : null, hub ? `Hub v${hub.version ?? "?"} (agents + key vault)` : null].filter(Boolean).join(" · "),
+    metrics: [
+      { label: "Studio", value: appUp ? "up" : "down", tone: appUp ? "ok" : "warn" },
+      { label: "Creation Hub", value: hub ? "up" : "down", tone: hub ? "ok" : "warn" },
+    ],
+    checkedAt: Date.now(),
+  };
+}
+
 async function vision(): Promise<ConnectorState> {
   const reach: string[] = [];
   const t3 = await timed(fetch("http://127.0.0.1:3783/.well-known/t3/environment"), 1200).then((r) => r.ok).catch(() => false);
@@ -195,7 +308,7 @@ export async function readConnector(id: string, fresh = false): Promise<Connecto
     else if (id === "vision") state = await vision();
     else if (id === "dataroom") state = await probe(id, "Airform Data Room", config.connectors.dataroom);
     else if (id === "foundation") state = foundation();
-    else if (id === "creation") state = await probe(id, "Creation", process.env.CREATION_URL || "http://localhost:5173");
+    else if (id === "creation") state = await creation();
     else throw new Error("unknown connector");
   } catch (e) {
     state = {

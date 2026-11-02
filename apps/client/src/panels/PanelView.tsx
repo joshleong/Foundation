@@ -20,6 +20,7 @@ import { askAgent, setUi, toast, useUi } from "../state/ui";
 import { onCamera } from "../state/camera";
 import { activeBoard } from "../sync/board";
 import { StageBody } from "./StageView";
+import { onConnectorChange } from "../lib/connectorEvents";
 
 interface Props {
   panel: PanelMeta;
@@ -393,6 +394,11 @@ interface ConnectorState {
   summary: string;
   url: string;
   metrics: Array<{ label: string; value: string | number; tone?: "ok" | "warn" | "bad" }>;
+  strips?: Array<{ label: string; dots: Array<{ name: string; tone: "ok" | "warn" | "bad" | "idle" }> }>;
+  lists?: Array<{ title: string; items: Array<{ text: string; tone?: "ok" | "warn" | "bad" }> }>;
+  provenance?: string;
+  provenanceLabel?: string;
+  live?: boolean;
   checkedAt: number;
 }
 
@@ -409,9 +415,12 @@ function ConnectorBody({ panel }: { panel: PanelMeta }) {
         .catch(() => {});
     void load();
     const t = setInterval(load, 20_000);
+    // pushed changes (FactoryForm's event stream) refetch at once
+    const off = onConnectorChange(panel.connector, () => void load());
     return () => {
       stop = true;
       clearInterval(t);
+      off();
     };
   }, [live, panel.connector]);
   const offline = st && !st.ok;
@@ -424,6 +433,16 @@ function ConnectorBody({ panel }: { panel: PanelMeta }) {
           {!st ? "Checking" : st.ok ? "Live" : "Offline"}
         </span>
         <span className="connector-role">{panel.text}</span>
+        {st?.live && (
+          <span className="connector-live" title="Updates arrive live from the system's event stream">
+            live
+          </span>
+        )}
+        {st?.provenance && (
+          <span className="connector-provenance" title={st.provenance}>
+            {st.provenanceLabel ?? "demo data"}
+          </span>
+        )}
       </div>
       {offline ? (
         <div className="connector-offline">
@@ -433,13 +452,31 @@ function ConnectorBody({ panel }: { panel: PanelMeta }) {
       ) : st && st.metrics.length > 0 ? (
         <>
           <div className="connector-metrics">
-            {st.metrics.map((m) => (
+            {st.metrics.slice(0, st.strips?.length || st.lists?.length ? 3 : 6).map((m) => (
               <div key={m.label} className={`metric${m.tone ? ` tone-${m.tone}` : ""}`}>
                 <div className="metric-value">{m.value}</div>
                 <div className="metric-label">{m.label}</div>
               </div>
             ))}
           </div>
+          {st.strips?.map((strip) => (
+            <div key={strip.label} className="connector-strip" title={strip.label}>
+              <span className="connector-strip-label">{strip.label}</span>
+              {strip.dots.map((d, i) => (
+                <span key={i} className={`strip-dot tone-${d.tone}`} title={d.name} />
+              ))}
+            </div>
+          ))}
+          {st.lists?.map((list) => (
+            <div key={list.title} className="connector-list">
+              <span className="connector-strip-label">{list.title}</span>
+              {list.items.map((it, i) => (
+                <div key={i} className={`connector-list-item tone-${it.tone ?? "plain"}`}>
+                  {it.text}
+                </div>
+              ))}
+            </div>
+          ))}
           <div className="connector-summary is-small">{st.summary}</div>
         </>
       ) : (
