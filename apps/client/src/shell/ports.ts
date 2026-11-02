@@ -7,7 +7,8 @@
  */
 
 import type { LinkDoc } from "@foundation/protocol";
-import { getState, objectWorldRect, type PanelMeta } from "../state/store";
+import { allObjects, getState, objectWorldRect, type PanelMeta } from "../state/store";
+import type { Rect } from "./wireGeometry";
 import { pipeIntake, pipeMetrics } from "./wireGeometry";
 
 export const PORT_TOP = 52;
@@ -82,4 +83,21 @@ export function describeValue(v: unknown): string {
   }
   const s = typeof v === "string" ? v : JSON.stringify(v);
   return s.length > 64 ? `${s.slice(0, 61)}…` : s;
+}
+
+/** every card's world rect this frame — what wires route around */
+export function cardRects(): Map<string, Rect> {
+  const out = new Map<string, Rect>();
+  for (const o of allObjects()) {
+    const r = objectWorldRect(o);
+    if (r) out.set(o.id, r);
+  }
+  return out;
+}
+
+/** the cards a wire between `from` and `to` must avoid */
+export function obstaclesFor(rects: Map<string, Rect>, from: string, to: string): Rect[] {
+  const out: Rect[] = [];
+  for (const [id, r] of rects) if (id !== from && id !== to) out.push(r);
+  return out;
 }

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { workbook } from "../engine/workbook";
 import { bindMap, getState, gridSize, objectWorldRect, useAppState } from "../state/store";
-import { polyline, route, tunnelGeometry, type P } from "../shell/wireGeometry";
+import { polyline, route, routeAvoiding, tunnelGeometry, type P } from "../shell/wireGeometry";
+import { cardRects, obstaclesFor } from "../shell/ports";
 import { allCrossings, publishRoutes, routesVersion, unpublishRoutes } from "../shell/routeRegistry";
 
 /**
@@ -164,6 +165,7 @@ export function WireLayer() {
         [...list].sort((a, b) => yOf(a.to) - yOf(b.to) || a.key.localeCompare(b.key)).forEach((e, i, arr) => srcLane.set(e.key, i - (arr.length - 1) / 2));
 
       const routes = new Map<string, P[]>();
+      const rects = cardRects();
       for (const edge of edges) {
         const g = groupRefs.current.get(edge.key);
         if (!g) continue;
@@ -179,13 +181,15 @@ export function WireLayer() {
         const activeRebind = rebind.current?.edgeKey === edge.key ? rebind.current : null;
         const start = { x: ra.x + ra.w, y: ra.y + ATTACH_Y };
         const end = activeRebind ? { x: activeRebind.x, y: activeRebind.y } : { x: rb.x, y: rb.y + ATTACH_Y };
-        const pts = route(start, end, {
+        const routeOpts = {
           src: ra,
           dst: activeRebind ? null : rb,
           leadOut: activeRebind ? 0 : undefined,
           lane: lane.get(edge.key) ?? 0,
           srcLane: srcLane.get(edge.key) ?? 0,
-        });
+        };
+        // while dragging a rebind the plain road follows the pointer; at rest, roads go round cards
+        const pts = activeRebind ? route(start, end, routeOpts) : routeAvoiding(start, end, { ...routeOpts, obstacles: obstaclesFor(rects, edge.from, edge.to) });
         routes.set(edge.key, pts);
         g.classList.toggle("rebinding", !!activeRebind);
         // recalc pulse: packets flow for a moment after the source table changes

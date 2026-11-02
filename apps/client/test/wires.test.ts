@@ -82,3 +82,53 @@ test("types: same type, or json on either side", () => {
   assert.ok(typesCompatible("cad", "json"));
   assert.ok(!typesCompatible("cad", "image"));
 });
+
+import { routeAvoiding, segmentHitsRect, chamfer } from "../src/shell/wireGeometry.ts";
+
+const crossesCard = (pts: P[], r: { x: number; y: number; w: number; h: number }) =>
+  pts.slice(1).some((q, i) => segmentHitsRect(pts[i], q, r));
+
+test("a wire runs round a card that sits in its way", () => {
+  const src = { x: 0, y: 0, w: 300, h: 200 };
+  const dst = { x: 1000, y: 400, w: 300, h: 200 };
+  const mapCard = { x: 420, y: 60, w: 360, h: 420 }; // squarely between them
+  const a = { x: 300, y: 26 };
+  const b = { x: 1000, y: 426 };
+  assert.ok(crossesCard(route(a, b, { src, dst }), mapCard), "the plain road would run through it");
+  const pts = routeAvoiding(a, b, { src, dst, obstacles: [mapCard] });
+  assert.ok(!crossesCard(pts, mapCard), "the avoiding road doesn't");
+  for (const ang of angles(pts)) assert.ok(ang % 45 === 0, `still roads only (${ang}°)`);
+  assert.equal(pts[0].x, a.x);
+  assert.equal(pts[pts.length - 1].x, b.x);
+});
+
+test("when the way is clear the plain road wins", () => {
+  const a = { x: 0, y: 0 };
+  const b = { x: 600, y: 200 };
+  const far = { x: 2000, y: 2000, w: 100, h: 100 };
+  assert.deepEqual(routeAvoiding(a, b, { obstacles: [far] }), route(a, b));
+});
+
+test("avoiding stays fast with a crowded board", () => {
+  const obstacles = Array.from({ length: 24 }, (_, i) => ({ x: 200 + (i % 6) * 180, y: -300 + Math.floor(i / 6) * 220, w: 140, h: 160 }));
+  const t = performance.now();
+  for (let k = 0; k < 20; k++) routeAvoiding({ x: 0, y: k * 7 }, { x: 1400, y: 300 + k }, { obstacles });
+  assert.ok(performance.now() - t < 400, `20 cold routes past 24 cards in ${Math.round(performance.now() - t)} ms`);
+});
+
+test("chamfer turns 90° corners into 45° steps", () => {
+  const pts = chamfer([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 200, y: 100 }]);
+  for (const ang of angles(pts)) assert.ok(ang % 45 === 0);
+  assert.ok(angles(pts).includes(45));
+});
+
+test("a card right beside the port: the lead shortens and the road takes the narrow gap", () => {
+  const src = { x: 0, y: 0, w: 400, h: 300 };
+  const mapCard = { x: 415, y: 0, w: 360, h: 280 }; // 15 px from the source port
+  const dst = { x: 560, y: 500, w: 400, h: 300 };
+  const a = { x: 400, y: 26 };
+  const b = { x: 560, y: 526 };
+  const pts = routeAvoiding(a, b, { src, dst, obstacles: [mapCard] });
+  assert.ok(!crossesCard(pts, mapCard), JSON.stringify(pts));
+  for (const ang of angles(pts)) assert.ok(ang % 45 === 0, `roads only (${ang}°)`);
+});

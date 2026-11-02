@@ -259,3 +259,184 @@ export function typesCompatible(out?: string, input?: string) {
   if (out === input) return true;
   return out === "json" || input === "json" || out === "any" || input === "any";
 }
+
+// ---------- avoiding cards ----------
+
+const AVOID_PAD = 14; // how far a road prefers to keep from a card it passes
+const CORNER_COST = 24; // a turn costs as much as 24 px of road
+const HIT_COST = 100_000; // running through a card is never worth it
+const SOFT_COST = 3; // per px of road inside a card's padding
+
+/** Length of segment p→q inside the interior of r (Liang–Barsky clip, strict). */
+export function segmentOverlap(p: P, q: P, r: Rect): number {
+  const dx = q.x - p.x;
+  const dy = q.y - p.y;
+  let t0 = 0;
+  let t1 = 1;
+  const edges: Array<[number, number]> = [
+    [-dx, p.x - r.x],
+    [dx, r.x + r.w - p.x],
+    [-dy, p.y - r.y],
+    [dy, r.y + r.h - p.y],
+  ];
+  for (const [pp, qq] of edges) {
+    if (Math.abs(pp) < 1e-9) {
+      if (qq <= 0) return 0;
+      continue;
+    }
+    const t = qq / pp;
+    if (pp < 0) {
+      if (t > t1) return 0;
+      if (t > t0) t0 = t;
+    } else {
+      if (t < t0) return 0;
+      if (t < t1) t1 = t;
+    }
+  }
+  return t1 - t0 > 1e-6 ? (t1 - t0) * Math.hypot(dx, dy) : 0;
+}
+
+/** Does segment p→q pass through the interior of r? */
+export function segmentHitsRect(p: P, q: P, r: Rect): boolean {
+  return segmentOverlap(p, q, r) > 0.5;
+}
+
+/** Turn an orthogonal corner path into a road: each 90° corner becomes a 45° chamfer. */
+export function chamfer(corners: P[], c = CHAMFER): P[] {
+  const pts = dedupe(corners);
+  if (pts.length < 3) return pts;
+  const out: P[] = [pts[0]];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    const n = pts[i + 1];
+    const lin = Math.hypot(b.x - a.x, b.y - a.y);
+    const lout = Math.hypot(n.x - b.x, n.y - b.y);
+    const k = Math.min(c, lin / 2, lout / 2);
+    if (k < 0.5) {
+      out.push(b);
+      continue;
+    }
+    out.push({ x: b.x - ((b.x - a.x) / lin) * k, y: b.y - ((b.y - a.y) / lin) * k });
+    out.push({ x: b.x + ((n.x - b.x) / lout) * k, y: b.y + ((n.y - b.y) / lout) * k });
+  }
+  out.push(pts[pts.length - 1]);
+  return dedupe(out);
+}
+
+function length(pts: P[]) {
+  let s = 0;
+  for (let i = 1; i < pts.length; i++) s += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  return s;
+}
+
+const pad = (r: Rect, d: number): Rect => ({ x: r.x - d, y: r.y - d, w: r.w + 2 * d, h: r.h + 2 * d });
+
+/**
+ * Score a road: its length, its turns, a heavy price for every card it runs
+ * through (the two end cards only past the leads), and a light one for
+ * brushing a card's padding.
+ */
+function cost(pts: P[], raw: Rect[], ends: Rect[]) {
+  let total = length(pts) + (pts.length - 2) * CORNER_COST;
+  for (let i = 1; i < pts.length; i++) {
+    const p = pts[i - 1];
+    const q = pts[i];
+    for (const r of raw) {
+      if (segmentOverlap(p, q, r) > 0.5) total += HIT_COST;
+      else total += segmentOverlap(p, q, pad(r, AVOID_PAD)) * SOFT_COST;
+    }
+    if (i > 1 && i < pts.length - 1) for (const r of ends) if (segmentOverlap(p, q, r) > 0.5) total += HIT_COST;
+  }
+  return total;
+}
+
+function clearOf(pts: P[], raw: Rect[]) {
+  for (let i = 1; i < pts.length; i++) for (const r of raw) if (segmentOverlap(pts[i - 1], pts[i], r) > 0.5) return false;
+  return true;
+}
+
+export interface AvoidOpts extends RouteOpts {
+  /** every other card's rect (not the two this wire joins) */
+  obstacles?: Rect[];
+}
+
+const memo = new Map<string, P[]>();
+
+/**
+ * The road from an output to an input that runs round any card in its way.
+ * The plain road wins when it's clear. Otherwise: the leads shorten when a
+ * card sits right beside a port, and candidate roads through the channels
+ * beside cards (narrow gaps included) and the corridors above and below them
+ * are scored by length + turns; roads through a card are never chosen while
+ * any other exists.
+ */
+export function routeAvoiding(a: P, b: P, opts: AvoidOpts = {}): P[] {
+  const base = route(a, b, opts);
+  const ends = [opts.src, opts.dst].filter((r): r is Rect => Boolean(r));
+  const minX = Math.min(a.x, b.x) - 400;
+  const maxX = Math.max(a.x, b.x) + 400;
+  const minY = Math.min(a.y, b.y) - 400;
+  const maxY = Math.max(a.y, b.y) + 400;
+  const raw = (opts.obstacles ?? []).filter((r) => r.x < maxX && r.x + r.w > minX && r.y < maxY && r.y + r.h > minY);
+  if (!raw.length || clearOf(base, raw)) return base;
+
+  const key = `${a.x.toFixed(0)},${a.y.toFixed(0)},${b.x.toFixed(0)},${b.y.toFixed(0)},${opts.lane ?? 0},${opts.srcLane ?? 0}|${[...raw, ...ends].map((r) => `${r.x.toFixed(0)},${r.y.toFixed(0)},${r.w.toFixed(0)},${r.h.toFixed(0)}`).join(";")}`;
+  const hit = memo.get(key);
+  if (hit) return hit;
+
+  const { leadIn = LEAD, leadOut = LEAD, lane = 0 } = opts;
+  // a card right beside a port shortens that port's lead to half the gap
+  const gapRight = Math.min(...raw.filter((r) => r.x >= a.x - 1 && a.y >= r.y - AVOID_PAD && a.y <= r.y + r.h + AVOID_PAD).map((r) => r.x - a.x), Infinity);
+  const gapLeft = Math.min(...raw.filter((r) => r.x + r.w <= b.x + 1 && b.y >= r.y - AVOID_PAD && b.y <= r.y + r.h + AVOID_PAD).map((r) => b.x - (r.x + r.w)), Infinity);
+  const lin = Math.max(6, Math.min(leadIn, gapRight / 2));
+  const lout = Math.max(6, Math.min(leadOut, gapLeft / 2));
+  const x1 = a.x + lin;
+  const x2 = b.x - lout;
+  const off = lane * LANE;
+
+  const all = [...raw, ...ends];
+  const xs = new Set<number>([x1, x1 + 2 * CHAMFER, x2 - 2 * CHAMFER, x2, (x1 + x2) / 2]);
+  const ys = new Set<number>([(a.y + b.y) / 2]);
+  for (const r of all) {
+    xs.add(r.x - CLEAR / 2);
+    xs.add(r.x + r.w + CLEAR / 2);
+    ys.add(r.y - CLEAR / 2);
+    ys.add(r.y + r.h + CLEAR / 2);
+  }
+  // narrow gaps between neighbouring cards are channels too
+  for (const r of all)
+    for (const s2 of all) {
+      if (r === s2) continue;
+      const gx = s2.x - (r.x + r.w);
+      if (gx > 4 && gx < CLEAR * 2) xs.add(r.x + r.w + gx / 2);
+      const gy = s2.y - (r.y + r.h);
+      if (gy > 4 && gy < CLEAR * 2) ys.add(r.y + r.h + gy / 2);
+    }
+
+  const candidates: P[][] = [base, route(a, b, { ...opts, leadIn: lin, leadOut: lout })];
+  for (const xm of xs) {
+    if (xm < x1 || xm > x2) continue;
+    candidates.push(chamfer([a, { x: x1, y: a.y }, { x: xm + off, y: a.y }, { x: xm + off, y: b.y }, { x: x2, y: b.y }, b]));
+  }
+  // the four channels nearest each end keep the search small
+  const xas = [...xs].filter((x) => x >= x1).sort((p, q) => p - q).slice(0, 4);
+  const xbs = [...xs].filter((x) => x <= x2).sort((p, q) => q - p).slice(0, 4);
+  for (const yc of ys)
+    for (const xa of xas)
+      for (const xb of xbs)
+        candidates.push(chamfer([a, { x: xa + off, y: a.y }, { x: xa + off, y: yc + off }, { x: xb - off, y: yc + off }, { x: xb - off, y: b.y }, b]));
+
+  let best = base;
+  let bestCost = cost(base, raw, ends);
+  for (const c of candidates) {
+    const k = cost(c, raw, ends);
+    if (k < bestCost) {
+      best = c;
+      bestCost = k;
+    }
+  }
+  if (memo.size > 600) memo.clear();
+  memo.set(key, best);
+  return best;
+}
