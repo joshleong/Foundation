@@ -303,7 +303,7 @@ export function describeBoard(doc: Y.Doc): string {
     for (const o of m.objects.values()) {
       if (o.sectionId !== s.id) continue;
       if (o.kind === "panel") {
-        const extra = [o.url && `url=${o.url}`, o.repo && `repo=${o.repo}`, o.mcp && `mcp=${o.mcp}`, o.status && `status=${o.status}`, o.assignee && `assignee=${o.assignee}`]
+        const extra = [o.pipeline && `pipeline=${o.pipeline}`, o.url && `url=${o.url}`, o.repo && `repo=${o.repo}`, o.mcp && `mcp=${o.mcp}`, o.status && `status=${o.status}`, o.assignee && `assignee=${o.assignee}`]
           .filter(Boolean)
           .join(" ");
         const ports = o.ports.map((p) => `${p.dir}:${p.name}`).join(",");

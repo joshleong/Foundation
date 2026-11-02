@@ -462,8 +462,8 @@ export const TOOLS: BoardTool[] = [
   }),
   def({
     name: "pipeline_status",
-    description: "Read a design pipeline: each stage, its status (idle = waiting, open = active, done), owner and artifacts (CAD with its measured size).",
-    schema: z.object({ pipeline: z.string() }),
+    description: "Read a design pipeline: each stage, its status (idle = waiting, open = active, done), owner and artifacts (CAD with its measured size). Pass the pipeline id, its section, or the product's name.",
+    schema: z.object({ pipeline: z.string().describe("pipeline id, section id/name, or product name") }),
     run: (ctx, { pipeline }) => describePipeline(ctx.boardId, pipeline) || "no such pipeline",
   }),
   def({

@@ -216,8 +216,24 @@ export function updateStageSettings(boardId: string, panelId: string, settings: 
   });
 }
 
-export function describePipeline(boardId: string, pipeline: string) {
+/** a pipeline by its id, its section's id or name, or the product's name ("Rim-drive fan v3") */
+export function resolvePipeline(doc: Y.Doc, ref: string): string | null {
+  const m = boardMaps(doc);
+  const stages = [...m.objects.values()].filter((o): o is PanelDoc => o.kind === "panel" && o.panel === "stage" && Boolean(o.pipeline));
+  if (stages.some((s) => s.pipeline === ref)) return ref;
+  const needle = ref.trim().toLowerCase().replace(/^design · /, "");
+  for (const s of stages) {
+    const sec = m.sections.get(s.sectionId);
+    const name = sec?.name.toLowerCase().replace(/^design · /, "") ?? "";
+    if (s.sectionId === ref || name === needle || (needle.length > 2 && name.includes(needle))) return s.pipeline!;
+  }
+  return null;
+}
+
+export function describePipeline(boardId: string, ref: string) {
   const doc = getBoard(boardId).doc;
+  const pipeline = resolvePipeline(doc, ref);
+  if (!pipeline) return "";
   return pipelineStages(doc, pipeline)
     .map((s) => `${s.name} [${s.status}]${s.assignee ? ` · ${s.assignee}` : ""} — ${(s.artifacts ?? []).length} artifacts${(s.artifacts ?? []).length ? `: ${(s.artifacts ?? []).map((a) => `${a.name}${a.note ? ` (${a.note})` : ""}`).join("; ")}` : ""}`)
     .join("\n");

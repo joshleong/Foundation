@@ -17,7 +17,7 @@ process.env.FOUNDATION_DATA_DIR = dir;
 const { stepSummary } = await import("../src/cad.ts");
 const { run } = await import("../src/db.ts");
 const { closeBoards, getBoard } = await import("../src/boards.ts");
-const { startPipeline, attachToStage, completeStage, pipelineStages } = await import("../src/pipeline.ts");
+const { startPipeline, attachToStage, completeStage, pipelineStages, describePipeline } = await import("../src/pipeline.ts");
 
 after(() => closeBoards());
 
@@ -69,6 +69,9 @@ test("stages open in order, measure CAD, and hand off down the wire", async () =
   assert.equal(stages[2].status, "open", "changes reopen CAD");
   assert.equal(stages[3].status, "open", "changes reopen Simulate");
   assert.notEqual(stages[4].status, "done");
+
+  assert.match(describePipeline(board, "Fan v3"), /03 · CAD \[open\].*212 × 212 × 64 mm/s, "found by product name (CAD reopened by the changes)");
+  assert.match(describePipeline(board, "Design · Fan v3"), /01 · Brief/, "found by section name");
 
   completeStage(board, stages[4].id, "Josh", "approved");
   assert.equal(pipelineStages(doc, r.pipeline)[5].status, "open", "approval opens Release");

@@ -14,6 +14,7 @@ import type { AgentEvent } from "@foundation/protocol";
 import { api, streamAgent } from "../lib/api";
 import { setUi, useUi } from "../state/ui";
 import { activeBoard } from "../sync/board";
+import { renderMarkdown } from "../utils/markdown";
 
 interface Turn {
   role: "you" | "agent";
@@ -44,6 +45,14 @@ const TOOL_WORDS: Record<string, string> = {
   vision_brief: "Briefing Vision",
   reverse_engineer: "Queuing reverse-engineering",
   focus: "Pointing",
+  start_design_pipeline: "Starting a design pipeline",
+  pipeline_status: "Reading the pipeline",
+  stage_attach: "Attaching to a stage",
+  stage_choose: "Choosing what goes forward",
+  stage_check: "Ticking the checklist",
+  stage_settings: "Setting up the stage",
+  stage_request: "Handing off the stage",
+  complete_stage: "Completing a stage",
 };
 
 const SUGGESTIONS = [
@@ -222,7 +231,12 @@ export function AgentDock() {
                     ))}
                   </div>
                 )}
-                {t.text && <div className="turn-text">{t.text}</div>}
+                {t.text &&
+                  (t.role === "agent" ? (
+                    <div className="turn-text note-rendered" dangerouslySetInnerHTML={{ __html: renderMarkdown(t.text) }} />
+                  ) : (
+                    <div className="turn-text">{t.text}</div>
+                  ))}
                 {t.status && (
                   <div className="turn-status">
                     <span className="thinking-dots">
