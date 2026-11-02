@@ -31,7 +31,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { ServerResponse } from "node:http";
 import type { UserInfo } from "@foundation/protocol";
 import { config } from "./config.ts";
-import { one, run } from "./db.ts";
+import { all, db, one, run } from "./db.ts";
 import { createSession, setSessionCookie, upsertUser } from "./auth.ts";
 import { HttpError, parseCookies, type Req } from "./http.ts";
 
@@ -270,4 +270,54 @@ h1{font-size:28px;letter-spacing:-.02em;margin:0 0 8px}p{opacity:.75;margin:0}</
 <body><main><h1>${esc(title)}</h1><p>${esc(body)}</p></main></body></html>`;
   res.writeHead(status, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer" });
   res.end(html);
+}
+
+/** every column that holds a Foundation user id (boards store names, not ids) */
+const USER_COLUMNS: Array<[table: string, column: string]> = [
+  ["sessions", "user_id"],
+  ["files", "uploaded_by"],
+  ["apps", "created_by"],
+  ["asks", "created_by"],
+  ["agent_runs", "created_by"],
+  ["jobs", "created_by"],
+  ["huddle_lines", "user_id"],
+];
+
+/**
+ * One person, two Foundation users (say a dev-login address and the address
+ * flowform signs them in with): fold `other` into `keep`. keep's email stays;
+ * its sessions, files, runs and asks now include other's, it takes other's
+ * flowform link (so Google via flowform signs in as keep), stays admin if
+ * either was, and other is removed. An admin's call, from the command line:
+ * `npm run link-accounts -- <keep email> <other email>`.
+ */
+export function linkAccounts(keepEmail: string, otherEmail: string) {
+  type U = { id: string; email: string; role: string; flowform_user_id: string | null };
+  const find = (e: string) => one<U>("select id, email, role, flowform_user_id from users where email = ?", e.toLowerCase().trim());
+  const keep = find(keepEmail);
+  const other = find(otherEmail);
+  if (!keep) throw new Error(`no Foundation user ${keepEmail}`);
+  if (!other) throw new Error(`no Foundation user ${otherEmail}`);
+  if (keep.id === other.id) throw new Error("that's the same user");
+  if (keep.flowform_user_id && other.flowform_user_id && keep.flowform_user_id !== other.flowform_user_id) {
+    throw new Error("both are linked to different Flowform accounts");
+  }
+  const tables = new Set(all<{ name: string }>("select name from sqlite_master where type = 'table'").map((t) => t.name));
+  const moved: Record<string, number> = {};
+  db.exec("begin");
+  try {
+    for (const [table, column] of USER_COLUMNS) {
+      if (!tables.has(table)) continue;
+      const n = Number(run(`update ${table} set ${column} = ? where ${column} = ?`, keep.id, other.id).changes);
+      if (n) moved[`${table}.${column}`] = n;
+    }
+    const ff = keep.flowform_user_id ?? other.flowform_user_id;
+    run("delete from users where id = ?", other.id); // frees the flowform link for keep
+    run("update users set flowform_user_id = ?, role = ? where id = ?", ff, keep.role === "admin" || other.role === "admin" ? "admin" : keep.role, keep.id);
+    db.exec("commit");
+  } catch (e) {
+    db.exec("rollback");
+    throw e;
+  }
+  return { kept: keep.email, removed: other.email, moved };
 }

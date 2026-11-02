@@ -183,3 +183,37 @@ test("an older flowform without email_verified still vouches for its Google sign
   assert.equal(out.status, "ok");
   assert.equal(out.user.email, "older@formindustries.com");
 });
+
+test("linking folds a flowform user into an existing one, and flowform then signs in as it", async () => {
+  const ff = await load();
+  const { upsertUser, createSession } = await import("../src/auth.ts");
+  const { one, run } = await import("../src/db.ts");
+  const devUser = upsertUser("josh.dev@gmail.com", "Josh");
+  people["9".repeat(32)] = { user_id: "ff-josh", display_name: "Josh Leong", email: "josh@normallab.co", email_verified: false, role: "admin" };
+  people["8".repeat(32)] = { user_id: "ff-josh", display_name: "Josh Leong", email: "josh@normallab.co", email_verified: false, role: "admin" };
+  const signIn = async (token: string) => {
+    const begun = ff.beginDesktop(req("/auth/flowform/begin"));
+    const nonce = new URL(new URL(begun.url).searchParams.get("cb")!).pathname.split("/").pop()!;
+    await ff.done(req(`/auth/flowform/done/${nonce}?session_token=${token}`, {}, { nonce }), res().r);
+    return ff.poll(req("/auth/flowform/poll", { authorization: `Bearer ${begun.poll}` }), res().r) as { user: { id: string; email: string; role: string } };
+  };
+  const viaFlowform = (await signIn("9".repeat(32))).user;
+  assert.equal(viaFlowform.email, "josh@normallab.co");
+  run("insert into files (id, board_id, name, mime, size, sha256, uploaded_by, created_at) values ('f_link', 'company', 'a.step', 'model/step', 1, 'x', ?, 0)", viaFlowform.id);
+  createSession(viaFlowform.id);
+
+  const out = ff.linkAccounts("josh.dev@gmail.com", "josh@normallab.co");
+  assert.equal(out.kept, "josh.dev@gmail.com");
+  assert.equal(out.moved["files.uploaded_by"], 1);
+  assert.ok(out.moved["sessions.user_id"] >= 2);
+  assert.equal(one("select id from users where email = 'josh@normallab.co'"), undefined);
+  assert.equal(one<{ uploaded_by: string }>("select uploaded_by from files where id = 'f_link'")?.uploaded_by, devUser.id);
+
+  // the next Google sign-in through flowform is the kept user, admin from flowform
+  const after = (await signIn("8".repeat(32))).user;
+  assert.equal(after.id, devUser.id);
+  assert.equal(after.email, "josh.dev@gmail.com");
+  assert.equal(after.role, "admin");
+
+  assert.throws(() => ff.linkAccounts("josh.dev@gmail.com", "josh.dev@gmail.com"), /same user/);
+});
