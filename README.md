@@ -16,7 +16,7 @@ npm install
 npm run dev            # server :4410 + client :1430 → open http://localhost:1430
 ```
 
-Sign in with your name and an allowlisted email (dev login). To configure Google sign-in, Slack, BomForm, API credits and more, copy `.env.example` to `.env`; see SPEC §6.
+Sign in with **Continue with Google**, the same Google sign-in as the flowform client, through flowform-server (`FLOWFORM_URL`, default https://server.formresearch.ai), or with your name and an allowlisted email (dev login). To configure Slack, BomForm, API credits and more, copy `.env.example` to `.env`; see SPEC §6.
 
 ```sh
 npm test               # server invariants (node:test)

@@ -39,6 +39,10 @@ export const config = {
     .filter(Boolean),
   /** dev login (pick a name, no password) — on unless explicitly disabled */
   devLogin: env("FOUNDATION_DEV_LOGIN", "1") !== "0",
+  /** flowform-server: Foundation signs in with flowform's Google login (same server, same client) */
+  flowformUrl: env("FLOWFORM_URL", "https://server.formresearch.ai"),
+  /** admit flowform "viewer" accounts too (default: users and admins only) */
+  flowformAdmitViewers: env("FLOWFORM_ADMIT_VIEWERS", "0") === "1",
   google: {
     clientId: env("GOOGLE_CLIENT_ID"),
     clientSecret: env("GOOGLE_CLIENT_SECRET"),

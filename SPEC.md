@@ -10,7 +10,7 @@ Last updated 2026-11-02 · branch `main` · evidence in `docs/evidence/2026-11-0
 
 - [ ] **Repo visibility** — `joshleong/Foundation` is public; decide private / move to the Form Industries org (§6.1)
 - [ ] **Phase 1 · Solid ground** — proposed as its own session (§8): Y.Text notes, per-table cells, viewer role, offline, perf trace
-- [ ] **Keys and setup** — Google OAuth, Slack, BomForm + CA, API credits, `npx rea-agents setup` (§6)
+- [ ] **Keys and setup** — Slack, BomForm + CA, API credits, `npx rea-agents setup` (§6)
 - [ ] **Vision loop** — the Simulate/Concept hand-off writes the brief today; next it should start a Vision Code (T3) thread and attach what comes back (§8 phase 2)
 - [ ] **Release → BomForm** — write BOM lines from the Release stage once BomForm's write tools are keyed
 
@@ -71,7 +71,7 @@ The running system:
                      embedded apps (iframes)                                                     │
                  ┌───────────────────────────────────────── apps/server (Node 22 + TS, :4410) ───┴──────────────────────────┐
                  │ boards.ts  Y.Doc per board · update log + compaction · awareness · FTS indexing                         │
-                 │ auth.ts    Google OAuth / dev login · hashed sessions · allowlist · service token                       │
+                 │ auth.ts    Google via flowform (flowform.ts) / dev login · hashed sessions · service token                        │
                  │ files.ts   content-addressed uploads · range streaming · text + STEP/IGES header extraction · archive    │
                  │ search.ts  FTS5 (board, files) + Slack + GitHub + apps, local-first                                      │
                  │ tools.ts   the board tool surface ──▶ agent.ts (Claude Code subscription | Anthropic API)                │
@@ -132,7 +132,7 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | Area | Feature | Status | Notes |
 |---|---|---|---|
 | **Monorepo** | npm workspaces, `npm run dev` runs both, Tauri still builds the client | done | Client moved to `apps/client` with `git mv` (history kept). Port 1430: Vision owns 1420 |
-| **Auth** | Dev login (allowlist), Google OAuth code flow, hashed 30-day sessions, admin seed, service token | done (Google untested) | Google needs a client ID/secret (§6) |
+| **Auth** | Google through flowform-server: flowform's own client, PKCE and signup allowlist. Foundation verifies the hand-off at `/auth/me` (email_verified), revokes flowform's bearer and mints its own session. The web path is bound to the browser that started it; the desktop path uses the system browser and the window polls. Also dev login (allowlist), an optional own Google client, hashed 30-day sessions, and the service token | done (`test/flowform.test.ts`; live hand-off to Google verified) | Flowform admins become Foundation admins. Viewers are refused unless `FLOWFORM_ADMIT_VIEWERS=1` |
 | **Sync** | Yjs board docs, y-protocols wire, update log + compaction, reconnect with backoff, presence/awareness | done | Agent edits verified streaming live into an open browser |
 | | Peer cursors | partial | Code done; needs a second signed-in person to verify by eye |
 | **Grid** | Original Foundation grid (sections, tracks, springs, tables with formulas, maps, notes, media) | done | Now night-aware and on tokens. Layout memoised per state |
@@ -175,7 +175,7 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 
 | flowform | Foundation | |
 |---|---|---|
-| Google OAuth + allowlist, hashed bearers, 30-day sessions | `auth.ts` | ported (cookie + Bearer; never in URLs) |
+| Google OAuth + allowlist, hashed bearers, 30-day sessions | `auth.ts`, `flowform.ts` | federated: the same Google login on the same server (`/auth/google/start?cb=<loopback>`). Cookie + Bearer; Foundation's tokens never go in URLs |
 | Yjs rooms, durable log, compaction, presence | `boards.ts`, standard y-protocols wire (not the custom bincode one) | ported |
 | Server-side agent writes, `request_id` idempotency, confirm-token deletes, visible agent presence | `tools.ts` | ported |
 | MCP endpoint over the canvas | `mcp.ts` (19 tools) | ported, extended |
@@ -239,7 +239,7 @@ Every integration is off until its key exists; the server always starts. Copy `.
 | # | Hookup | Why | How |
 |---|---|---|---|
 | 1 | **Repo visibility** | `joshleong/Foundation` is **public**; company plans and connector names are in it | Make it private, or move it to the Form Industries org |
-| 2 | **Google sign-in** | Real accounts | Create an OAuth client with redirect `http://localhost:4410/auth/google/callback`. Set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`. Set `FOUNDATION_DEV_LOGIN=0` in shared deployments |
+| 2 | **Google sign-in** | Real accounts | Works out of the box through flowform-server (`FLOWFORM_URL`). flowform's client secret stays in AWS SSM; Foundation never needs it. Set `FOUNDATION_DEV_LOGIN=0` in shared deployments. A hosted Foundation that isn't on loopback needs flowform's `native_loopback_callback` widened, or its own `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` |
 | 3 | **Allowlist** | Who can enter | `FOUNDATION_ALLOWLIST=@formindustries.com,@normallab.co,…` |
 | 4 | **Anthropic API credits** | API runtime | `ANTHROPIC_API_KEY`. The subscription runtime needs only `claude` installed and signed in |
 | 5 | **BomForm** | The connector | Now reads the **Airform Data Room's daily copy** through its read-only `GET /api/foundation/bomform` digest (branch `foundation-bomform-read` in AirformDataRoom): set `FOUNDATION_READ_TOKEN` there and `DATAROOM_BOMFORM_URL` + `DATAROOM_READ_TOKEN` here. Locally the launcher runs that branch's worktree on :3010 (`node scripts/sibling.mjs dataroom AirformDataRoom-foundation`). **For production:** merge the branch, set the token on Vercel, deploy, and point `DATAROOM_BOMFORM_URL` at airformdata.com. **The copy is stale:** last synced 2026-09-05; the Data Room's daily sync has stopped (check `BOMFORM_API_KEY` / `CRON_SECRET` on Vercel). A direct BomForm key (`BOMFORM_MCP_URL` + `BOMFORM_API_KEY` + `NODE_EXTRA_CA_CERTS`) still takes precedence when present |

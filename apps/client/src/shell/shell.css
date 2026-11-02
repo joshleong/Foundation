@@ -1677,6 +1677,23 @@ body.is-connecting .port-in.is-snap {
   text-decoration: none;
   font-size: var(--text-13);
 }
+.login-via {
+  margin-top: calc(var(--space-2) * -1);
+  text-align: center;
+  color: var(--color-dim);
+  font-size: var(--text-11);
+}
+.login-waiting {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  text-align: center;
+  color: var(--color-dim);
+  font-size: var(--text-13);
+}
+.login-waiting p {
+  margin: 0;
+}
 .login-or {
   text-align: center;
   color: var(--color-dim);

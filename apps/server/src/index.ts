@@ -26,6 +26,7 @@ import { runTool, TOOLS } from "./tools.ts";
 import { handleMcp } from "./mcp.ts";
 import { seedCompanyBoard } from "./seed.ts";
 import { migrateAllBoards } from "./migrate.ts";
+import * as flowform from "./flowform.ts";
 
 const r = new Router();
 
@@ -33,7 +34,7 @@ r.get("/api/health", () => ({ ok: true, at: Date.now() }));
 
 // ---------- auth ----------
 
-r.get("/auth/config", () => ({ google: Boolean(config.google.clientId), devLogin: config.devLogin }));
+r.get("/auth/config", () => ({ google: Boolean(config.google.clientId), devLogin: config.devLogin, flowform: { url: flowform.flowformUrl() } }));
 r.get("/api/me", (req) => ({ user: userFromRequest(req) }));
 r.post("/auth/dev", async (req, res) => {
   if (!config.devLogin) throw new HttpError(403, "dev login is off");
@@ -54,6 +55,11 @@ r.get("/auth/google/callback", async (req, res) => {
   res.writeHead(302, { location: config.clientUrl });
   res.end();
 });
+// Google through flowform-server — the flowform client's sign-in (flowform.ts)
+r.get("/auth/flowform/start", (req, res) => flowform.startWeb(req, res));
+r.post("/auth/flowform/begin", (req) => flowform.beginDesktop(req));
+r.get("/auth/flowform/done/:nonce", (req, res) => flowform.done(req, res));
+r.post("/auth/flowform/poll", (req, res) => flowform.poll(req, res));
 r.post("/auth/logout", (req, res) => {
   clearSession(req, res);
   return { ok: true };

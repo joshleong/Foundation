@@ -42,7 +42,11 @@ export async function api<T = unknown>(path: string, init: RequestInit & { json?
 }
 
 export const me = () => api<{ user: UserInfo | null }>("/api/me");
-export const authConfig = () => api<{ google: boolean; devLogin: boolean }>("/auth/config");
+export const authConfig = () => api<{ google: boolean; devLogin: boolean; flowform?: { url: string } }>("/auth/config");
+/** desktop: Google through flowform in the system browser; the window polls with a secret only it holds */
+export const flowformBegin = () => api<{ url: string; poll: string; expiresIn: number }>("/auth/flowform/begin", { method: "POST" });
+export const flowformPoll = (poll: string) =>
+  api<{ status: "pending" | "ok" | "error"; user?: UserInfo; error?: string }>("/auth/flowform/poll", { method: "POST", headers: { authorization: `Bearer ${poll}` } });
 export const devLogin = (email: string, name: string) => api<{ user: UserInfo }>("/auth/dev", { method: "POST", json: { email, name } });
 export const logout = () => api("/auth/logout", { method: "POST" });
 
