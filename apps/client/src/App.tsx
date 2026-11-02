@@ -40,7 +40,13 @@ function App() {
   return (
     <>
       {route.startsWith("#/design/sign-in") ? (
-        <Login onSignedIn={setUser} />
+        <Login
+          onSignedIn={(u) => {
+            // signing in from the preview goes in
+            setUser(u);
+            window.location.hash = "";
+          }}
+        />
       ) : route.startsWith("#/design") ? (
         <DesignPage />
       ) : user === undefined ? (

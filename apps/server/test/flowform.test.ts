@@ -16,6 +16,8 @@ const TOKEN = "0123456789abcdef0123456789abcdef"; // flowform's session ids are 
 const people: Record<string, object> = {
   [TOKEN]: { user_id: "ff-1", display_name: "Noa Field", email: "noa@formindustries.com", email_verified: true, role: "admin" },
   ["f".repeat(32)]: { user_id: "ff-2", display_name: "Unverified", email: "u@formindustries.com", email_verified: false, role: "user" },
+  // a flowform server from before email_verified existed
+  ["b".repeat(32)]: { user_id: "ff-4", display_name: "Older", email: "older@formindustries.com", role: "user" },
 };
 const revoked: string[] = [];
 let fake: Server;
@@ -146,5 +148,15 @@ test("flowform must have verified the email", async () => {
   assert.equal(page.out.status, 403);
   const out = ff.poll(req("/auth/flowform/poll", { authorization: `Bearer ${begun.poll}` }), res().r) as { status: string; error: string };
   assert.equal(out.status, "error");
-  assert.match(out.error, /verified/);
+  assert.match(out.error, /isn't the one Google verified/);
+});
+
+test("an older flowform without email_verified still vouches for its Google sign-in", async () => {
+  const ff = await load();
+  const begun = ff.beginDesktop(req("/auth/flowform/begin"));
+  const nonce = new URL(new URL(begun.url).searchParams.get("cb")!).pathname.split("/").pop()!;
+  await ff.done(req(`/auth/flowform/done/${nonce}?session_token=${"b".repeat(32)}`, {}, { nonce }), res().r);
+  const out = ff.poll(req("/auth/flowform/poll", { authorization: `Bearer ${begun.poll}` }), res().r) as { status: string; user: { email: string } };
+  assert.equal(out.status, "ok");
+  assert.equal(out.user.email, "older@formindustries.com");
 });

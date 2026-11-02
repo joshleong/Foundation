@@ -124,7 +124,8 @@ interface FlowformMe {
   user_id: string;
   display_name: string;
   email: string;
-  email_verified: boolean;
+  /** flowform ≥ Oct 2026: whether `email` is the address Google verified for this account's sign-in */
+  email_verified?: boolean;
   role: "admin" | "user" | "viewer" | string;
   is_admin?: boolean;
 }
@@ -147,7 +148,13 @@ async function revokeAtFlowform(token: string) {
 
 /** A flowform-verified person becomes (or stays) a Foundation user. */
 export function admitFlowformUser(me: FlowformMe): UserInfo {
-  if (!me.email || !me.email_verified) throw new HttpError(403, "Flowform hasn't verified this Google account's email");
+  if (!me.email) throw new HttpError(403, "Flowform didn't say who signed in");
+  // flowform's Google callback already refuses unverified Google emails, so a
+  // server too old to send email_verified still vouches for the sign-in. An
+  // explicit false means the account's address isn't the one Google verified.
+  if (me.email_verified === false) {
+    throw new HttpError(403, `Flowform's address for this account (${me.email}) isn't the one Google verified for it`);
+  }
   if (me.role === "viewer" && !config.flowformAdmitViewers) throw new HttpError(403, "This Flowform account is view-only");
   const user = upsertUser(me.email, me.display_name);
   run("update users set flowform_user_id = ? where id = ?", me.user_id, user.id);
