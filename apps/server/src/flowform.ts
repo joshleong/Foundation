@@ -48,6 +48,8 @@ interface Attempt {
   /** where to land afterwards (web) */
   returnTo: string;
   createdAt: number;
+  /** flowform has come back once; a second /done is a replay */
+  used?: boolean;
   /** desktop: set once /done verified the person */
   result?: { userId: string } | { error: string };
 }
@@ -146,22 +148,44 @@ async function revokeAtFlowform(token: string) {
   }
 }
 
-/** A flowform-verified person becomes (or stays) a Foundation user. */
+/**
+ * A flowform-verified person becomes (or stays) a Foundation user, keyed by
+ * their flowform account. flowform only mints a session after a verified
+ * Google sign-in, so the account is proven; its address may not be (flowform
+ * keeps the sign-up address, e.g. josh@normallab.co for a Google identity at
+ * josh@formindustries.co, and says so with email_verified: false). An
+ * unproven address may name a new Foundation user, never claim someone else's.
+ */
 export function admitFlowformUser(me: FlowformMe): UserInfo {
-  if (!me.email) throw new HttpError(403, "Flowform didn't say who signed in");
-  // flowform's Google callback already refuses unverified Google emails, so a
-  // server too old to send email_verified still vouches for the sign-in. An
-  // explicit false means the account's address isn't the one Google verified.
-  if (me.email_verified === false) {
-    throw new HttpError(403, `Flowform's address for this account (${me.email}) isn't the one Google verified for it`);
-  }
+  if (!me.email || !me.user_id) throw new HttpError(403, "Flowform didn't say who signed in");
   if (me.role === "viewer" && !config.flowformAdmitViewers) throw new HttpError(403, "This Flowform account is view-only");
-  const user = upsertUser(me.email, me.display_name);
-  run("update users set flowform_user_id = ? where id = ?", me.user_id, user.id);
+  const linked = one<UserInfo>("select id, email, name, color, role from users where flowform_user_id = ?", me.user_id);
+  let user: UserInfo;
+  if (linked) {
+    user = linked;
+    if (me.display_name && me.display_name !== linked.name) {
+      run("update users set name = ? where id = ?", me.display_name, linked.id);
+      user = { ...linked, name: me.display_name };
+    }
+  } else {
+    const holder = one<{ flowform_user_id: string | null }>("select flowform_user_id from users where email = ?", me.email.toLowerCase().trim());
+    if (holder?.flowform_user_id && holder.flowform_user_id !== me.user_id) {
+      throw new HttpError(403, `${me.email} belongs to another Flowform account in Foundation`);
+    }
+    // older flowform servers don't send email_verified; their callback still refused unverified Google emails
+    if (holder && me.email_verified === false) {
+      throw new HttpError(
+        403,
+        `Foundation already has ${me.email}, and Flowform can't confirm this Google sign-in owns that address. Sign in once with the dev login as ${me.email} and an admin can link it, or update your Flowform email.`,
+      );
+    }
+    user = upsertUser(me.email, me.display_name);
+    run("update users set flowform_user_id = ? where id = ?", me.user_id, user.id);
+  }
   // flowform's admins are Foundation's admins (as are FOUNDATION_ADMIN_EMAILS)
-  if (me.role === "admin" || me.is_admin) {
+  if ((me.role === "admin" || me.is_admin) && user.role !== "admin") {
     run("update users set role = 'admin' where id = ?", user.id);
-    user.role = "admin";
+    user = { ...user, role: "admin" };
   }
   return user;
 }
@@ -172,8 +196,10 @@ export async function done(req: Req, res: ServerResponse) {
   const nonce = req.params.nonce;
   const attempt = attempts.get(nonce);
   const token = req.query.get("session_token") ?? "";
-  if (!attempt) return page(res, 400, "Sign-in expired", "That sign-in took too long or was already used. Go back to Foundation and try again.");
-  attempts.delete(nonce);
+  if (!attempt || attempt.used) return page(res, 400, "Sign-in expired", "That sign-in took too long or was already used. Go back to Foundation and try again.");
+  // spent, but a desktop attempt stays put: the window keeps polling (pending) while flowform answers
+  attempt.used = true;
+  if (attempt.mode === "web") attempts.delete(nonce);
   if (attempt.mode === "web") {
     const presented = parseCookies(req.headers.cookie)[ATTEMPT_COOKIE] ?? "";
     // only the browser that started this sign-in may finish it
@@ -214,10 +240,8 @@ export async function done(req: Req, res: ServerResponse) {
 }
 
 function finishDesktop(attempt: Attempt, result: Attempt["result"]) {
-  if (attempt.mode !== "desktop") return;
-  // keep it (under its poll) until the window collects it
-  attempt.result = result;
-  attempts.set(attempt.nonce, attempt);
+  // kept under its poll until the window collects it
+  if (attempt.mode === "desktop") attempt.result = result;
 }
 
 /** desktop: the window asks whether the browser finished; on success it gets its session cookie */
