@@ -453,6 +453,17 @@ export function subscribe(fn: () => void): () => void {
   return () => listeners.delete(fn);
 }
 
+/**
+ * Changes only when cards or sections come or go (not on every drag frame):
+ * for views that look things up by id, like a session's steps.
+ */
+export function useObjectSetVersion(): string {
+  return useSyncExternalStore(subscribe, () => {
+    const st = getState();
+    return [st.panels, st.notes, st.tables, st.maps, st.media, st.sections].map((r) => Object.keys(r).length).join(",");
+  });
+}
+
 export function useAppState(): AppState {
   return useSyncExternalStore(subscribe, getState);
 }

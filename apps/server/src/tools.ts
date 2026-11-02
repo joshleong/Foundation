@@ -22,6 +22,8 @@ import {
   uid,
   type LinkDoc,
   type NoteDoc,
+  putNote,
+  setNoteText,
   type PanelDoc,
   type PanelKind,
   type Port,
@@ -204,8 +206,8 @@ export const TOOLS: BoardTool[] = [
     run: (ctx, { section, title, markdown }) => {
       const note = editBoard(ctx.boardId, "agent", (doc) => {
         const sec = sectionOrCreate(doc, section);
-        const n: NoteDoc = { id: uid("note"), kind: "note", sectionId: sec.id, name: title, x: 0, y: 0, float: false, bornAt: Date.now(), w: 420, h: 300, text: markdown };
-        boardMaps(doc).objects.set(n.id, n);
+        const n: NoteDoc & { text: string } = { id: uid("note"), kind: "note", sectionId: sec.id, name: title, x: 0, y: 0, float: false, bornAt: Date.now(), w: 420, h: 300, text: markdown };
+        putNote(doc, n);
         return n;
       });
       touch(ctx, note.id, `wrote “${title}”`);
@@ -263,7 +265,10 @@ export const TOOLS: BoardTool[] = [
           next.sectionId = sec.id;
           next.float = false;
         }
-        if (markdown !== undefined && o.kind === "note") next.text = markdown;
+        if (markdown !== undefined && o.kind === "note") {
+          setNoteText(doc, id, markdown); // the smallest edit: someone typing in it keeps their words
+          delete next.text;
+        }
         if (add_ports && o.kind === "panel") next.ports = [...o.ports, ...add_ports.map((p) => ({ ...p, id: uid("port") }))];
         m.objects.set(id, next as never);
       });
@@ -281,6 +286,7 @@ export const TOOLS: BoardTool[] = [
       editBoard(ctx.boardId, "agent", (doc) => {
         const m = boardMaps(doc);
         m.objects.delete(id);
+        m.noteText.delete(id);
         for (const [lid, l] of m.links.entries()) if (l.from.panel === id || l.to.panel === id) m.links.delete(lid);
       });
       touch(ctx, undefined, `removed a card`);
@@ -430,8 +436,8 @@ export const TOOLS: BoardTool[] = [
       const md = `## ${i.title}\n\n**Goal** ${i.goal}\n\n${i.constraints ? `**Constraints** ${i.constraints}\n\n` : ""}${i.simulate ? `**Simulate** ${i.simulate}\n\n` : ""}**Reviewers** ${i.reviewers.join(", ") || "—"}\n\n_Brief written by ${ctx.actor} for Vision. Status: waiting for Vision._`;
       const noteId = editBoard(ctx.boardId, "agent", (doc) => {
         const sec = sectionOrCreate(doc, i.section);
-        const n: NoteDoc = { id: uid("note"), kind: "note", sectionId: sec.id, name: `Brief · ${i.title}`, x: 0, y: 0, float: false, bornAt: Date.now(), w: 440, h: 320, text: md };
-        boardMaps(doc).objects.set(n.id, n);
+        const n: NoteDoc & { text: string } = { id: uid("note"), kind: "note", sectionId: sec.id, name: `Brief · ${i.title}`, x: 0, y: 0, float: false, bornAt: Date.now(), w: 440, h: 320, text: md };
+        putNote(doc, n);
         return n.id;
       });
       const visionUrl = process.env.VISION_URL || "http://localhost:1420";
@@ -578,8 +584,8 @@ export const TOOLS: BoardTool[] = [
             ? `## Concepts for ${product}\n\n**Brief** ${brief?.text ?? ""}\n\nExplore at least two directions in Vision; drop renders on the Concept stage and star the one to take forward.`
             : `## Simulate ${product}\n\n**Model** ${cadArt ? `${cadArt.name}${cadArt.note ? ` — ${cadArt.note}` : ""}` : "(no CAD yet)"}\n\n**Analysis** ${settings || "set analysis and loads on the stage"}\n\nRun it in Vision and drop the results (plots, CSV, report) on the Simulate stage.`;
         const noteId = editBoard(ctx.boardId, "agent", (d) => {
-          const n: NoteDoc = { id: uid("note"), kind: "note", sectionId: p.sectionId, name: `Vision brief · ${def.title}`, x: BRIEF_X, y: p.y, float: true, bornAt: Date.now(), w: 420, h: 260, text: md };
-          boardMaps(d).objects.set(n.id, n);
+          const n: NoteDoc & { text: string } = { id: uid("note"), kind: "note", sectionId: p.sectionId, name: `Vision brief · ${def.title}`, x: BRIEF_X, y: p.y, float: true, bornAt: Date.now(), w: 420, h: 260, text: md };
+          putNote(d, n);
           return n.id;
         });
         if (p.status === "idle") editBoard(ctx.boardId, "agent", (d) => boardMaps(d).objects.set(p.id, { ...p, status: "open" }));

@@ -708,8 +708,23 @@ button.tab,
 }
 .session-actions {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
   gap: var(--space-3);
+}
+.session-actions-gap {
+  flex: 1;
+}
+.session-mic {
+  gap: 6px;
+  color: var(--color-mist);
+}
+.session-mic.is-listening svg {
+  animation: f-breathe 1.2s var(--ease-out-soft) infinite;
+}
+.session-voice-note {
+  padding: 0 var(--space-3);
+  color: var(--color-warn);
+  font-size: var(--text-12);
 }
 .session-foot {
   padding: var(--space-3) var(--space-5) var(--space-4);

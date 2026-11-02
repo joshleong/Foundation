@@ -8,12 +8,14 @@
 
 import { useSyncExternalStore } from "react";
 import type { AgentEvent } from "@foundation/protocol";
-import { api, streamAgent } from "../lib/api";
+import { api, followRun, streamAgent } from "../lib/api";
 import { activeBoard } from "../sync/board";
 import { getState } from "./store";
 import { renameTab } from "./ui";
 
 export interface Turn {
+  /** the server's run, once it has said (reattach and stop by it) */
+  runId?: string;
   prompt: string;
   events: AgentEvent[];
   status: "running" | "done" | "error" | "stopped";
@@ -51,57 +53,72 @@ export function useSession(id: string | null): SessionRun {
   return (id && runs.get(id)) || EMPTY;
 }
 
-/** replay a session from the server, once, unless this page is already running it */
+/** replay a session from the server, once, unless this page is already running it — and pick a running turn back up */
 export async function loadSession(id: string) {
   const r = runs.get(id);
   if (r?.loaded || r?.busy) return;
   patch(id, (x) => ({ ...x, loaded: true }));
+  let turns: Array<{ id: string; prompt: string; status: string; runtime: string; at: number; events: AgentEvent[] }>;
   try {
-    const { turns } = await api<{ turns: Array<{ prompt: string; status: string; runtime: string; at: number; events: AgentEvent[] }> }>(`/api/agent/sessions/${encodeURIComponent(id)}`);
-    if (runs.get(id)?.busy) return;
-    patch(id, (x) => ({
-      ...x,
-      turns: turns.map((t) => ({ prompt: t.prompt, events: t.events, runtime: t.runtime, at: t.at, status: t.status === "running" ? "running" : t.status === "error" ? "error" : "done" })),
-    }));
+    ({ turns } = await api<{ turns: typeof turns }>(`/api/agent/sessions/${encodeURIComponent(id)}`));
   } catch {
-    /* a new session: nothing to replay */
+    return; /* a new session: nothing to replay */
+  }
+  if (runs.get(id)?.busy) return;
+  const status = (s: string): Turn["status"] => (s === "running" || s === "error" || s === "stopped" ? s : "done");
+  patch(id, (x) => ({ ...x, turns: turns.map((t) => ({ runId: t.id, prompt: t.prompt, events: t.events, runtime: t.runtime, at: t.at, status: status(t.status) })) }));
+  const last = turns[turns.length - 1];
+  if (last?.status === "running") void follow(id, (ctrl, on) => followRun(last.id, on, ctrl.signal), true);
+}
+
+/**
+ * Follow a stream of the session's last turn into the store. `replay`: the
+ * stream starts from the beginning of the turn, so it replaces what's shown.
+ */
+async function follow(id: string, open: (ctrl: AbortController, on: (e: AgentEvent) => void) => Promise<void>, replay = false) {
+  const last = (fn: (t: Turn) => Turn) => patch(id, (x) => ({ ...x, turns: [...x.turns.slice(0, -1), fn(x.turns[x.turns.length - 1])] }));
+  const ctrl = new AbortController();
+  ctrls.set(id, ctrl);
+  patch(id, (x) => ({ ...x, busy: true }));
+  if (replay) last((t) => ({ ...t, events: [] }));
+  try {
+    await open(ctrl, (e) =>
+      last((t) => {
+        if (e.type === "run") return { ...t, runId: e.id };
+        const prev = t.events[t.events.length - 1];
+        // streamed text joins the text before it
+        const events = e.type === "text" && prev?.type === "text" ? [...t.events.slice(0, -1), { type: "text" as const, text: prev.text + e.text }] : [...t.events, e];
+        return { ...t, events, runtime: e.type === "done" ? e.runtime : t.runtime, status: e.type === "error" ? "error" : t.status };
+      }),
+    );
+    last((t) => ({ ...t, status: t.status === "running" ? (stopped.has(id) ? "stopped" : "done") : t.status }));
+  } catch (err) {
+    // leaving the page detaches; the run carries on on the server
+    if ((err as Error).name !== "AbortError") last((t) => ({ ...t, status: "error", events: [...t.events, { type: "error", message: (err as Error).message }] }));
+  } finally {
+    stopped.delete(id);
+    if (ctrls.get(id) === ctrl) ctrls.delete(id);
+    patch(id, (x) => ({ ...x, busy: false }));
+    void refreshLists();
   }
 }
+const stopped = new Set<string>();
 
 export async function sendToSession(id: string, prompt: string, runtime?: string) {
   const text = prompt.trim();
   const r = runs.get(id) ?? EMPTY;
   if (!text || r.busy) return;
   if (r.turns.length === 0) renameTab(id, titleOf(text));
-  patch(id, (x) => ({ ...x, loaded: true, busy: true, turns: [...x.turns, { prompt: text, events: [], status: "running", at: Date.now() }] }));
-  const last = (fn: (t: Turn) => Turn) => patch(id, (x) => ({ ...x, turns: [...x.turns.slice(0, -1), fn(x.turns[x.turns.length - 1])] }));
-  const ctrl = new AbortController();
-  ctrls.set(id, ctrl);
-  try {
-    await streamAgent(
-      { board: activeBoard()?.boardId ?? "company", prompt: text, runtime, session: id },
-      (e) =>
-        last((t) => {
-          const prev = t.events[t.events.length - 1];
-          // streamed text joins the text before it
-          const events = e.type === "text" && prev?.type === "text" ? [...t.events.slice(0, -1), { type: "text" as const, text: prev.text + e.text }] : [...t.events, e];
-          return { ...t, events, runtime: e.type === "done" ? e.runtime : t.runtime, status: e.type === "error" ? "error" : t.status };
-        }),
-      ctrl.signal,
-    );
-    last((t) => ({ ...t, status: t.status === "running" ? "done" : t.status }));
-  } catch (err) {
-    const aborted = (err as Error).name === "AbortError";
-    last((t) => ({ ...t, status: aborted ? "stopped" : "error", events: aborted ? t.events : [...t.events, { type: "error", message: (err as Error).message }] }));
-  } finally {
-    ctrls.delete(id);
-    patch(id, (x) => ({ ...x, busy: false }));
-    void refreshLists();
-  }
+  patch(id, (x) => ({ ...x, loaded: true, turns: [...x.turns, { prompt: text, events: [], status: "running", at: Date.now() }] }));
+  await follow(id, (ctrl, on) => streamAgent({ board: activeBoard()?.boardId ?? "company", prompt: text, runtime, session: id }, on, ctrl.signal));
 }
 
+/** Stop ends the run on the server; the stream then closes on its own */
 export function stopSession(id: string) {
-  ctrls.get(id)?.abort();
+  const t = (runs.get(id)?.turns ?? []).at(-1);
+  stopped.add(id);
+  if (t?.runId) void api(`/api/agent/runs/${encodeURIComponent(t.runId)}/stop`, { method: "POST" }).catch(() => ctrls.get(id)?.abort());
+  else ctrls.get(id)?.abort();
 }
 
 export function titleOf(prompt: string) {
@@ -131,6 +148,9 @@ export function planOf(turns: Turn[]): Plan | null {
   return null;
 }
 
+/** tools that only look: what they mention isn't something the session touched */
+export const READ_ONLY = new Set(["read_board", "search", "company", "read_file", "read_repo", "find_repo", "app_tools", "pipeline_status", "set_plan", "huddle_transcript", "slack_read"]);
+
 /** cards and sections a session's tools named — ringed on the grid while it shows */
 export function touchedBy(turns: Turn[]): string[] {
   const st = getState();
@@ -142,10 +162,22 @@ export function touchedBy(turns: Turn[]): string[] {
     ...Object.keys(st.media),
     ...Object.keys(st.sections),
   ];
-  const text = turns
-    .flatMap((t) => t.events)
-    .map((e) => (e.type === "tool" && e.name !== "read_board" && e.name !== "set_plan" ? JSON.stringify(e.input) : e.type === "tool_result" ? e.summary : ""))
-    .join(" ");
+  const parts: string[] = [];
+  for (const t of turns) {
+    // results arrive in call order (Claude Code doesn't name them): pair each with its call
+    const open: string[] = [];
+    for (const e of t.events) {
+      if (e.type === "tool") {
+        open.push(e.name);
+        if (!READ_ONLY.has(e.name)) parts.push(JSON.stringify(e.input));
+      } else if (e.type === "tool_result") {
+        const name = e.name || open.shift() || "";
+        if (e.name && open.includes(e.name)) open.splice(open.indexOf(e.name), 1);
+        if (!READ_ONLY.has(name)) parts.push(e.summary);
+      }
+    }
+  }
+  const text = parts.join(" ");
   return text ? ids.filter((id) => text.includes(id)) : [];
 }
 

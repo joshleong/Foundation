@@ -10,6 +10,10 @@
  * drag frame touches one key. Section scroll stays local; the document holds
  * only what everyone shares. Cursors and selections ride on awareness.
  *
+ * A note's text is its own Y.Text (schema 3): a keystroke becomes the
+ * smallest insert/delete, so two people typing in one note both keep their
+ * words, and the note's card (position, size) is never rewritten by typing.
+ *
  * Transport: y-protocols over WebSocket at /sync/:board, with backoff
  * reconnect; the session cookie authenticates it.
  */
@@ -19,8 +23,8 @@ import * as syncProtocol from "y-protocols/sync";
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
-import { boardMaps, type ObjectDoc, type SectionDoc, type UserInfo } from "@foundation/protocol";
-import { applyRemote, getState, setSyncHook, type AnyObject, type AppState, type Section } from "../state/store";
+import { BOARD_SCHEMA, boardMaps, noteTextOf, rebaseEdit, setNoteText, type ObjectDoc, type SectionDoc, type UserInfo } from "@foundation/protocol";
+import { applyRemote, getState, setSyncHook, updateNoteText, type AnyObject, type AppState, type Section } from "../state/store";
 import { workbook } from "../engine/workbook";
 import { wsUrl } from "../lib/api";
 
@@ -95,6 +99,15 @@ class BoardSync {
     m.grid.observe((e) => e.transaction.origin !== LOCAL && this.pullGrid());
     m.links.observe((e) => e.transaction.origin !== LOCAL && this.pullLinks());
     m.cells.observe((e) => e.transaction.origin !== LOCAL && this.pullCells([...e.keysChanged]));
+    m.noteText.observeDeep((events, tx) => {
+      if (tx.origin === LOCAL) return;
+      const ids = new Set<string>();
+      for (const e of events) {
+        if (e.target === m.noteText) for (const k of (e as Y.YMapEvent<Y.Text>).keysChanged) ids.add(k);
+        else if (typeof e.path[0] === "string") ids.add(e.path[0]);
+      }
+      this.pullNoteText([...ids]);
+    });
     m.activity.observe(() => this.notify());
     this.connect();
   }
@@ -187,12 +200,13 @@ class BoardSync {
   private pushAll(st: AppState) {
     this.doc.transact(() => {
       const m = boardMaps(this.doc);
-      m.meta.set("schema", 1);
+      m.meta.set("schema", BOARD_SCHEMA);
       m.grid.set("tracks", st.grid);
       for (const s of Object.values(st.sections)) m.sections.set(s.id, toSectionDoc(s));
       for (const slice of Object.values(SLICE)) {
         for (const o of Object.values(st[slice]) as AnyObject[]) m.objects.set(o.id, toObjectDoc(o));
       }
+      for (const n of Object.values(st.notes)) setNoteText(this.doc, n.id, n.text);
       for (const l of Object.values(st.links)) m.links.set(l.id, l);
     }, LOCAL);
     for (const t of Object.keys(st.tables)) this.pushCells(t);
@@ -214,8 +228,22 @@ class BoardSync {
         const a = next[slice] as Record<string, AnyObject>;
         const b = prev[slice] as Record<string, AnyObject>;
         if (a === b) continue;
-        for (const [id, o] of Object.entries(a)) if (b[id] !== o) m.objects.set(id, toObjectDoc(o));
-        for (const id of Object.keys(b)) if (!a[id]) m.objects.delete(id);
+        for (const [id, o] of Object.entries(a)) {
+          const was = b[id];
+          if (was === o) continue;
+          if (slice === "notes") {
+            const n = o as AnyObject & { text: string };
+            const p = was as (AnyObject & { text: string }) | undefined;
+            // typing touches only the text; the card is rewritten only when the card changed
+            if (!p || !sameCard(p as unknown as Record<string, unknown>, n as unknown as Record<string, unknown>)) m.objects.set(id, toObjectDoc(o));
+            if (!p || p.text !== n.text) setNoteText(this.doc, id, n.text);
+          } else m.objects.set(id, toObjectDoc(o));
+        }
+        for (const id of Object.keys(b)) {
+          if (a[id]) continue;
+          m.objects.delete(id);
+          if (slice === "notes") m.noteText.delete(id);
+        }
       }
       if (next.links !== prev.links) {
         for (const [id, l] of Object.entries(next.links)) if (prev.links[id] !== l) m.links.set(id, l);
@@ -266,12 +294,12 @@ class BoardSync {
     const slice = (k: Kind) => (slices[SLICE[k]] ??= { ...(st[SLICE[k]] as Record<string, AnyObject>) });
     if (keys === null) {
       for (const k of Object.keys(SLICE) as Kind[]) slices[SLICE[k]] = {};
-      for (const o of m.objects.values()) slice(o.kind)[o.id] = fromObjectDoc(o);
+      for (const o of m.objects.values()) slice(o.kind)[o.id] = fromObjectDoc(o, this.doc);
     } else {
       for (const id of keys) {
         const o = m.objects.get(id);
         if (o) {
-          slice(o.kind)[id] = fromObjectDoc(o);
+          slice(o.kind)[id] = fromObjectDoc(o, this.doc);
         } else {
           for (const k of Object.keys(SLICE) as Kind[]) {
             const rec = st[SLICE[k]] as Record<string, AnyObject>;
@@ -295,6 +323,22 @@ class BoardSync {
     applyRemote(slices as Partial<AppState>);
   }
 
+  private pullNoteText(ids: string[]) {
+    const st = getState();
+    const notes = { ...st.notes };
+    let changed = false;
+    for (const id of ids) {
+      const n = notes[id];
+      if (!n) continue;
+      const text = noteTextOf(this.doc, n);
+      if (text !== n.text) {
+        notes[id] = { ...n, text };
+        changed = true;
+      }
+    }
+    if (changed) applyRemote({ notes });
+  }
+
   private pullLinks() {
     applyRemote({ links: Object.fromEntries(boardMaps(this.doc).links.entries()) });
   }
@@ -314,6 +358,23 @@ class BoardSync {
     } finally {
       this.applyingCells = false;
     }
+  }
+
+  /**
+   * A keystroke in a note: the edit that turned `base` (what the editor showed)
+   * into `next`, applied to the shared text — rebased past anything that
+   * arrived in between, so nobody's characters are lost. Returns the text now.
+   */
+  editNote(id: string, base: string, next: string): string {
+    const t = boardMaps(this.doc).noteText.get(id);
+    if (!this.synced || !t) return next;
+    const e = rebaseEdit(base, next, t.toString());
+    if (!e) return t.toString();
+    this.doc.transact(() => {
+      if (e.remove) t.delete(e.at, e.remove);
+      if (e.insert) t.insert(e.at, e.insert);
+    }, LOCAL);
+    return t.toString();
   }
 
   // ---------- presence ----------
@@ -369,16 +430,24 @@ function toSectionDoc(s: Section): SectionDoc {
   return doc;
 }
 
+/** a note's card, ignoring its text (which lives in its Y.Text) */
+function sameCard(a: Record<string, unknown>, b: Record<string, unknown>) {
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) if (k !== "text" && a[k] !== b[k]) return false;
+  return true;
+}
+
 function toObjectDoc(o: AnyObject): ObjectDoc {
   const doc = { ...o, kind: kindOf(o) } as Record<string, unknown>;
+  if (doc.kind === "note") delete doc.text; // in its Y.Text
   // blob: URLs only live in this tab; never share them
   if (typeof doc.src === "string" && (doc.src as string).startsWith("blob:")) doc.src = "";
   return doc as unknown as ObjectDoc;
 }
 
-function fromObjectDoc(o: ObjectDoc): AnyObject {
+function fromObjectDoc(o: ObjectDoc, doc: Y.Doc): AnyObject {
   const { kind: _k, ...rest } = o as ObjectDoc & Record<string, unknown>;
   const local = getState();
+  if (_k === "note") rest.text = noteTextOf(doc, o);
   // keep a local blob preview while the shared copy has no URL yet
   if (_k === "media" && !rest.src) {
     const mine = local.media[o.id];
@@ -412,3 +481,10 @@ export function onBoardChange(fn: () => void) {
 }
 
 export type { BoardSync };
+
+/** a keystroke in a note, through the board's shared text (see BoardSync.editNote) */
+export function editNoteText(id: string, base: string, next: string) {
+  const text = current ? current.editNote(id, base, next) : next;
+  updateNoteText(id, text);
+  return text;
+}

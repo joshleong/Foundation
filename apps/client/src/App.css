@@ -1282,6 +1282,11 @@ body.is-connecting .frame-header {
   color: var(--ink);
   background: var(--color-abyss);
 }
+/* while writing, the card's bar sits over the top edge: start the text below it */
+.note-editor {
+  padding-top: 42px;
+  scroll-padding-top: 42px;
+}
 
 /* media cards */
 

@@ -81,6 +81,7 @@ export async function runAgent(opts: {
   runtime?: string;
   /** the session tab this turn belongs to: its own conversation (default: the person's one per board) */
   session?: string;
+  runId?: string;
   emit: (e: AgentEvent) => void;
   signal: AbortSignal;
 }) {
@@ -92,29 +93,101 @@ export async function runAgent(opts: {
     });
     return;
   }
-  const runId = `run_${randomBytes(6).toString("hex")}`;
+  const runId = opts.runId ?? newRunId();
   run(
     "insert into agent_runs (id, board_id, runtime, prompt, status, created_by, created_at, session_id) values (?, ?, ?, ?, 'running', ?, ?, ?)",
     runId, opts.boardId, runtime, opts.prompt, opts.user.id, Date.now(), opts.session ?? null,
   );
   editBoard(opts.boardId, "agent", (doc) => logActivity(doc, { who: opts.user.name, role: "human", text: `asked the agent: ${opts.prompt.slice(0, 140)}` }));
   const transcript: AgentEvent[] = [];
+  // the transcript is saved as the turn runs, so a reload mid-turn replays it
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  const save = () => {
+    saveTimer = null;
+    run("update agent_runs set transcript_json = ? where id = ? and status = 'running'", JSON.stringify(transcript), runId);
+  };
   const emit = (e: AgentEvent) => {
     // streamed text is stored as one event per run of text, not one per token
     const last = transcript[transcript.length - 1];
     if (e.type === "text" && last?.type === "text") transcript[transcript.length - 1] = { type: "text", text: last.text + e.text };
     else transcript.push(e);
     opts.emit(e);
+    saveTimer ??= setTimeout(save, 1200);
+  };
+  const finish = (status: "done" | "error" | "stopped") => {
+    if (saveTimer) clearTimeout(saveTimer);
+    run("update agent_runs set status = ?, transcript_json = ?, finished_at = ? where id = ?", status, JSON.stringify(transcript), Date.now(), runId);
   };
   try {
     if (runtime === "api") await runApi(opts, emit);
     else await runSubscription(opts, emit, runId);
-    run("update agent_runs set status = 'done', transcript_json = ?, finished_at = ? where id = ?", JSON.stringify(transcript), Date.now(), runId);
+    finish(opts.signal.aborted ? "stopped" : "done");
   } catch (e) {
-    const message = (e as Error).message;
-    emit({ type: "error", message });
-    run("update agent_runs set status = 'error', transcript_json = ?, finished_at = ? where id = ?", JSON.stringify(transcript), Date.now(), runId);
+    if (opts.signal.aborted) return finish("stopped");
+    emit({ type: "error", message: (e as Error).message });
+    finish("error");
   }
+}
+
+const newRunId = () => `run_${randomBytes(6).toString("hex")}`;
+
+// ---------- runs outlive the page that started them ----------
+// A turn keeps going when its tab reloads or closes; the page reattaches by
+// run id (replay, then live), and only Stop ends it early.
+
+interface LiveRun {
+  id: string;
+  userId: string;
+  events: AgentEvent[];
+  listeners: Set<(e: AgentEvent) => void>;
+  done: boolean;
+  ctrl: AbortController;
+}
+const live = new Map<string, LiveRun>();
+
+export function startRun(opts: Omit<Parameters<typeof runAgent>[0], "emit" | "signal" | "runId">): LiveRun {
+  const r: LiveRun = { id: newRunId(), userId: opts.user.id, events: [], listeners: new Set(), done: false, ctrl: new AbortController() };
+  live.set(r.id, r);
+  const emit = (e: AgentEvent) => {
+    const last = r.events[r.events.length - 1];
+    if (e.type === "text" && last?.type === "text") r.events[r.events.length - 1] = { type: "text", text: last.text + e.text };
+    else r.events.push(e);
+    for (const fn of r.listeners) fn(e);
+  };
+  emit({ type: "run", id: r.id });
+  void runAgent({ ...opts, runId: r.id, emit, signal: r.ctrl.signal }).finally(() => {
+    r.done = true;
+    for (const fn of r.listeners) fn({ type: "status", status: "ended" });
+    r.listeners.clear();
+    setTimeout(() => live.delete(r.id), 60_000);
+  });
+  return r;
+}
+
+/** a run this person may watch: replay what happened, then follow; returns a detach */
+export function followRun(id: string, userId: string, send: (e: AgentEvent) => void, end: () => void): (() => void) | null {
+  const r = live.get(id);
+  if (!r || r.userId !== userId) return null;
+  for (const e of r.events) send(e);
+  if (r.done) {
+    end();
+    return () => {};
+  }
+  const fn = (e: AgentEvent) => (e.type === "status" && e.status === "ended" ? end() : send(e));
+  r.listeners.add(fn);
+  return () => r.listeners.delete(fn);
+}
+
+export function stopRun(id: string, userId: string) {
+  const r = live.get(id);
+  if (!r || r.userId !== userId) return false;
+  r.ctrl.abort();
+  return true;
+}
+
+/** runs left "running" by a server that stopped can't finish: say so */
+export function settleOrphanRuns() {
+  run("update agent_runs set status = 'error', finished_at = ? where status = 'running'", Date.now());
 }
 
 // ---------- API runtime (credits) ----------

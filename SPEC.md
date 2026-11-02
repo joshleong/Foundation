@@ -9,7 +9,7 @@ Last updated 2026-11-02 · branch `main` · evidence in `docs/evidence/2026-11-0
 ## Open to-dos (kept by Josh, 2026-11-02)
 
 - [ ] **Repo visibility** — `joshleong/Foundation` is public; decide private / move to the Form Industries org (§6.1)
-- [ ] **Phase 1 · Solid ground** — proposed as its own session (§8): Y.Text notes, per-table cells, viewer role, offline, perf trace
+- [ ] **Phase 1 · Solid ground** (§8): ~~Y.Text notes~~ done; per-table cells, viewer role, offline, perf trace next
 - [ ] **Keys and setup** — Slack, BomForm + CA, API credits, `npx rea-agents setup` (§6)
 - [ ] **Slack app** — create it from `docs/slack-app-manifest.yml`, set `SLACK_BOT_TOKEN`, then open a real channel card: huddles and Slack cards were verified against a stand-in Slack only (§3, §6.7)
 - [ ] **Vision loop** — the Simulate/Concept hand-off writes the brief today; next it should start a Vision Code (T3) thread and attach what comes back (§8 phase 2)
@@ -123,7 +123,7 @@ One Y.Doc per board, with these top-level maps:
 **Rules:**
 - Section scroll is local, never shared.
 - `blob:` URLs never enter the document.
-- The schema version lives in `meta.schema`. flowform shipped unversioned fields and paid for it; bump it and migrate on change. Migrations are numbered steps in `apps/server/src/migrate.ts`, run at boot. **2:** sections host apps — a section of only apps (the company board's six connectors) becomes one section per app where its card was, other sections shift, nothing overlaps; a section holding one app hosts it (`apps/server/test/hosting.test.ts`).
+- The schema version lives in `meta.schema`. flowform shipped unversioned fields and paid for it; bump it and migrate on change. Migrations are numbered steps in `apps/server/src/migrate.ts`, run at boot. **2:** sections host apps — a section of only apps (the company board's six connectors) becomes one section per app where its card was, other sections shift, nothing overlaps; a section holding one app hosts it (`apps/server/test/hosting.test.ts`). **3:** a note's text is a `Y.Text` in `noteText` (keyed by note id), written as the smallest edit (`setNoteText`, `putNote`); the card in `objects` no longer carries `text`, so typing never rewrites its position or size (`apps/server/test/notes.test.ts`).
 
 ### 2.1 The Foundation bridge (apps ↔ grid)
 
@@ -149,13 +149,14 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | **Sync** | Yjs board docs, y-protocols wire, update log + compaction, reconnect with backoff, presence/awareness | done | Agent edits verified streaming live into an open browser |
 | | Peer cursors | partial | Code done; needs a second signed-in person to verify by eye |
 | **Grid** | Original Foundation grid (sections, tracks, springs, tables with formulas, maps, notes, media) | done | Now night-aware and on tokens. Layout memoised per state |
+| | **Notes two people can write in** (2026-11-03, phase 1): every keystroke goes out as it's typed, as the smallest edit to the note's `Y.Text`, rebased past anything that arrived while it was typed (`rebaseEdit`); someone else's words land in an open editor without moving the caret. Agents' `update_card` writes the smallest edit too, so a person typing keeps their words | done | Two browsers typing at opposite ends of one note converged, carets kept (`docs/evidence/2026-11-03_live-notes/`); `notes.test.ts` (5). Esc no longer reverts a note (the words were already shared) |
 | **Files** | Upload anything with progress; images and video show instantly, then swap to the shared URL; range streaming; archive-never-delete | done | |
 | | CAD cards (STEP/IGES header text, download, Send to Vision) | partial | No 3D preview yet (Vision's OpenCascade path is the plan) |
 | **Search** | ⌘K and the search pane (⌘F): board cards, files (full text and CAD headers), apps, GitHub (token or `gh`), Slack (`search.messages` with a user token) | done (Slack untested) | Local results in ms, remote with a 2.5 s cap. Stemming removed for prefixes |
 | **Panels** | Live app/link/machine frames | done | Mount only on screen at ≥0.3 zoom, poster otherwise. Click to engage, Esc to release. Frame policy probed |
 | | Repo drawer (README, commits), MCP badge, ports, drag-to-connect wires, postMessage bridge | done | Bridge not yet exercised by a real app (§7) |
 | **Agent layer** | Port wires (faint, bright with A), agent rings from presence and running cards, activity feed | done | |
-| **Agent** | Session tabs (below) replace the ⌘J dock: streaming steps, runtime picker. Voice input went with the dock | done | Voice: not carried over yet (§7) |
+| **Agent** | Session tabs (below) replace the ⌘J dock: streaming steps, runtime picker, voice (Web Speech: the mic fills the composer and sends when you stop) | done | Voice not exercised with a real voice (headless) |
 | | Subscription runtime (Claude Code + Foundation MCP, resumable sessions) | done | Verified: wrote a note and focused it |
 | | API runtime (Opus 5.5, adaptive thinking, manual tool loop) | partial | Code done, untested (no `ANTHROPIC_API_KEY` here) |
 | **MCP** | `/mcp?board=…`, 19 board tools, `⌘K → Connect Claude Code` copies the `claude mcp add` command | done | |
@@ -177,6 +178,8 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | | Release → BomForm | stub | Completes the stage; nothing is written to BomForm yet |
 | **The floor** (2026-11-02, Josh: the left pane drawn on the grid's dot layer, tabs at the top, T3-style sessions that work on the grid, search on the right with drag-to-grid, resizable panes) | The top bar, side pane, an open session and search are drawn on the paper; the cards are masked out where they are (56 px fade) and the view slides over by half a pane as one opens, so nothing hides under them; framing fits what's left. Every pane resizes from its inner edge; widths, open tabs and the open panes are remembered | done | `docs/evidence/2026-11-02_floor/`. The mask needs its own compositor layer (NOTES.md) |
 | | **Top bar**: fold · tabs (the board, then sessions; ⌘1 board, ⌘2…9, ⌘W) · ＋ new session (⌘J) · people · search ⌘F · commands ⌘K · agent layer · present | done | |
+| | **Turns outlive the page** (2026-11-03): a run lives on the server, keeps its events and saves its transcript as it goes; the page follows it by run id. Reload or close mid-turn and the turn carries on; reopening the tab replays it and follows live. Stop ends the run on the server (`POST /api/agent/runs/:id/stop`, status `stopped`). Runs a restarted server left "running" are marked as errors at boot | done | Verified: reloaded at 0/3, reattached at 1/3, finished 3/3; Stop recorded `stopped` (`docs/evidence/2026-11-03_live-notes/`) |
+| | **The floor gives way**: on load, on resize, and when a session or search opens, if the open paper would drop under 440 px the side pane folds, then search closes. Opening a pane by hand still opens it | done | |
 | | **Agent sessions**: each tab is its own conversation (`session` on `/api/agent`; runs keep `session_id` and the Claude Code session, so a tab resumes after a reload or a server restart). The tab shows the goal and steps the agent keeps with the new `set_plan` tool, every tool step (↗ frames the card it names), and rings the cards it touched on the grid. A run keeps streaming while its tab is in the background | done | Verified with one real subscription turn: plan 0/3 → 3/3, section + two notes made, step ↗ framed the note, rings on all three. `apps/server/test/sessions.test.ts` |
 | | **Vision Code threads** in the side pane and as read-only tabs: messages, reasoning, tool steps (last state per call), proposed plan, status (running / waiting on you / error), "Open in Vision Code ↗". Read from `<T3CODE_HOME>/userdata/state.sqlite`, read-only — no token, nothing written | partial | Read path verified against Josh's 100 threads. Replying happens in Vision Code. The link opens T3's web UI, which wants its own sign-in outside the Vision app |
 | | **Search pane** (⌘F, right): filters with counts, images as tiles, recent files + apps before typing. Press opens (as ⌘K); drag places the card floating where it's dropped, the section under the pointer ringed | done | Verified: dragged a STEP result into a section. Board results already on the board frame instead of copying |
@@ -276,7 +279,6 @@ Every integration is off until its key exists; the server always starts. Copy `.
 
 ## 7. Known issues
 
-- **Notes are last-writer-wins per card.** Each object is one JSON value in a Y.Map. Two people typing in one note at once will clobber each other. Move note text to `Y.Text` (flowform had the same flaw).
 - **The cells map is per table**, so two people editing different cells of one table rewrite the same map entry (last writer wins). Move to one Y.Map per table.
 - **No viewer role yet.** Every signed-in member can write. flowform dropped viewer writes on the server; add `room_role` and drop writes in `attachConnection`.
 - **No offline outbox.** The doc lives in memory; a tab closed while offline loses its edits. Add `y-indexeddb`.
@@ -298,11 +300,10 @@ Every integration is off until its key exists; the server always starts. Copy `.
 - **Huddle state lives on the panel object**, which the server writes when people join or leave. A person moving the card at the same moment can overwrite it (last writer per object, as with notes) until the next join or leave.
 - **Slack is polled, not pushed**: 5 s while a card is on screen. Threads show a reply count but can't be opened. Socket Mode would make it live without a public URL.
 - **Inviting a channel to a brand-new huddle waits 400 ms** for the new card to sync before the server can name it. A server-side create-and-invite would remove the wait.
-- **Voice input went with the agent dock.** Session tabs take typing only; bring the mic back to the composer.
-- **With a session and search both open, the grid gets the strip between them** (about 230 px at 1440 wide). Narrow either pane, or fold the side pane.
+- **Opening the side pane by hand beside a session on a narrow window** leaves the grid a sliver (the floor only gives way on its own). Consider narrowing the session instead.
+- **Note editing is a plain textarea.** Concurrent edits rebase as one contiguous change each, so two people editing the very same word can interleave letters, and the browser's undo stack resets when someone else's text lands. A CodeMirror + y-codemirror binding would add shared cursors and per-person undo.
 - **The floor's fade is a mask over the whole world layer.** Measured smooth here, but it's one more full-screen composite; profile on a big board.
 - **Touched-card rings come from ids in tool inputs and results**, so a card a tool changed without naming it (rare) goes unringed.
-- **Agent session transcripts are saved when a turn ends**: reload mid-turn and the running turn shows only after it finishes.
 - **Cards at rest have no title** (by design); a connector shown as a card (not hosted) reads by its body only. Hosted apps and pipeline stages name themselves.
 
 ---
@@ -311,7 +312,7 @@ Every integration is off until its key exists; the server always starts. Copy `.
 
 | Phase | Scope |
 |---|---|
-| **1 · Solid ground (next)** | `Y.Text` notes and per-table cell maps. Viewer role. `y-indexeddb` offline. Measured perf trace. Playwright two-browser convergence test. Prune legacy CSS. Get `check-design` going (ratchet raw colours like the Data Room) |
+| **1 · Solid ground (next)** | ~~`Y.Text` notes~~ (done 2026-11-03) and per-table cell maps. Viewer role. `y-indexeddb` offline. Measured perf trace. Playwright two-browser convergence test. Prune legacy CSS. Get `check-design` going (ratchet raw colours like the Data Room) |
 | **2 · Vision loop** | Foundation starts Vision Code (T3) threads for a brief (`orchestration.dispatchCommand` `thread.turn.start`, see Vision `apps/vision/src/code/handoff.ts`). Vision's exports land back as file panels. A CAD 3D preview via Vision's OpenCascade. Reviews return as asks |
 | **3 · Company brain** | BomForm snapshot cached and diffed. FactoryForm SSE (`/api/events`) pushed into the connector live. A daily "what changed" digest note by the agent. Voice: Vision's `@pacific/voice` realtime session for spoken conversations about the company |
 | **4 · Search depth** | flowform's semantic search (e5 text vectors, SigLIP images, RRF k=60). Slack per-user OAuth with visibility that fails closed. Google Drive and Figma connectors |

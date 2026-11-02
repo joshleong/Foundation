@@ -92,10 +92,19 @@ const listeners = new Set<() => void>();
 export function getUi() {
   return ui;
 }
+/** the least open paper the grid keeps: below it, the side pane folds to make room */
+export const MIN_PAPER = 440;
+
 export function setUi(patch: Partial<UiState>) {
   const before = ui;
   ui = { ...ui, ...patch };
   if (patch.tab !== undefined && patch.tab !== before.tab) ui.touched = patch.touched ?? [];
+  // opening a session or search (or widening one) on a narrow screen: the side pane gives way
+  const opened = (ui.tab && !before.tab) || (ui.search && !before.search) || ui.sessionW > before.sessionW || ui.searchW > before.searchW;
+  if (opened && ui.pane && patch.pane === undefined && typeof window !== "undefined") {
+    const f = floorInsets(ui);
+    if (window.innerWidth - f.left - f.right < MIN_PAPER) ui.pane = false;
+  }
   if ((["pane", "paneW", "tabs", "tab", "sessionW", "search", "searchW"] as const).some((k) => k in patch)) {
     try {
       const keep: Stored = { pane: ui.pane, paneW: ui.paneW, tabs: ui.tabs, tab: ui.tab, sessionW: ui.sessionW, search: ui.search, searchW: ui.searchW };
@@ -112,6 +121,24 @@ export function useUi(): UiState {
     },
     () => ui,
   );
+}
+
+/**
+ * Keep the grid at least MIN_PAPER wide when the window can't hold every
+ * open pane (a narrow window, or a layout remembered from a wider one): the
+ * side pane folds first, then search closes. Runs at start and on resize.
+ */
+export function fitFloor() {
+  if (typeof window === "undefined") return;
+  const room = () => window.innerWidth - floorInsets(ui).left - floorInsets(ui).right;
+  const patch: Partial<UiState> = {};
+  if (room() < MIN_PAPER && ui.pane) patch.pane = false;
+  if (room() - (patch.pane === false ? ui.paneW : 0) < MIN_PAPER && ui.search && ui.tab) patch.search = false;
+  if (Object.keys(patch).length) setUi(patch);
+}
+if (typeof window !== "undefined") {
+  window.addEventListener("resize", () => fitFloor());
+  queueMicrotask(fitFloor);
 }
 
 /** how much of the screen the floor chrome takes on each side (px) */

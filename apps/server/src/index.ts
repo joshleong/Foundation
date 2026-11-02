@@ -21,7 +21,7 @@ import { parseRepo, repoCommits, repoInfo, repoReadme } from "./github.ts";
 import { companySnapshot, connectorEvents, readConnector, watchFactoryForm } from "./connectors.ts";
 import { createAsk, listAsks, resolveAsk, startHermes } from "./hermes.ts";
 import { getJob, listJobs, startJob } from "./jobs.ts";
-import { listSessions, runAgent, runtimes, sessionTurns } from "./agent.ts";
+import { followRun, listSessions, runtimes, sessionTurns, settleOrphanRuns, startRun, stopRun } from "./agent.ts";
 import { t3Thread, t3Threads } from "./t3.ts";
 import { runTool, TOOLS } from "./tools.ts";
 import { handleMcp } from "./mcp.ts";
@@ -346,11 +346,28 @@ r.post("/api/agent", async (req, res) => {
   const body = await readJson<{ board?: string; prompt?: string; runtime?: string; session?: string }>(req);
   if (!body.prompt?.trim()) throw new HttpError(400, "say something");
   const send = sse(res);
-  const ctrl = new AbortController();
-  res.on("close", () => ctrl.abort());
   const session = body.session && /^ses_[a-z0-9]{6,24}$/.test(body.session) ? body.session : undefined;
-  await runAgent({ boardId: body.board || "company", user, prompt: body.prompt, runtime: body.runtime, session, emit: send, signal: ctrl.signal });
+  // the run lives on the server: closing this stream detaches, it doesn't stop it
+  const r = startRun({ boardId: body.board || "company", user, prompt: body.prompt, runtime: body.runtime, session });
+  await new Promise<void>((done) => {
+    const detach = followRun(r.id, user.id, send, done);
+    res.on("close", () => (detach?.(), done()));
+  });
   res.end();
+});
+r.get("/api/agent/runs/:id/events", async (req, res) => {
+  const user = requireUser(req);
+  const send = sse(res);
+  await new Promise<void>((done) => {
+    const detach = followRun(req.params.id, user.id, send, done);
+    if (!detach) return done(); // finished long ago (or not yours): the transcript has it
+    res.on("close", () => (detach(), done()));
+  });
+  res.end();
+});
+r.post("/api/agent/runs/:id/stop", (req) => {
+  const user = requireUser(req);
+  return { stopped: stopRun(req.params.id, user.id) };
 });
 
 // ---------- server ----------
@@ -414,6 +431,7 @@ reindexFilesIfNeeded();
 watchFactoryForm();
 seedCompanyBoard();
 migrateAllBoards();
+settleOrphanRuns();
 startHermes();
 
 server.listen(config.port, config.host, () => {

@@ -96,19 +96,31 @@ function guessMime(name: string) {
   return map[ext] ?? "application/octet-stream";
 }
 
-/** Stream an agent turn (SSE over a POST). */
-export async function streamAgent(
+/** Start an agent turn and follow it (SSE over a POST). The first event names the run. */
+export function streamAgent(
   body: { board: string; prompt: string; runtime?: string; session?: string },
   onEvent: (e: AgentEvent) => void,
   signal: AbortSignal,
 ) {
-  const res = await fetch(serverUrl("/api/agent"), {
-    method: "POST",
-    credentials: "include",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-    signal,
-  });
+  return readEvents(
+    fetch(serverUrl("/api/agent"), {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    }),
+    onEvent,
+  );
+}
+
+/** Follow a run that's already going (a reloaded tab): everything so far, then live. */
+export function followRun(id: string, onEvent: (e: AgentEvent) => void, signal: AbortSignal) {
+  return readEvents(fetch(serverUrl(`/api/agent/runs/${encodeURIComponent(id)}/events`), { credentials: "include", signal }), onEvent);
+}
+
+async function readEvents(req: Promise<Response>, onEvent: (e: AgentEvent) => void) {
+  const res = await req;
   if (!res.ok || !res.body) {
     const t = await res.text();
     throw new ApiError(res.status, (t && JSON.parse(t).error) || "agent unavailable");

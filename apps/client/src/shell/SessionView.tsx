@@ -12,9 +12,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentEvent } from "@foundation/protocol";
 import { api } from "../lib/api";
-import { getState, requestSnap } from "../state/store";
+import { getState, requestSnap, useObjectSetVersion } from "../state/store";
 import { WIDTHS, getUi, setUi, useUi, type SessionTab } from "../state/ui";
-import { TOOL_WORDS, loadSession, objectIn, planOf, sendToSession, stopSession, touchedBy, useSession, type Plan, type Turn } from "../state/sessions";
+import { READ_ONLY, TOOL_WORDS, loadSession, objectIn, planOf, sendToSession, stopSession, touchedBy, useSession, type Plan, type Turn } from "../state/sessions";
 import { renderMarkdown } from "../utils/markdown";
 import { FloorEdge } from "./FloorEdge";
 import { ago } from "./SidePane";
@@ -39,6 +39,17 @@ export function SessionView() {
 }
 
 // ---------- a Foundation agent session ----------
+
+type SpeechCtor = new () => {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onresult: (e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void;
+  onend: () => void;
+  onerror: (e: { error: string }) => void;
+  start(): void;
+  stop(): void;
+};
 
 type Step = { name: string; input: unknown; ok?: boolean; summary?: string };
 type Item = { kind: "text"; text: string } | { kind: "steps"; steps: Step[] } | { kind: "error"; text: string };
@@ -76,8 +87,13 @@ function AgentSession({ tab }: { tab: SessionTab }) {
   const [draft, setDraft] = useState("");
   const [runtime, setRuntime] = useState<string>(() => localStorage.getItem("foundation-runtime") ?? "auto");
   const [avail, setAvail] = useState<{ subscription: boolean; api: boolean; model: string } | null>(null);
+  const [listening, setListening] = useState(false);
+  const [voiceNote, setVoiceNote] = useState<string | null>(null);
+  const rec = useRef<InstanceType<SpeechCtor> | null>(null);
   const list = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => () => rec.current?.stop(), []);
 
   useEffect(() => {
     void loadSession(tab.id);
@@ -103,8 +119,9 @@ function AgentSession({ tab }: { tab: SessionTab }) {
     list.current?.scrollTo({ top: list.current.scrollHeight, behavior: "smooth" });
   }, [run.turns]);
 
-  // what it touched, ringed on the grid
-  const touched = useMemo(() => touchedBy(run.turns), [run.turns]);
+  // what it touched, ringed on the grid (again once the board has synced, after a reload)
+  const objects = useObjectSetVersion();
+  const touched = useMemo(() => touchedBy(run.turns), [run.turns, objects]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const cur = getUi().touched;
     if (cur.length !== touched.length || cur.some((id, i) => id !== touched[i])) setUi({ touched });
@@ -115,6 +132,39 @@ function AgentSession({ tab }: { tab: SessionTab }) {
     if (!text.trim() || run.busy) return;
     setDraft("");
     void sendToSession(tab.id, text, runtime === "auto" ? undefined : runtime);
+  };
+
+  /** talk instead of typing: the browser's speech recognition fills the composer, and sends when you stop */
+  const listen = () => {
+    const W = window as unknown as { SpeechRecognition?: SpeechCtor; webkitSpeechRecognition?: SpeechCtor };
+    const Ctor = W.SpeechRecognition ?? W.webkitSpeechRecognition;
+    if (!Ctor) {
+      setVoiceNote("Voice needs a browser with speech recognition (Chrome, Edge, Safari).");
+      return;
+    }
+    if (listening) {
+      rec.current?.stop();
+      return;
+    }
+    const r = new Ctor();
+    r.lang = navigator.language || "en-US";
+    r.interimResults = true;
+    r.continuous = false;
+    let final = "";
+    r.onresult = (e) => {
+      final = Array.from(e.results).map((x) => x[0].transcript).join("");
+      setDraft(final);
+    };
+    r.onerror = (e) => setVoiceNote(e.error === "not-allowed" ? "The browser didn't allow the microphone." : `Voice stopped: ${e.error}`);
+    r.onend = () => {
+      setListening(false);
+      rec.current = null;
+      if (final.trim()) send(final);
+    };
+    rec.current = r;
+    setVoiceNote(null);
+    setListening(true);
+    r.start();
   };
 
   return (
@@ -174,7 +224,7 @@ function AgentSession({ tab }: { tab: SessionTab }) {
           ref={field}
           value={draft}
           rows={2}
-          placeholder={run.busy ? "Working… you can type the next ask" : "Ask, or tell it what to build…"}
+          placeholder={listening ? "Listening…" : run.busy ? "Working… you can type the next ask" : "Ask, or tell it what to build…"}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -184,7 +234,13 @@ function AgentSession({ tab }: { tab: SessionTab }) {
             if (e.key === "Escape") (e.target as HTMLElement).blur();
           }}
         />
+        {voiceNote && <div className="session-voice-note">{voiceNote}</div>}
         <div className="session-actions">
+          <button type="button" className={`f-pill session-mic${listening ? " is-agent is-listening" : ""}`} onClick={listen} title={listening ? "Stop listening" : "Talk (sends when you stop)"} aria-pressed={listening}>
+            <MicGlyph />
+            {listening ? "Listening" : ""}
+          </button>
+          <span className="session-actions-gap" />
           {run.busy ? (
             <button type="button" className="f-pill" onClick={() => stopSession(tab.id)}>
               Stop
@@ -263,7 +319,8 @@ function TurnView({ turn, last }: { turn: Turn; last: boolean }) {
 }
 
 function StepRow({ step }: { step: Step }) {
-  const target = objectIn(`${JSON.stringify(step.input ?? "")} ${step.summary ?? ""}`);
+  useObjectSetVersion(); // the card it names may arrive after the step does
+  const target = READ_ONLY.has(step.name) ? null : objectIn(`${JSON.stringify(step.input ?? "")} ${step.summary ?? ""}`);
   const detail = describeInput(step);
   return (
     <button
@@ -395,4 +452,13 @@ export function TouchedRings() {
   const home = (id: string) => (st.panels[id] && st.sections[st.panels[id].sectionId]?.host === id ? st.panels[id].sectionId : id);
   const sel = (id: string) => `[data-obj-id="${CSS.escape(id)}"] .frame-card, [data-section-id="${CSS.escape(id)}"]`;
   return <style>{`${[...new Set(ui.touched.map(home))].map(sel).join(",\n")} { box-shadow: 0 0 0 2px var(--color-agent), 0 0 0 7px var(--color-agent-dim); }`}</style>;
+}
+
+function MicGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
+      <rect x="5.5" y="1.5" width="5" height="9" rx="2.5" />
+      <path d="M3 7.5a5 5 0 0 0 10 0M8 12.5v2" strokeLinecap="round" />
+    </svg>
+  );
 }

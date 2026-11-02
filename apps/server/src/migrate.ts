@@ -10,7 +10,7 @@
  */
 
 import * as Y from "yjs";
-import { BOARD_SCHEMA, boardMaps, isHostable, readTracks, uid, type GridTracks, type ObjectDoc, type PanelDoc, type SectionDoc } from "@foundation/protocol";
+import { BOARD_SCHEMA, boardMaps, isHostable, readTracks, setNoteText, uid, type GridTracks, type ObjectDoc, type PanelDoc, type SectionDoc } from "@foundation/protocol";
 import { editBoard, getBoard, listBoards } from "./boards.ts";
 
 export function migrateAllBoards() {
@@ -23,9 +23,21 @@ export function migrateBoard(id: string) {
   if (schema >= BOARD_SCHEMA) return false;
   editBoard(id, "migrate", (doc) => {
     if (schema < 2) hostApps(doc);
+    if (schema < 3) noteTextToYText(doc);
     boardMaps(doc).meta.set("schema", BOARD_SCHEMA);
   });
   return true;
+}
+
+/** schema 3: each note's text moves into its own Y.Text, so concurrent typing merges */
+export function noteTextToYText(doc: Y.Doc) {
+  const m = boardMaps(doc);
+  for (const o of [...m.objects.values()]) {
+    if (o.kind !== "note" || o.text === undefined) continue;
+    if (!m.noteText.has(o.id)) setNoteText(doc, o.id, o.text);
+    const { text: _moved, ...card } = o;
+    m.objects.set(o.id, card);
+  }
 }
 
 /** schema 2: every app gets a section of its own */

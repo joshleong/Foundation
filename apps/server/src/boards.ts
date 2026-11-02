@@ -15,7 +15,7 @@ import * as awarenessProtocol from "y-protocols/awareness";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import type { WebSocket } from "ws";
-import { boardMaps, describeBoard, type ObjectDoc } from "@foundation/protocol";
+import { boardMaps, describeBoard, noteTextOf, type ObjectDoc } from "@foundation/protocol";
 import { all, indexDoc, one, run, unindexDoc } from "./db.ts";
 
 const MSG_SYNC = 0;
@@ -123,16 +123,16 @@ function indexBoard(board: Board) {
   for (const o of m.objects.values()) {
     const ref = o.id;
     seen.add(ref);
-    indexDoc("board", ref, board.id, o.name, objectText(o, m.cells.get(o.id)) + " " + sectionName(o.sectionId));
+    indexDoc("board", ref, board.id, o.name, objectText(o, o.kind === "note" ? noteTextOf(board.doc, o) : undefined, m.cells.get(o.id)) + " " + sectionName(o.sectionId));
   }
   for (const ref of indexedRefs.get(board.id) ?? []) if (!seen.has(ref)) unindexDoc("board", ref);
   indexedRefs.set(board.id, seen);
 }
 
-function objectText(o: ObjectDoc, cells?: Record<string, string>): string {
+function objectText(o: ObjectDoc, note: string | undefined, cells?: Record<string, string>): string {
   switch (o.kind) {
     case "note":
-      return o.text;
+      return note ?? "";
     case "table":
       return Object.values(cells ?? {}).join(" ");
     case "panel":
