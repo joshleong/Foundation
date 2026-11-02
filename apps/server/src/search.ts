@@ -38,7 +38,7 @@ export function searchLocal(q: string, boardId?: string, limit = 30): SearchHit[
     id: `${r.source}:${r.ref}`,
     title: r.title,
     snippet: r.snip,
-    objectId: r.source === "board" ? r.ref : undefined,
+    objectId: r.source === "board" ? r.ref : r.source === "huddle" ? r.ref.split("/")[0] : undefined,
     url: r.source === "file" ? `/files/${r.ref}` : undefined,
     score: -r.rank,
   }));

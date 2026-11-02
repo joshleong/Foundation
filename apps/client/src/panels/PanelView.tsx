@@ -21,6 +21,8 @@ import { onCamera } from "../state/camera";
 import { activeBoard } from "../sync/board";
 import { StageBody } from "./StageView";
 import { onConnectorChange } from "../lib/connectorEvents";
+import { HuddleBody } from "./HuddleView";
+import { SlackBody } from "./SlackView";
 
 interface Props {
   panel: PanelMeta;
@@ -41,6 +43,8 @@ const GLYPH: Record<PanelMeta["panel"], string> = {
   connector: "◉",
   ask: "✉",
   stage: "◆",
+  huddle: "◐",
+  slack: "◇",
 };
 
 export const PanelView = memo(function PanelView({ panel, pos, isActive, getScale, hosted }: Props) {
@@ -88,6 +92,10 @@ export const PanelView = memo(function PanelView({ panel, pos, isActive, getScal
       <AskBody panel={panel} />
     ) : panel.panel === "stage" ? (
       <StageBody panel={panel} />
+    ) : panel.panel === "huddle" ? (
+      <HuddleBody panel={panel} />
+    ) : panel.panel === "slack" ? (
+      <SlackBody panel={panel} />
     ) : (
       <AgentBody panel={panel} />
     );
@@ -212,7 +220,7 @@ export { GLYPH as PANEL_GLYPH };
 
 // ---------- live frames (apps, links, machines) ----------
 
-function useOnScreen(ref: React.RefObject<HTMLElement | null>, minScale = 0.3) {
+export function useOnScreen(ref: React.RefObject<HTMLElement | null>, minScale = 0.3) {
   const [visible, setVisible] = useState(false);
   const [bigEnough, setBigEnough] = useState(true);
   useEffect(() => {

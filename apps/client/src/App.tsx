@@ -9,6 +9,7 @@ import { Tip } from "./shell/Tip";
 import { me } from "./lib/api";
 import "./App.css";
 import "./shell/shell.css";
+import "./panels/live.css";
 
 initNight();
 

@@ -25,6 +25,9 @@ import { runAgent, runtimes } from "./agent.ts";
 import { runTool, TOOLS } from "./tools.ts";
 import { handleMcp } from "./mcp.ts";
 import { seedCompanyBoard } from "./seed.ts";
+import { addLine, attachHuddle, attachRecording, huddleArchive, transcriptText } from "./huddles.ts";
+import { boardLink, channelHistory, channelInfo, inviteText, listChannels, postMessage, shareText, SlackError, slackStatus } from "./slack.ts";
+import { boardMaps } from "@foundation/protocol";
 import { migrateAllBoards } from "./migrate.ts";
 import * as flowform from "./flowform.ts";
 
@@ -199,6 +202,97 @@ r.post("/api/asks/:id/resolve", async (req) => {
   return resolveAsk(req.params.id, u.name, fileId);
 });
 
+// ---------- huddles (video portals; media is peer to peer, see huddles.ts) ----------
+
+function huddleOn(boardId: string, id: string) {
+  const o = boardMaps(getBoard(boardId).doc).objects.get(id);
+  if (!o || o.kind !== "panel" || o.panel !== "huddle") throw new HttpError(404, "no such huddle");
+  return o;
+}
+r.get("/api/huddles/:id", (req) => {
+  requireUser(req);
+  const board = req.query.get("board") ?? "company";
+  const panel = huddleOn(board, req.params.id);
+  return { huddle: { id: panel.id, name: panel.name, channel: panel.channel ?? null, state: panel.huddle ?? { people: [] } }, sessions: huddleArchive(board, panel.id) };
+});
+r.post("/api/huddles/:id/lines", async (req) => {
+  const u = requireUser(req);
+  const b = await readJson<{ board?: string; text?: string }>(req);
+  try {
+    return { line: addLine(b.board ?? "company", req.params.id, u, b.text ?? "", "typed") };
+  } catch (e) {
+    throw new HttpError(400, (e as Error).message);
+  }
+});
+r.post("/api/huddles/:id/recordings", async (req) => {
+  const u = requireUser(req);
+  const b = await readJson<{ board?: string; fileId?: string; sessionId?: string; startedAt?: number; endedAt?: number }>(req);
+  if (!b.fileId) throw new HttpError(400, "fileId required");
+  try {
+    return attachRecording(b.board ?? "company", req.params.id, { fileId: b.fileId, person: u.name, sessionId: b.sessionId, startedAt: b.startedAt ?? Date.now(), endedAt: b.endedAt ?? Date.now() });
+  } catch (e) {
+    throw new HttpError(400, (e as Error).message);
+  }
+});
+
+// ---------- Slack channels (bot token; posts go out under the person's name) ----------
+
+async function slackDo<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof SlackError) throw new HttpError(e.code === "not_configured" ? 503 : 502, e.message);
+    throw e;
+  }
+}
+r.get("/api/slack/status", async (req) => {
+  requireUser(req);
+  return slackStatus();
+});
+r.get("/api/slack/channels", (req) => {
+  requireUser(req);
+  return slackDo(async () => ({ channels: await listChannels() }));
+});
+r.get("/api/slack/channels/:id", (req) => {
+  requireUser(req);
+  return slackDo(async () => ({ channel: await channelInfo(req.params.id), messages: await channelHistory(req.params.id, 40, req.query.get("fresh") === "1") }));
+});
+r.post("/api/slack/channels/:id/messages", async (req) => {
+  const u = requireUser(req);
+  const b = await readJson<{ text?: string }>(req);
+  return slackDo(() => postMessage(req.params.id, b.text ?? "", u));
+});
+/** send the channel a link to a place on the board */
+r.post("/api/slack/channels/:id/share", async (req) => {
+  const u = requireUser(req);
+  const b = await readJson<{ board?: string; objectId?: string; title?: string; note?: string }>(req);
+  const board = b.board ?? "company";
+  const text = shareText({ by: u.name, board, objectId: b.objectId, title: b.title || "A place", note: b.note });
+  return slackDo(async () => ({ ...(await postMessage(req.params.id, text, u, { board, objectId: b.objectId ?? null })), url: boardLink(board, b.objectId) }));
+});
+/** invite the channel into a huddle on the board */
+r.post("/api/slack/channels/:id/invite", async (req) => {
+  const u = requireUser(req);
+  const b = await readJson<{ board?: string; huddleId?: string }>(req);
+  const board = b.board ?? "company";
+  const h = huddleOn(board, b.huddleId ?? "");
+  const text = inviteText({ by: u.name, board, huddleId: h.id, huddleName: h.name, live: h.huddle?.people ?? [] });
+  return slackDo(async () => ({ ...(await postMessage(req.params.id, text, u, { board, huddle: h.id })), url: boardLink(board, h.id) }));
+});
+/** hand a huddle session's notes (transcript + recordings) to a channel */
+r.post("/api/slack/channels/:id/huddle-notes", async (req) => {
+  const u = requireUser(req);
+  const b = await readJson<{ board?: string; huddleId?: string; sessionId?: string; summary?: string }>(req);
+  const board = b.board ?? "company";
+  const h = huddleOn(board, b.huddleId ?? "");
+  const s = huddleArchive(board, h.id).find((x) => x.id === b.sessionId) ?? huddleArchive(board, h.id)[0];
+  if (!s) throw new HttpError(404, "that huddle hasn't met yet");
+  const lines = transcriptText(s).split("\n");
+  const excerpt = lines.slice(0, 40).join("\n") + (lines.length > 40 ? `\n… ${lines.length - 40} more lines on Foundation` : "");
+  const text = `${b.summary ? `${b.summary.trim()}\n\n` : ""}\`\`\`${excerpt}\`\`\`\n<${boardLink(board, h.id)}|The full huddle archive on Foundation>`;
+  return slackDo(() => postMessage(req.params.id, text, u, { board, huddle: h.id, session: s.id }));
+});
+
 // ---------- jobs ----------
 
 r.get("/api/jobs", (req) => {
@@ -277,8 +371,13 @@ server.on("upgrade", (rawReq, socket, head) => {
   const req = rawReq as Req;
   const url = new URL(req.url ?? "/", "http://local");
   req.query = url.searchParams;
-  const m = /^\/sync\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
   const user = userFromRequest(req);
+  const hm = /^\/huddle\/([A-Za-z0-9_-]{1,64})\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
+  if (hm && user) {
+    wss.handleUpgrade(req, socket, head, (ws) => attachHuddle(hm[1], hm[2], ws, user, req.query.get("send") === "1"));
+    return;
+  }
+  const m = /^\/sync\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
   if (!m || !user) {
     socket.write(`HTTP/1.1 ${m ? 401 : 404} ${m ? "Unauthorized" : "Not Found"}\r\n\r\n`);
     socket.destroy();

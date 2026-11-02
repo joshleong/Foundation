@@ -103,7 +103,9 @@ export type PanelKind =
   | "agent" // an agent session working on the board
   | "connector" // live company data (BomForm, FactoryForm, Vision …)
   | "ask" // a Hermes request to a person (e.g. "upload the latest CAD")
-  | "stage"; // one step of a design pipeline (brief → concept → CAD → simulate → review → release)
+  | "stage" // one step of a design pipeline (brief → concept → CAD → simulate → review → release)
+  | "huddle" // a video portal: people on the board talk face to face, transcribed and archived
+  | "slack"; // a Slack channel on the board: read it, post to it, send it board links, invite it to a huddle
 
 export interface Port {
   id: string;
@@ -129,6 +131,10 @@ export interface PanelDoc extends ObjectBaseDoc {
   ports: Port[];
   /** connector id for panel === "connector" */
   connector?: string;
+  /** Slack channel id — a "slack" card's channel, or the channel a huddle was opened for */
+  channel?: string;
+  /** a huddle's live state, kept by the server: who is in it now and whether it records; its sessions are archived */
+  huddle?: HuddleState;
   /** agent session id for panel === "agent" */
   sessionId?: string;
   /** for asks: who, and whether it's done */
@@ -145,6 +151,38 @@ export interface PanelDoc extends ObjectBaseDoc {
   /** stage-specific settings, e.g. { analysis: "CFD", loads: "…" } */
   settings?: Record<string, string>;
 }
+
+// ---------- huddles: video portals on the board ----------
+
+export interface HuddleState {
+  /** set while anyone is in it */
+  liveSince?: number;
+  /** names of the people in it now (one entry per person, not per tab) */
+  people: string[];
+  /** someone pressed Record: every participant's own camera and mic are being archived */
+  recording?: { by: string; since: number } | null;
+  lastEndedAt?: number;
+}
+
+/** one line of a huddle's transcript — spoken (each person's browser transcribes their own mic) or typed */
+export interface HuddleLine {
+  id: string;
+  at: number;
+  speaker: string;
+  text: string;
+  source: "speech" | "typed" | "system";
+}
+
+/** messages on the huddle socket (/huddle/:board/:huddle) — signalling only; media is peer to peer */
+export type HuddleWire =
+  | { t: "welcome"; you: string; peers: Array<{ id: string; name: string; color: string; sending: boolean }>; ice: unknown[] }
+  | { t: "peer-joined"; id: string; name: string; color: string; sending: boolean }
+  | { t: "peer-left"; id: string }
+  | { t: "peer-state"; id: string; sending: boolean; muted?: boolean; camOff?: boolean }
+  | { t: "signal"; from: string; to: string; data: unknown }
+  | { t: "line"; line: HuddleLine }
+  | { t: "caption"; from: string; name: string; text: string }
+  | { t: "recording"; on: boolean; by: string };
 
 // ---------- design pipelines: design → CAD → simulation → release ----------
 
@@ -364,7 +402,7 @@ export type AgentEvent =
 export type AgentRuntime = "subscription" | "api";
 
 export interface SearchHit {
-  source: "board" | "file" | "slack" | "github" | "app" | "activity";
+  source: "board" | "file" | "slack" | "github" | "app" | "activity" | "huddle";
   id: string;
   title: string;
   snippet: string;

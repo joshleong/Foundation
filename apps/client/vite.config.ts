@@ -23,6 +23,7 @@ export default defineConfig(async () => ({
       "/files": { target: server, changeOrigin: false },
       "/mcp": { target: server, changeOrigin: false },
       "/sync": { target: server.replace(/^http/, "ws"), ws: true, changeOrigin: false },
+      "/huddle": { target: server.replace(/^http/, "ws"), ws: true, changeOrigin: false },
     },
   },
 }));

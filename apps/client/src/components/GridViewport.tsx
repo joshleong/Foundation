@@ -524,6 +524,8 @@ export function GridViewport() {
       const container = containerRef.current;
       if (!container) return;
       if ((e.target as HTMLElement).closest(".map-body")) return;
+      // lists inside cards (transcripts, Slack) scroll themselves; pinch still zooms
+      if (!e.ctrlKey && !e.metaKey && (e.target as HTMLElement).closest(".wheel-own")) return;
       const r = container.getBoundingClientRect();
       if (e.ctrlKey || e.metaKey) {
         const cx = e.clientX - r.left;
@@ -555,6 +557,7 @@ export function GridViewport() {
     if (!el) return;
     const h = (e: WheelEvent) => {
       if ((e.target as HTMLElement).closest(".map-body")) return;
+      if (!e.ctrlKey && !e.metaKey && (e.target as HTMLElement).closest(".wheel-own")) return;
       e.preventDefault();
     };
     el.addEventListener("wheel", h, { passive: false });

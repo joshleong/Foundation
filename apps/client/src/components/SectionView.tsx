@@ -6,7 +6,10 @@ import {
   SECTION_HEADER,
   Section,
   addNote,
+  addPanel,
   addSectionAdjacent,
+  getLiveScroll,
+  getState,
   cellAtWorld,
   edgeAtWorld,
   moveSectionToEdge,
@@ -43,7 +46,10 @@ import { isPanel } from "../state/store";
 import { ingest } from "../lib/ingest";
 import { SectionEmpty } from "../panels/SectionEmpty";
 import { askAgent, setUi } from "../state/ui";
-import { openContextMenu } from "./ContextMenu";
+import { openContextMenu, type MenuItem } from "./ContextMenu";
+import { api } from "../lib/api";
+import { activeBoard } from "../sync/board";
+import { toast } from "../state/ui";
 
 interface Props {
   section: Section;
@@ -214,7 +220,7 @@ export const SectionView = memo(function SectionView({
     (e: React.WheelEvent) => {
       if (e.ctrlKey || e.metaKey) return; // viewport zoom
       if (getScale() < 0.55) return; // zoomed way out → viewport pan
-      if ((e.target as HTMLElement).closest(".map-body")) return;
+      if ((e.target as HTMLElement).closest(".map-body, .wheel-own")) return;
       const m = maxScroll();
       const nx = Math.max(0, Math.min(m.x, scroll.x.goal + e.deltaX));
       const ny = Math.max(0, Math.min(m.y, scroll.y.goal + e.deltaY));
@@ -252,11 +258,38 @@ export const SectionView = memo(function SectionView({
       e.preventDefault();
       e.stopPropagation();
       setActiveSection(section.id);
+      // live things land where you clicked, not in the flow
+      const at = (w: number, h: number) => {
+        const pt = worldPoint(e.clientX, e.clientY);
+        const st = getState();
+        if (!pt) return {};
+        const card = sectionCardRect(st.grid, section);
+        const scroll = getLiveScroll(section.id);
+        // centred on the click, kept inside what's visible of the section
+        const roomW = card.w - 2 - CONTENT_PAD * 2;
+        const roomH = card.h - 2 - SECTION_HEADER - CONTENT_PAD * 2;
+        const x = Math.min(pt.x - card.x - 1 - CONTENT_PAD - w / 2, roomW - w) + scroll.x;
+        const y = Math.min(pt.y - card.y - 1 - SECTION_HEADER - CONTENT_PAD - h / 3, roomH - h) + scroll.y;
+        return { float: true, x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)) };
+      };
+      const channels = Object.values(getState().panels).filter((p) => p.panel === "slack" && p.channel);
+      const tellSlack: MenuItem[] = channels.slice(0, 3).map((c) => ({
+        icon: "↗",
+        label: `Send ${c.name} a link here`,
+        action: () =>
+          void api(`/api/slack/channels/${c.channel}/share`, { method: "POST", json: { board: activeBoard()?.boardId ?? "company", objectId: section.host ?? section.id, title: section.name } })
+            .then(() => toast(`Sent ${c.name} a link to ${section.name}`, "ok"))
+            .catch((err) => toast((err as Error).message, "bad")),
+      }));
       openContextMenu(e.clientX, e.clientY, [
         { icon: "⊞", label: "Add table", action: () => createTable(section.id) },
         { icon: "◍", label: "Add map", action: () => createMap(section.id) },
         { icon: "▤", label: "Add note", action: () => addNote(section.id) },
         { icon: "⇪", label: "Add image / video…", action: () => fileRef.current?.click() },
+        { divider: true },
+        { icon: "◐", label: "Start a huddle here", action: () => addPanel(section.id, { panel: "huddle", name: "Huddle", ...at(560, 420) }) },
+        { icon: "#", label: "Add a Slack channel", action: () => addPanel(section.id, { panel: "slack", name: "Slack", ...at(420, 520) }) },
+        ...tellSlack,
         ...(host
           ? [{ icon: "◱", label: `Show ${host.name} as a card`, action: () => setSectionHost(section.id, null) }]
           : hostable
@@ -281,7 +314,7 @@ export const SectionView = memo(function SectionView({
         },
       ]);
     },
-    [section.id, canRemove, host, hostable],
+    [section.id, canRemove, host, hostable, worldPoint, section],
   );
 
   // confirmation can be requested locally (✕ button) or via the context menu

@@ -1,0 +1,683 @@
+/* Huddles (video portals) and Slack channel cards. Tokens only; see DESIGN.md §5. */
+
+/* ---------- huddle portal ---------- */
+
+.huddle-body {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  container-type: inline-size;
+}
+.huddle-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.huddle-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 9px 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--color-panel);
+  color: var(--color-dim);
+  font: 600 var(--text-11) / 1 var(--font-sans);
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+.huddle-status.is-live {
+  background: color-mix(in srgb, var(--color-ok) 12%, transparent);
+  color: var(--color-ok);
+}
+/* recording: red is the one convention people read without a legend */
+.huddle-rec {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px 0 6px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--color-bad) 12%, transparent);
+  color: var(--color-bad);
+  font: 700 var(--text-11) / 1 var(--font-sans);
+  letter-spacing: 0.08em;
+}
+.huddle-rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-bad);
+  flex-shrink: 0;
+  animation: f-breathe 1.6s var(--ease-out-soft) infinite;
+}
+.huddle-channel {
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-line);
+  color: var(--color-mist);
+  font: 500 var(--text-11) / 1 var(--font-sans);
+}
+.huddle-tabs {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--color-panel);
+}
+.huddle-tab {
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-mist);
+  font: 500 var(--text-12) / 1 var(--font-sans);
+  cursor: pointer;
+}
+.huddle-tab.is-on {
+  background: var(--color-raise);
+  color: var(--color-frost);
+  box-shadow: 0 1px 0 var(--color-line);
+}
+
+/* the room: faces in a grid that fills the portal */
+.huddle-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: 1fr;
+  grid-auto-rows: 1fr;
+}
+.huddle-stage.n-2,
+.huddle-stage.n-3,
+.huddle-stage.n-4 {
+  grid-template-columns: 1fr 1fr;
+}
+.huddle-stage.n-5,
+.huddle-stage.n-6 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+@container (max-width: 400px) {
+  .huddle-stage.n-2 {
+    grid-template-columns: 1fr;
+  }
+  .huddle-stage.n-5,
+  .huddle-stage.n-6 {
+    grid-template-columns: 1fr 1fr;
+  }
+  .huddle-tab {
+    padding: 0 7px;
+  }
+  .huddle-channel {
+    display: none;
+  }
+}
+.huddle-tile {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  background: var(--color-panel);
+  display: grid;
+  place-items: center;
+}
+.huddle-tile video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.huddle-tile.is-self video {
+  transform: scaleX(-1);
+}
+.huddle-name {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 12px);
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--color-abyss) 86%, transparent);
+  color: var(--color-frost);
+  font: 600 var(--text-11) / 1 var(--font-sans);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.huddle-name svg {
+  width: 12px;
+  height: 12px;
+  color: var(--color-bad);
+}
+.huddle-name i {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--color-dim);
+}
+.huddle-face {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-raise);
+  border: 1px solid var(--color-line);
+  color: var(--color-frost);
+  font: 600 var(--text-12) / 1 var(--font-sans);
+}
+.huddle-face.is-big {
+  width: 64px;
+  height: 64px;
+  font-size: var(--text-20);
+}
+.huddle-captions {
+  position: absolute;
+  left: 50%;
+  bottom: 36px;
+  translate: -50% 0;
+  max-width: calc(100% - 24px);
+  padding: 6px 10px;
+  border-radius: var(--radius-paper);
+  background: color-mix(in srgb, var(--color-frost) 82%, transparent);
+  color: var(--color-void);
+  font: 500 var(--text-13) / 1.35 var(--font-sans);
+  text-align: center;
+  pointer-events: none;
+}
+.huddle-captions b {
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+/* nobody in it: a portal waiting on the paper */
+.huddle-stage.is-empty {
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-card);
+  border: 1px dashed var(--color-line-strong);
+  background: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in srgb, var(--color-frost) 3%, transparent) 7px 8px);
+}
+.huddle-portal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 340px;
+  padding: var(--space-4);
+  text-align: center;
+}
+.huddle-faces {
+  display: flex;
+}
+.huddle-faces .huddle-face + .huddle-face {
+  margin-left: -8px;
+}
+.huddle-empty-title {
+  font: 600 var(--text-16) / 1.25 var(--font-sans);
+  color: var(--color-frost);
+}
+.huddle-empty-note {
+  color: var(--color-mist);
+  font: 400 var(--text-12) / 1.5 var(--font-sans);
+}
+
+/* controls */
+.huddle-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.huddle-ctl {
+  display: inline-grid;
+  place-items: center;
+  width: var(--h-pill);
+  height: var(--h-pill);
+  border-radius: 50%;
+  border: 1px solid var(--color-line);
+  background: var(--color-raise);
+  color: var(--color-frost);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform var(--dur-press) var(--ease-out-soft);
+}
+.huddle-ctl:active {
+  transform: scale(0.94);
+}
+.huddle-ctl.is-off {
+  background: color-mix(in srgb, var(--color-bad) 12%, var(--color-raise));
+  border-color: color-mix(in srgb, var(--color-bad) 40%, transparent);
+  color: var(--color-bad);
+}
+.huddle-rec-glyph {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--color-bad);
+}
+.huddle-ctl.is-rec .huddle-rec-glyph {
+  background: var(--color-bad);
+}
+.huddle-ctl-note {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-dim);
+  font: 400 var(--text-12) / 1.2 var(--font-sans);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.huddle-leave {
+  color: var(--color-bad);
+}
+
+/* notes: the live transcript */
+.huddle-notes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.huddle-lines,
+.huddle-archive {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-right: 4px;
+}
+.huddle-line p {
+  margin: 2px 0 0;
+  color: var(--color-frost);
+  font: 400 var(--text-13) / 1.5 var(--font-sans);
+}
+.huddle-line-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--text-12);
+}
+.huddle-line-head b {
+  font-weight: 600;
+  color: var(--color-frost);
+}
+.huddle-line time,
+.huddle-line-head i {
+  color: var(--color-dim);
+  font: 400 var(--text-11) / 1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  font-style: normal;
+}
+.huddle-line.is-system {
+  color: var(--color-dim);
+  font: 500 var(--text-11) / 1.3 var(--font-sans);
+  text-align: center;
+}
+.huddle-speech-note {
+  color: var(--color-warn);
+  font: 400 var(--text-11) / 1.3 var(--font-sans);
+}
+.huddle-say input,
+.slack-filter,
+.slack-compose textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: var(--color-abyss);
+  color: var(--color-frost);
+  font: 400 var(--text-13) / 1.4 var(--font-sans);
+  outline: none;
+}
+.huddle-say input,
+.slack-filter {
+  height: var(--h-control);
+  padding: 0 10px;
+}
+.huddle-say input:focus,
+.slack-filter:focus,
+.slack-compose textarea:focus {
+  border-color: var(--color-pulse);
+}
+
+/* archive: sessions, newest first */
+.huddle-archive {
+  gap: var(--space-2);
+}
+.huddle-session {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: var(--color-abyss);
+}
+.huddle-session-head {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  background: transparent;
+  color: var(--color-mist);
+  font: 400 var(--text-12) / 1.3 var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.huddle-session-head b {
+  color: var(--color-frost);
+  font-weight: 600;
+}
+.huddle-session-people {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.huddle-session-count {
+  color: var(--color-dim);
+  font-variant-numeric: tabular-nums;
+}
+.huddle-session-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 0 var(--space-3) var(--space-3);
+}
+.huddle-recordings {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-2);
+}
+.huddle-recordings figure {
+  margin: 0;
+}
+.huddle-recordings video {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-paper);
+  background: var(--color-panel);
+}
+.huddle-recordings figcaption {
+  color: var(--color-dim);
+  font: 400 var(--text-11) / 1.3 var(--font-sans);
+}
+.huddle-session-foot {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* the call goes with you: a chip in the corner while you're joined */
+.huddle-pip {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 48px;
+  padding: 0 8px 0 6px;
+  border-radius: var(--radius-pill);
+}
+.huddle-pip-face {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 0;
+  padding: 0;
+  background: var(--color-panel);
+  color: var(--color-frost);
+  font: 600 var(--text-12) / 1 var(--font-sans);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.huddle-pip-face video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.huddle-pip-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 180px;
+  min-width: 0;
+  font: 400 var(--text-11) / 1.2 var(--font-sans);
+  color: var(--color-mist);
+}
+.huddle-pip-text b {
+  color: var(--color-frost);
+  font: 600 var(--text-12) / 1.2 var(--font-sans);
+}
+.huddle-pip-text b,
+.huddle-pip-text span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.presenting .huddle-pip {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ---------- Slack channel ---------- */
+
+.slack-body {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4);
+  container-type: inline-size;
+}
+.slack-off,
+.slack-picker,
+.slack-channel {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.slack-empty {
+  color: var(--color-dim);
+  font: 400 var(--text-12) / 1.5 var(--font-sans);
+  padding: var(--space-3) 0;
+}
+.slack-channels,
+.slack-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.slack-channel-row {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  height: var(--h-control);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-paper);
+  background: transparent;
+  color: var(--color-frost);
+  font: 500 var(--text-13) / 1 var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.slack-channel-row:hover {
+  background: var(--color-panel);
+}
+.slack-channel-row b {
+  width: 14px;
+  color: var(--color-dim);
+}
+.slack-channel-row i {
+  margin-left: auto;
+  color: var(--color-dim);
+  font: 400 var(--text-11) / 1 var(--font-sans);
+  font-style: normal;
+}
+.slack-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.slack-topic {
+  color: var(--color-mist);
+  font-size: var(--text-12);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.slack-messages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-right: 4px;
+}
+.slack-msg {
+  padding-top: var(--space-2);
+}
+.slack-msg.is-cont {
+  padding-top: 0;
+}
+.slack-msg-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.slack-msg-head b {
+  color: var(--color-frost);
+  font: 600 var(--text-13) / 1.3 var(--font-sans);
+}
+.slack-msg-head time {
+  color: var(--color-dim);
+  font: 400 var(--text-11) / 1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+.slack-msg p {
+  margin: 1px 0 0;
+  color: var(--color-frost);
+  font: 400 var(--text-13) / 1.45 var(--font-sans);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.slack-msg.is-ours p {
+  border-left: 2px solid var(--color-pulse);
+  padding-left: var(--space-2);
+}
+.slack-msg a {
+  color: var(--color-pulse);
+}
+.slack-replies {
+  color: var(--color-pulse);
+  font: 500 var(--text-11) / 1.6 var(--font-sans);
+}
+.slack-compose {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.slack-compose textarea {
+  resize: none;
+  padding: 8px 10px;
+}
+.slack-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.slack-send {
+  margin-left: auto;
+}
+@container (max-width: 400px) {
+  .slack-actions .f-pill:not(.slack-send) {
+    padding: 0 9px;
+  }
+}
+/* the place picker lies over the messages */
+.slack-places {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 30px;
+  bottom: 96px;
+  z-index: 2;
+  overflow-y: auto;
+  padding: var(--space-2);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-line-strong);
+  background: var(--color-raise);
+  box-shadow: var(--shadow-lift);
+}
+.slack-places-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-1) var(--space-2);
+}
+.slack-place {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-paper);
+  background: transparent;
+  color: var(--color-frost);
+  font: 500 var(--text-13) / 1 var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.slack-place:hover {
+  background: var(--color-pulse-dim);
+}
+.slack-place b {
+  width: 14px;
+  color: var(--color-dim);
+  font-weight: 400;
+}
+.slack-place.is-card {
+  padding-left: 30px;
+  color: var(--color-mist);
+  font-weight: 400;
+}
+
+/* #/design specimens: a card body without the grid around it */
+.live-specimen {
+  position: relative;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-line);
+  background: var(--color-raise);
+  box-shadow: var(--shadow-sheet);
+  overflow: hidden;
+}

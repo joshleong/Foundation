@@ -17,6 +17,7 @@ import { CommandBar } from "./CommandBar";
 import { AgentDock } from "./AgentDock";
 import { Present } from "./Present";
 import { RepoDrawer } from "./RepoDrawer";
+import { HuddlePip } from "./HuddlePip";
 import { SidePane } from "./SidePane";
 import { api } from "../lib/api";
 import { ingest } from "../lib/ingest";
@@ -54,6 +55,24 @@ export function Shell({ user }: { user: UserInfo }) {
       .then((r) => setBoards(r.boards))
       .catch(() => {});
   }, [board?.boardId]);
+
+  // ?focus=<card or section> (links sent to Slack, Hermes nudges): frame it once it has synced
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const focus = url.searchParams.get("focus");
+    if (!focus || !board) return;
+    const t0 = Date.now();
+    const tick = setInterval(() => {
+      const st = getState();
+      const kind = st.sections[focus] ? "section" : st.panels[focus] || st.notes[focus] || st.tables[focus] || st.maps[focus] || st.media[focus] ? "object" : null;
+      if (!kind && Date.now() - t0 < 15_000) return;
+      clearInterval(tick);
+      if (kind) requestSnap({ kind, id: focus });
+      url.searchParams.delete("focus");
+      window.history.replaceState(null, "", url);
+    }, 250);
+    return () => clearInterval(tick);
+  }, [board?.boardId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const switchBoard = (id: string) => {
     localStorage.setItem("foundation-board", id);
@@ -123,6 +142,7 @@ export function Shell({ user }: { user: UserInfo }) {
       <AgentDock />
       <Present />
       <RepoDrawer />
+      <HuddlePip />
       <Toast />
 
       <input

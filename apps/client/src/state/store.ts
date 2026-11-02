@@ -1260,6 +1260,8 @@ const PANEL_SIZE: Record<PanelMeta["panel"], [number, number]> = {
   connector: [460, 320],
   ask: [380, 220],
   stage: [460, 440],
+  huddle: [560, 420],
+  slack: [420, 520],
 };
 
 export function addPanel(

@@ -27,6 +27,7 @@ const SOURCE_LABEL: Record<SearchHit["source"], string> = {
   board: "Board",
   file: "File",
   slack: "Slack",
+  huddle: "Huddle",
   github: "GitHub",
   app: "App",
   activity: "Activity",

@@ -36,6 +36,8 @@ import { queueJob } from "./jobs.ts";
 import { readFileText } from "./files.ts";
 import { attachToStage, chooseArtifact, completeStage, describePipeline, setChecklist, startPipeline, updateStageSettings } from "./pipeline.ts";
 import { stageDef } from "@foundation/protocol";
+import { huddleArchive, transcriptText } from "./huddles.ts";
+import { channelHistory, channelInfo, listChannels } from "./slack.ts";
 
 export interface ToolCtx {
   boardId: string;
@@ -75,6 +77,8 @@ const PANEL_SIZES: Record<PanelKind, [number, number]> = {
   connector: [460, 320],
   ask: [380, 220],
   stage: [460, 440],
+  huddle: [560, 420],
+  slack: [420, 520],
 };
 
 function sectionOrCreate(doc: Y.Doc, section?: string) {
@@ -100,7 +104,7 @@ function touch(ctx: ToolCtx, objectId: string | undefined, text: string) {
 
 export function addPanel(
   ctx: ToolCtx,
-  p: { section?: string; panel: PanelKind; name: string; url?: string; repo?: string; mcp?: string; text?: string; ports?: Array<Omit<Port, "id">>; connector?: string; fileId?: string; mime?: string; assignee?: string; status?: PanelDoc["status"]; w?: number; h?: number },
+  p: { section?: string; panel: PanelKind; name: string; channel?: string; url?: string; repo?: string; mcp?: string; text?: string; ports?: Array<Omit<Port, "id">>; connector?: string; fileId?: string; mime?: string; assignee?: string; status?: PanelDoc["status"]; w?: number; h?: number },
 ): PanelDoc {
   return editBoard(ctx.boardId, "agent", (doc) => {
     const sec = sectionOrCreate(doc, p.section);
@@ -123,6 +127,7 @@ export function addPanel(
       text: p.text,
       ports: (p.ports ?? []).map((pt) => ({ ...pt, id: uid("port") })),
       connector: p.connector,
+      channel: p.channel,
       fileId: p.fileId,
       mime: p.mime,
       assignee: p.assignee,
@@ -572,6 +577,56 @@ export const TOOLS: BoardTool[] = [
         return { brief: noteId, vision: process.env.VISION_URL || "http://localhost:1420" };
       }
       throw new Error(`${def.title} has no hand-off — complete it when it's done`);
+    },
+  }),
+  // ---------- huddles and Slack ----------
+  def({
+    name: "open_huddle",
+    description:
+      "Put a huddle (a video portal) on the board, optionally for a Slack channel. People join it with their camera; nothing is streamed or recorded until a person joins. Returns the huddle id.",
+    schema: z.object({
+      section: z.string().optional(),
+      name: z.string().optional(),
+      channel: z.string().optional().describe("Slack channel id the huddle belongs to"),
+      request_id: z.string().optional(),
+    }),
+    write: true,
+    run: (ctx, i) => {
+      const p = addPanel(ctx, { section: i.section, panel: "huddle", name: i.name ?? "Huddle", channel: i.channel, text: "Join with your camera — everyone on the board can see who's here." });
+      touch(ctx, p.id, `opened a huddle “${p.name}”`);
+      return { id: p.id };
+    },
+  }),
+  def({
+    name: "huddle_transcript",
+    description: "Read what was said in a huddle: each session's people, speaker-attributed transcript with times, and recordings. Newest session first.",
+    schema: z.object({ huddle: z.string().describe("the huddle panel id"), sessions: z.number().int().min(1).max(10).optional() }),
+    run: (ctx, i) => {
+      const s = huddleArchive(ctx.boardId, i.huddle, i.sessions ?? 1);
+      return s.length ? s.map(transcriptText).join("\n\n---\n\n") : "This huddle hasn't met yet.";
+    },
+  }),
+  def({
+    name: "add_slack_channel",
+    description: "Put a Slack channel on the board as a card: its recent messages, live, with a field to post. Give the channel's name (without #) or id.",
+    schema: z.object({ channel: z.string(), section: z.string().optional(), request_id: z.string().optional() }),
+    write: true,
+    run: async (ctx, i) => {
+      const want = i.channel.replace(/^#/, "").toLowerCase();
+      const ch = /^[CG][A-Z0-9]{6,}$/.test(i.channel) ? await channelInfo(i.channel) : (await listChannels()).find((c) => c.name.toLowerCase() === want);
+      if (!ch) throw new Error(`no Slack channel “${i.channel}” the Foundation app can see`);
+      const p = addPanel(ctx, { section: i.section, panel: "slack", name: `#${ch.name}`, channel: ch.id, text: ch.topic });
+      touch(ctx, p.id, `put #${ch.name} on the board`);
+      return { id: p.id, channel: ch.id };
+    },
+  }),
+  def({
+    name: "slack_read",
+    description: "Read a Slack channel's recent messages (oldest first). Agents read Slack; posting is left to people on the card.",
+    schema: z.object({ channel: z.string().describe("channel id (a slack card's channel)"), limit: z.number().int().min(1).max(100).optional() }),
+    run: async (_ctx, i) => {
+      const msgs = await channelHistory(i.channel, i.limit ?? 30);
+      return msgs.map((m) => `[${new Date(m.at).toISOString().slice(0, 16).replace("T", " ")}] ${m.name}: ${m.text}`).join("\n") || "(no messages)";
     },
   }),
 ];

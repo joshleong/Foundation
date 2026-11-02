@@ -261,6 +261,137 @@ export function DesignPage() {
         </div>
       </Section>
 
+      <Section title="Huddles and Slack" note="A huddle is a video portal at a place on the board: Live (green) while people are in it, REC (red, the one convention read without a legend) while it records, tabs and controls along the bottom because the hover bar covers the top. A Slack card is a channel: posts carry the person's name, ours get a blue rule. Shown at 400 and 560 px; offline says why.">
+        <div className="adapt-row">
+          {[560, 400].map((w) => (
+            <div key={w} className="frame-card live-specimen" style={{ width: w, height: 300 }}>
+              <div className="huddle-body">
+                <div className="huddle-head">
+                  <span className="huddle-status is-live">
+                    <span className="f-dot is-ok is-live" />
+                    Live · 3
+                  </span>
+                  <span className="huddle-rec">
+                    <span className="huddle-rec-dot" />
+                    REC
+                  </span>
+                  <span className="huddle-channel">Slack</span>
+                </div>
+                <div className="huddle-stage n-3">
+                  {["Josh", "Kai", "Mara"].map((n, i) => (
+                    <div key={n} className={`huddle-tile${i === 0 ? " is-self" : ""}`}>
+                      <span className="huddle-face is-big">{n[0]}</span>
+                      <span className="huddle-name">{i === 0 ? `${n} (you)` : n}</span>
+                    </div>
+                  ))}
+                  <div className="huddle-captions">
+                    <b>Kai</b> the clearance is four millimetres
+                  </div>
+                </div>
+                <div className="huddle-controls">
+                  <span className="huddle-ctl">●</span>
+                  <span className="huddle-ctl is-off">×</span>
+                  <span className="huddle-ctl is-rec">
+                    <span className="huddle-rec-glyph" />
+                  </span>
+                  <span className="huddle-ctl-note" />
+                  <span className="f-pill huddle-leave">Leave</span>
+                  <div className="huddle-tabs">
+                    <span className="huddle-tab is-on">Room</span>
+                    <span className="huddle-tab">Notes 4</span>
+                    <span className="huddle-tab">Archive</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+          <div className="frame-card live-specimen" style={{ width: 400, height: 300 }}>
+            <div className="huddle-body">
+              <div className="huddle-stage is-empty">
+                <div className="huddle-portal">
+                  <div className="huddle-empty-title">Nobody's here yet</div>
+                  <div className="huddle-empty-note">Join and everyone who looks this way sees you; what's said is transcribed into the archive.</div>
+                </div>
+              </div>
+              <div className="huddle-controls">
+                <span className="f-pill is-accent">Start the huddle</span>
+                <span className="huddle-ctl-note">Camera and mic stay off until you join</span>
+              </div>
+            </div>
+          </div>
+          <div className="frame-card live-specimen" style={{ width: 400, height: 300 }}>
+            <div className="huddle-body">
+              <div className="huddle-lines">
+                <div className="huddle-line is-system">Josh started recording · 4:19 PM</div>
+                <div className="huddle-line">
+                  <div className="huddle-line-head">
+                    <b>Josh</b>
+                    <time>4:19 PM</time>
+                  </div>
+                  <p>Rev C clears the fan by 4 mm — good enough to simulate.</p>
+                </div>
+                <div className="huddle-line">
+                  <div className="huddle-line-head">
+                    <b>Kai</b>
+                    <time>4:20 PM</time>
+                    <i>note</i>
+                  </div>
+                  <p>Action: I'll send the STEP to Vision for CFD today.</p>
+                </div>
+              </div>
+              <div className="huddle-session-foot">
+                <span className="f-pill is-agent">✦ Summarize</span>
+                <span className="f-pill">Post notes to Slack</span>
+              </div>
+            </div>
+          </div>
+          <div className="frame-card live-specimen" style={{ width: 400, height: 300 }}>
+            <div className="slack-body">
+              <div className="slack-channel">
+                <div className="slack-head">
+                  <span className="connector-status is-live">
+                    <span className="f-dot is-ok is-live" />
+                    Slack
+                  </span>
+                  <span className="slack-topic">Shrouds, fans and rev C</span>
+                </div>
+                <div className="slack-messages">
+                  <div className="slack-msg">
+                    <div className="slack-msg-head">
+                      <b>Mara</b>
+                      <time>3:18 PM</time>
+                    </div>
+                    <p>@Kai clearance to the fan looks tight, can we look together?</p>
+                  </div>
+                  <div className="slack-msg is-ours">
+                    <div className="slack-msg-head">
+                      <b>Josh via Foundation</b>
+                      <time>4:21 PM</time>
+                    </div>
+                    <p>🎥 Josh invited this channel to a huddle on Foundation.</p>
+                  </div>
+                </div>
+                <div className="slack-actions">
+                  <span className="f-pill">↗ Link a place</span>
+                  <span className="f-pill">◐ Invite to a huddle</span>
+                  <span className="f-pill is-accent slack-send">Send</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="frame-card live-specimen" style={{ width: 260, height: 300 }}>
+            <div className="slack-body">
+              <div className="slack-off">
+                <div className="connector-offline">
+                  <div className="connector-offline-title">Slack isn't connected</div>
+                  <div className="connector-offline-reason">Set SLACK_BOT_TOKEN — create the app from docs/slack-app-manifest.yml</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Section>
+
       <Section title="Panels that adapt" note="Design for the narrowest width first; container queries, never the window. Check 260, 400 and 560 px.">
         <div className="adapt-row">
           {[260, 400, 560].map((w) => (
