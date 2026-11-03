@@ -4,7 +4,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { offsetRoute, pipeCrossings, road, route, routeSides, segmentOverlap, sideToward, tunnelGeometry, typesCompatible, type P } from "../src/shell/wireGeometry.ts";
+import { offsetRoute, pipeCrossings, polyline, road, route, routeSides, segmentOverlap, sideToward, tunnelGeometry, typesCompatible, type P } from "../src/shell/wireGeometry.ts";
 
 function angles(pts: P[]) {
   return pts.slice(1).map((p, i) => {
@@ -177,4 +177,28 @@ test("stacked apps join by a straight drop; offset ones by roads that leave and 
   const diag = corner.slice(1).filter((p, i) => Math.abs(p.x - corner[i].x) > 0.5 && Math.abs(p.y - corner[i].y) > 0.5);
   assert.equal(diag.length, 1, "a corner pair turns once, on one long diagonal");
   assert.ok(Math.abs(diag[0].x - corner[corner.indexOf(diag[0]) - 1].x) > 300, "and it is long");
+});
+
+test("a turn hemmed in by a card takes the longest diagonal that clears it, not half", () => {
+  // the diagonal from (−k, 0) to (0, k) enters this card for every k past 300
+  const card = { x: -600, y: 150, w: 450, h: 450 };
+  const pts = road([{ x: -1000, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 1000 }], [card]);
+  const k = -pts[1].x;
+  assert.ok(k >= 295 && k <= 300, `diagonal reaches ${k.toFixed(1)} of 300 px (halving gave 240)`);
+  for (let i = 1; i < pts.length; i++) assert.ok(segmentOverlap(pts[i - 1], pts[i], card) < 0.5, "and stays out of the card");
+});
+
+test("a corner takes the run its neighbour can't use: a step onto a short lead is one diagonal", () => {
+  const pts = road([{ x: 0, y: 0 }, { x: 200, y: 0 }, { x: 200, y: 100 }, { x: 230, y: 100 }]);
+  assert.deepEqual(angles(pts), [0, 45], "level, then one 45° run to the end");
+});
+
+test("bends are drawn round: an arc at each, kept within half of either run", () => {
+  const d = polyline([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 200, y: 100 }, { x: 210, y: 100 }]);
+  assert.equal(d.match(/A /g)?.length, 2, "one arc per bend");
+  assert.ok(d.startsWith("M 0.0 0.0") && d.endsWith("L 210.0 100.0"), "ends where the road ends");
+  const short = polyline([{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 4 }]);
+  const [, r] = short.match(/A ([\d.]+)/)!;
+  assert.ok(Number(r) <= 2, `a 4 px run holds only a 2 px radius (got ${r})`);
+  assert.equal(polyline([{ x: 0, y: 0 }, { x: 50, y: 0 }]), "M 0.0 0.0 L 50.0 0.0", "a straight wire has no arcs");
 });
