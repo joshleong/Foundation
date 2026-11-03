@@ -16,7 +16,7 @@
  * high contrast; it pauses while unfocused or hidden and settles after 3 min.
  */
 // @ts-nocheck — vendored as JavaScript; types in asciiWind2.d.ts
-export function initAsciiWind2(scope = document, variant = 'wind') {
+export function initAsciiWind2(scope = document, variant = 'wind', options = {}) {
   const document = scope.ownerDocument || scope;
   const window = document.defaultView;
   if (!window) return () => {};
@@ -41,7 +41,8 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
     wind: { energy: 1, friction: mode.friction, flick: mode.flick, lull: 0.5, streak: 0.4, detail: 0.6, edge: 0.75, curl: 0.65, wisp: 0.5, tail: 0.35, sweep: 0.3, morph: 3, revealS: mode.revealS },
     glow: { amount: 1, headroom: mode.headroom, color: { dark: [1, 1, 1], light: [1, 1, 1] } },
     touch: { stir: 1, ripple: 1, slowPxS: 60, fastPxS: 800 },
-    composition: { card: { centerY: 0.45, calmX: mode.calmX, calmY: mode.calmY, left: mode.quiet } },
+    // Foundation: options.quiet overrides how calm the centre is (1 = not calmed)
+    composition: { card: { centerY: 0.45, calmX: mode.calmX, calmY: mode.calmY, left: options.quiet ?? mode.quiet } },
     grid: { cellCss: 6.5, minCols: 24, minRows: 8, maxDevicePixels: 21000000 },
     power: { frameMs: 40, rippleFrameMs: 10, backoffFrameMs: 83, budgetS: 180, settleS: 8, resumeS: 3, retryS: 60, retryMaxS: 480, resizeSettleMs: 150, linkDeadlineMs: 20000 },
   };
@@ -634,6 +635,10 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
   uniform vec4 u_holes[12];
   uniform int u_holeCount;
   uniform vec4 u_dissolve;
+  // Foundation: a frame drawn in the field's own glyphs: rect (x, y, w, h) and ring (depth x, depth y, light)
+  uniform vec4 u_frame;
+  uniform vec3 u_ring;
+  out float v_ring;
   out vec2 v_shift;
   out vec4 v_box;
   out vec2 v_glow;
@@ -654,6 +659,7 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
     v_box = vec4(0.0);
     v_glow = vec2(0.0);
     v_flare = 0.0;
+    v_ring = 0.0;
   }
 
   void main() {
@@ -686,6 +692,14 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
       flare = 1.0 - smoothstep(0.0, 0.6 * u_dissolve.w, past);
     }
 
+    float ring = 0.0;
+    if (u_ring.z > 0.0) {
+      vec2 outside = max(max(u_frame.xy - cellAt, cellAt - (u_frame.xy + u_frame.zw)), vec2(0.0));
+      bool near = outside.x < u_ring.x && outside.y < u_ring.y;
+      bool inside = cellAt.x > u_frame.x && cellAt.x < u_frame.x + u_frame.z && cellAt.y > u_frame.y && cellAt.y < u_frame.y + u_frame.w;
+      if (near && !inside) ring = u_ring.z * (0.55 + 0.45 * random01(hash32(identity ^ 0x2Fu)));
+    }
+
     uint timing = hash32(identity);
     int sequenceStep = int(floor(
       u_time * u_flick * (0.6 + 0.8 * random01(timing)) + random01(hash32(timing))
@@ -698,7 +712,7 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
     }
 
     sequenceStep += int(floor(9.0 * flare));
-    if (${skipInvisible ? "true" : "false"} && glow.x < 0.04 && glow.y < 0.015 && flare < 0.03) {
+    if (${skipInvisible ? "true" : "false"} && glow.x < 0.04 && glow.y < 0.015 && flare < 0.03 && ring < 0.03) {
       ivec2 firstSample = cell * FIELD_SAMPLES;
       ivec2 lastSample = u_grid * FIELD_SAMPLES - 1;
       float strongest = 0.0;
@@ -725,6 +739,7 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
     v_box = vec4(atlasOrigin, atlasOrigin + u_cell - 1);
     v_glow = glow;
     v_flare = flare;
+    v_ring = ring;
     vec2 clipPosition = vec2(pixel) / vec2(u_buffer) * 2.0 - 1.0;
     gl_Position = vec4(clipPosition.x, -clipPosition.y, 0.0, 1.0);
   }
@@ -747,6 +762,7 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
   in vec4 v_box;
   in vec2 v_glow;
   in float v_flare;
+  in float v_ring;
   uniform highp sampler2D u_atlas, u_wind;
   uniform vec3 u_color, u_glowColor;
   uniform ivec2 u_buffer;
@@ -785,6 +801,7 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
     // Foundation: the dissolve front burns bright whatever the wind
     tint = max(tint, v_flare);
     brightness = max(brightness, v_flare * GLOW_HEADROOM);
+    brightness = max(brightness, v_ring * GLOW_HEADROOM);
     float alpha = coverage * min(1.0, (brightness + afterglow) / GLOW_HEADROOM);
     vec3 color = (
       mix(u_color, u_glowColor, tint) * brightness + u_glowColor * afterglow
@@ -1135,7 +1152,7 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
       if (!framebuffer) { destroy(); return; }
       gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
       const field = Object.fromEntries(['u_seed', 'u_tail', 'u_sweep', 'u_morph', 'u_wind', 'u_gust', 'u_shape', 'u_time', 'u_reveal', 'u_sampleCss', 'u_originCss', 'u_paneCss', 'u_canvasCss', 'u_now', 'u_tapCount', 'u_taps', 'u_wakeCount', 'u_wakes', 'u_ways'].map(name => [name, gl.getUniformLocation(fieldProgram, name)]));
-      const glyph = Object.fromEntries(['u_wind', 'u_atlas', 'u_boxes', 'u_sequence', 'u_seed', 'u_fill', 'u_flick', 'u_friction', 'u_glowAmount', 'u_time', 'u_count', 'u_grid', 'u_cellCss', 'u_cell', 'u_buffer', 'u_color', 'u_glowColor', 'u_inkAlpha', 'u_now', 'u_tapCount', 'u_taps', 'u_holes', 'u_holeCount', 'u_dissolve'].map(name => [name, gl.getUniformLocation(glyphProgram, name)]));
+      const glyph = Object.fromEntries(['u_wind', 'u_atlas', 'u_boxes', 'u_sequence', 'u_seed', 'u_fill', 'u_flick', 'u_friction', 'u_glowAmount', 'u_time', 'u_count', 'u_grid', 'u_cellCss', 'u_cell', 'u_buffer', 'u_color', 'u_glowColor', 'u_inkAlpha', 'u_now', 'u_tapCount', 'u_taps', 'u_holes', 'u_holeCount', 'u_dissolve', 'u_frame', 'u_ring'].map(name => [name, gl.getUniformLocation(glyphProgram, name)]));
       gl.useProgram(fieldProgram);
       gl.uniform1ui(field.u_seed, profile.seed);
       gl.uniform1f(field.u_tail, config.wind.tail);
@@ -1178,7 +1195,7 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
       let backoff = 0;
       let suspended = false;
       // Foundation: what the page asked for (css px in the root's box)
-      const page = { holeCount: 0, holes: new Float32Array(48), dissolve: new Float32Array(4) };
+      const page = { holeCount: 0, holes: new Float32Array(48), dissolve: new Float32Array(4), frame: new Float32Array(4), ring: new Float32Array(3) };
       let retryDelay = power.retryS;
       let lateSamples = [];
       let slowFrames = 0;
@@ -1260,6 +1277,8 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
           gl.uniform1i(glyph.u_holeCount, page.holeCount);
           if (page.holeCount) gl.uniform4fv(glyph.u_holes, page.holes);
           gl.uniform4fv(glyph.u_dissolve, page.dissolve);
+          gl.uniform4fv(glyph.u_frame, page.frame);
+          gl.uniform3fv(glyph.u_ring, page.ring);
           gl.drawArrays(gl.TRIANGLES, 0, 6 * grid.columns * grid.rows);
           drawCount += 1;
           if (drawCount % 4 === 0) {
@@ -1500,6 +1519,11 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
           page.holeCount = list.length;
           page.holes.fill(0);
           list.forEach((r, index) => page.holes.set([r.x, r.y, r.width, r.height], index * 4));
+          draw();
+        },
+        frame(rect, depthX = 0, depthY = 0, light = 0) {
+          if (rect) page.frame.set([rect.x, rect.y, rect.width, rect.height]);
+          page.ring.set(rect ? [depthX, depthY, light] : [0, 0, 0]);
           draw();
         },
         dissolve(x, y, radius, band) {

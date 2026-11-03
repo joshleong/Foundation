@@ -1,5 +1,8 @@
-/** Mounts the ASCII wind on `scope` (and any `[data-ascii-wind]` inside it); returns a disposer. */
-export function initAsciiWind2(scope?: Document | Element, variant?: "wind" | "capillary" | "estuary"): () => void;
+/**
+ * Mounts the ASCII wind on `scope` (and any `[data-ascii-wind]` inside it); returns a disposer.
+ * `quiet` (Foundation) is how strong the wind stays in the calm patch behind the centre: 0 to 1, where 1 means no calming.
+ */
+export function initAsciiWind2(scope?: Document | Element, variant?: "wind" | "capillary" | "estuary", options?: { quiet?: number }): () => void;
 
 /**
  * Foundation's hooks, on the root element once the field is running (the
@@ -13,6 +16,8 @@ export interface AsciiWindHooks {
   stir(x: number, y: number, wayX: number, wayY: number, force?: number): void;
   /** up to 12 rects the wind's glyphs keep out of (the page draws its own characters there) */
   holes(rects: Array<{ x: number; y: number; width: number; height: number }>): void;
+  /** a frame of the field's own glyphs, always faintly lit (`light` 0..1), `depthX`/`depthY` px deep around `rect`; null = none */
+  frame(rect: { x: number; y: number; width: number; height: number } | null, depthX?: number, depthY?: number, light?: number): void;
   /** glyphs nearer than `radius` (less a ragged `band`) to (x, y) are gone; the front burns bright. radius 0 = off */
   dissolve(x: number, y: number, radius: number, band: number): void;
 }

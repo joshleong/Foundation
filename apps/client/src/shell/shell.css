@@ -2268,11 +2268,11 @@ body.is-connecting .port-in.is-snap {
   --ascii-glow: var(--color-pulse);
 }
 
-/* Sign-in (login/Login.tsx): characters on the wind's grid, no card. One page
-   cell is 2×2 wind cells (--ag-uw × --ag-uh); every line is monospace tracked
-   out to exactly one cell per character, so text, buttons and inputs land on
-   the same columns as the wind. Day colours always (.f-day). It sits over the
-   board (fixed) so signing in can dissolve into it. */
+/* Sign-in (login/Login.tsx): ordinary type and physical controls inside a
+   frame cut out of the wind. The frame's edges sit between wind cells and the
+   wind keeps out of it, so the field is the frame; there is no card. Day
+   colours always (.f-day). It sits over the board (fixed) so signing in can
+   dissolve into it. */
 .login {
   position: fixed;
   inset: 0;
@@ -2283,115 +2283,100 @@ body.is-connecting .port-in.is-snap {
 .login.is-leaving {
   pointer-events: none;
 }
-.ag-paper {
+.login-paper {
   position: absolute;
   inset: 0;
   z-index: -2;
   background: var(--color-void);
 }
-.ag-line {
+.login-frame {
   position: absolute;
   box-sizing: border-box;
-  height: var(--ag-uh);
+}
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.login-mark {
+  color: var(--color-frost);
+  margin-bottom: var(--space-3);
+}
+.login-title {
   margin: 0;
-  padding: 0 0 0 calc(var(--ag-ls) / 2);
-  border: 0;
-  overflow: hidden;
-  font: 400 var(--ag-fs) / var(--ag-uh) var(--font-grid);
-  letter-spacing: var(--ag-ls);
-  white-space: pre;
-  color: var(--color-frost);
-  background: transparent;
+  font: 600 var(--text-32) / 1.05 var(--font-display);
+  letter-spacing: -0.02em;
 }
-.ag-title {
-  padding-left: calc(var(--ag-title-ls) / 2);
-  font-size: var(--ag-title-fs);
-  font-weight: 600;
-  letter-spacing: var(--ag-title-ls);
-}
-.ag-eyebrow {
-  color: var(--color-moss);
-}
-.ag-dim,
-.ag-label {
+.login-sub {
+  margin: 0 0 var(--space-4);
   color: var(--color-mist);
+  font-size: var(--text-14);
+  line-height: 1.45;
 }
-.ag-label.is-on {
-  color: var(--color-pulse);
-}
-.ag-faint {
-  color: var(--color-dim);
-}
-.ag-bad {
-  color: var(--color-bad);
-}
-/* buttons are a run of cells; on hover or focus the cells invert */
-.ag-button {
-  display: block;
-  text-align: left;
+/* pills, sized up: they lift on hover and press 3 % on springs (motion) */
+.login-btn {
+  height: 40px;
+  justify-content: center;
   text-decoration: none;
-  cursor: pointer;
-  outline: none;
+  font-size: var(--text-13);
+  box-shadow: var(--shadow-lift);
 }
-.ag-button:hover,
-.ag-button:focus-visible {
-  color: var(--color-void);
-  background: var(--color-frost);
+.login-btn,
+.login-cancel {
+  /* motion drives transform; a CSS transition on it would lag the spring */
+  transition: border-color var(--dur-quick) var(--ease-out-soft);
 }
-.ag-button:active {
-  color: var(--color-void);
-  background: var(--color-pulse);
+.login-btn:disabled {
+  box-shadow: none;
 }
-.ag-button:disabled {
-  cursor: default;
-  color: var(--color-dim);
-  background: transparent;
-}
-.login.is-leaving .ag-button {
-  color: var(--color-frost);
-  background: transparent;
-}
-/* the input's own caret hides; a block cursor sits in the cell instead */
-.ag-input {
-  outline: none;
-  caret-color: transparent;
-}
-.ag-input::selection {
-  background: var(--color-pulse-dim);
-}
-.ag-input:-webkit-autofill {
-  -webkit-text-fill-color: var(--color-frost);
-  transition: background-color 9999s;
-}
-.ag-cursor {
-  pointer-events: none;
-  color: var(--color-void);
-  background: var(--color-frost);
-  animation: ag-blink 1.06s steps(1) infinite;
-}
-@keyframes ag-blink {
-  50% {
-    color: var(--color-frost);
-    background: transparent;
-  }
-}
-.ag-foot {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 18px;
+.login-via {
+  margin-top: calc(var(--space-1) * -1);
   text-align: center;
-  font: 400 var(--text-12) var(--font-grid);
   color: var(--color-dim);
+  font-size: var(--text-11);
+}
+.login-or {
+  margin: var(--space-4) 0 var(--space-1);
+  text-align: center;
+  color: var(--color-dim);
+  font-size: var(--text-12);
+}
+.login-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.login-fields .f-input {
+  box-shadow: inset 0 1px 2px rgb(32 30 25 / 0.06);
+}
+.login-waiting {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 40px;
+  color: var(--color-mist);
+  font-size: var(--text-13);
+}
+.login-waiting span:nth-child(2) {
+  flex: 1;
+}
+.login-error {
+  color: var(--color-bad);
+  font-size: var(--text-12);
+  line-height: 1.4;
+}
+.login-foot {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  color: var(--color-dim);
+  font-size: var(--text-12);
+  white-space: nowrap;
   transition: opacity var(--dur-pane) var(--ease-out-soft);
 }
-.login.is-leaving .ag-foot {
+.login.is-leaving .login-foot {
   opacity: 0;
-}
-@media (prefers-reduced-motion: reduce) {
-  .ag-cursor {
-    animation: none;
-  }
 }
 
 /* ---------- design page ---------- */
