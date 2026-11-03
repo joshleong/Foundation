@@ -1,13 +1,14 @@
 /**
- * Sign-in: ordinary type and physical controls (pills that lift and press on
- * springs, raised inputs) inside a frame cut out of the ASCII wind. The frame
- * is snapped to the wind's cells and the wind keeps out of it
- * (`asciiWind.holes`), so the field is the frame and there is no card.
- * Always day colours (`.f-day`), whatever the room.
+ * Sign-in: ordinary type and physical controls (light pills that lift and
+ * press on springs, raised inputs) in a frame drawn in the ASCII wind: a ring
+ * of the field's own glyphs, snapped to its cells (`asciiWind.frame`). The
+ * wind keeps blowing inside the frame and only clears the cells behind the
+ * text (`asciiWind.holes`). There's no card. Just Google; the email sign-in
+ * waits behind a click. Always day colours (`.f-day`), whatever the room.
  *
- * The field answers. The frame opens out of the wind on arrival, typing sends
- * wind off the frame's nearer edge, a press ripples from the button, and an
- * error ripples where it's written. Signing in dissolves everything outward
+ * The field answers. The frame opens out of the wind on arrival, typing stirs
+ * the wind at the cursor, a press ripples from the button, and an error
+ * ripples where it's written. Signing in dissolves everything outward
  * from the press, a ragged front of bright glyphs, into the board
  * underneath. App keeps this page over the shell until `onGone`.
  *
@@ -75,7 +76,6 @@ export function Login({
 }) {
   const root = useRef<HTMLDivElement>(null);
   const form = useRef<HTMLDivElement>(null);
-  const foot = useRef<HTMLDivElement>(null);
   const [g, setGrid] = useState<Grid | null>(null);
   const [contentH, setContentH] = useState(0);
   const [cfg, setCfg] = useState<{ google: boolean; devLogin: boolean; flowform?: { url: string } } | null>(null);
@@ -85,6 +85,8 @@ export function Login({
   const [busy, setBusy] = useState(false);
   /** desktop: waiting on the system browser */
   const [waiting, setWaiting] = useState(false);
+  /** the email sign-in, folded away until asked for */
+  const [byEmail, setByEmail] = useState(false);
   /** 0 → 1 as the frame opens out of the wind */
   const [open, setOpen] = useState(0);
   const [leave, setLeave] = useState<{ ox: number; oy: number; radius: number } | null>(null);
@@ -93,8 +95,8 @@ export function Login({
   const leaving = useRef(false);
   const reduced = useMemo(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches, []);
 
-  // the frame does the calming, so the wind runs at full strength up to its edge
-  useEffect(() => initAsciiWind2(root.current!, "wind", { quiet: 0.9 }), []);
+  // the wind runs through the frame, a little calmer behind the form
+  useEffect(() => initAsciiWind2(root.current!, "wind", { quiet: 0.7 }), []);
   useLayoutEffect(() => {
     const el = root.current!;
     const measure = () => setGrid(measureGrid(el));
@@ -147,7 +149,7 @@ export function Login({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frame !== null]);
 
-  /** the hole the wind keeps out of: the frame (opening), and the footnote */
+  /** the frame's ring as it opens out of a slot in the middle */
   const hole = useMemo<Rect | null>(() => {
     if (!frame || !g) return null;
     const w = Math.max(g.cw * 4, Math.round((frame.width * ease(Math.min(1, open * 1.25))) / (g.cw * 2)) * g.cw * 2);
@@ -157,23 +159,32 @@ export function Login({
   useEffect(() => {
     if (!hole || !g) return;
     const send = () => {
-      const rects = [hole];
-      const f = foot.current?.getBoundingClientRect();
       const r = root.current!.getBoundingClientRect();
-      if (f && f.width) {
-        const x = g.left + Math.floor((f.left - r.left - g.left) / g.cw - 2) * g.cw;
-        const y = g.top + Math.floor((f.top - r.top - g.top) / g.ch - 0.5) * g.ch;
-        rects.push({ x, y, width: Math.ceil(f.width / g.cw + 4) * g.cw, height: Math.ceil(f.height / g.ch + 1) * g.ch });
-      }
+      // the wind clears only the cells behind the text, a cell around each run
+      const clear = (el: Element) => {
+        const b = el.getBoundingClientRect();
+        if (!b.width) return null;
+        const c0 = Math.floor((b.left - r.left - g.left) / g.cw) - 1;
+        const r0 = Math.floor((b.top - r.top - g.top) / g.ch);
+        const c1 = Math.ceil((b.right - r.left - g.left) / g.cw) + 1;
+        const r1 = Math.ceil((b.bottom - r.top - g.top) / g.ch);
+        return { x: g.left + c0 * g.cw, y: g.top + r0 * g.ch, width: (c1 - c0) * g.cw, height: (r1 - r0) * g.ch };
+      };
+      const rects = [...(root.current?.querySelectorAll("[data-clear]") ?? [])].map(clear).filter((x): x is Rect => !!x);
       root.current?.asciiWind?.holes(rects);
-      // the frame: a ring of the field's own glyphs around the cut-out, two cells deep
+      // the frame: a ring of the field's own glyphs, two cells deep
       root.current?.asciiWind?.frame(hole, g.cw * 2.5, g.ch * 1.5, 0.32);
     };
     send();
+    // again once the form's springs have settled
+    const later = window.setTimeout(send, 450);
     const el = root.current!;
     el.addEventListener("ascii-wind:ready", send);
-    return () => el.removeEventListener("ascii-wind:ready", send);
-  }, [hole, g]);
+    return () => {
+      window.clearTimeout(later);
+      el.removeEventListener("ascii-wind:ready", send);
+    };
+  }, [hole, g, byEmail, error, waiting, cfg]);
 
   /** centre of an element, in the root's box */
   const centreOf = (el: Element | null) => {
@@ -291,7 +302,7 @@ export function Login({
     }
   };
 
-  // ---------- typing sends wind off the frame's nearer edge ----------
+  // ---------- typing stirs the wind at the cursor ----------
   const measureCtx = useMemo(() => document.createElement("canvas").getContext("2d"), []);
   const typed = (el: HTMLInputElement, grew: boolean) => {
     if (!g || !frame || !measureCtx) return;
@@ -302,17 +313,17 @@ export function Login({
     const r = root.current!.getBoundingClientRect();
     const x = box.left - r.left + parseFloat(style.paddingLeft) + measureCtx.measureText(el.value.slice(0, caret)).width - el.scrollLeft;
     const y = box.top - r.top + box.height / 2;
-    const toRight = x > frame.x + frame.width / 2;
-    const edge = toRight ? frame.x + frame.width + g.cw * 2 : frame.x - g.cw * 2;
-    const way = (toRight ? 1 : -1) * g.cw * 6;
-    hooks()?.stir(edge, y + (Math.random() - 0.5) * g.ch, way, (Math.random() - 0.5) * g.ch, grew ? 0.6 : 0.4);
+    hooks()?.stir(x, y + (Math.random() - 0.5) * g.ch, (grew ? 1 : -1) * g.cw * 6, (Math.random() - 0.5) * g.ch, grew ? 0.6 : 0.4);
   };
   const focused = (el: HTMLInputElement) => {
-    if (!g || !frame) return;
+    if (!g) return;
     const r = root.current!.getBoundingClientRect();
-    const y = el.getBoundingClientRect().top - r.top + el.offsetHeight / 2;
-    hooks()?.stir(frame.x - g.cw * 2, y, -g.cw * 8, 0, 0.6);
-    hooks()?.stir(frame.x + frame.width + g.cw * 2, y, g.cw * 8, 0, 0.6);
+    const b = el.getBoundingClientRect();
+    hooks()?.stir(b.left - r.left, b.top - r.top + b.height / 2, b.width * 0.6, 0, 0.6);
+  };
+  const openEmail = (e: React.MouseEvent) => {
+    ripple(e.currentTarget, 0.6);
+    setByEmail(true);
   };
 
   const mask = leave
@@ -346,17 +357,17 @@ export function Login({
             animate={shown ? { opacity: 1, y: 0, scale: 1 } : { opacity: 0, y: 10, scale: 0.98 }}
             transition={{ type: "spring", stiffness: 260, damping: 22 }}
           >
-            <div className="login-mark">
-              <Mark />
+            <div className="f-eyebrow login-eyebrow" data-clear>
+              Form Industries
             </div>
-            <div className="f-eyebrow">Form Industries</div>
-            <h1 className="login-title">Foundation</h1>
-            <p className="login-sub">The company's shared grid — people, apps and agents, building together.</p>
+            <h1 className="login-title" data-clear>
+              Foundation
+            </h1>
 
             {waiting ? (
               <div className="login-waiting" role="status">
                 <span className="f-dot is-live" />
-                <span>Finish signing in with Google in your browser.</span>
+                <span data-clear>Finish signing in with Google in your browser.</span>
                 <motion.button type="button" className="f-pill login-cancel" whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} transition={press} onClick={() => cancelWait.current()}>
                   Cancel
                 </motion.button>
@@ -365,22 +376,31 @@ export function Login({
               google && (
                 <>
                   {inDesktop && cfg?.flowform ? (
-                    <motion.button type="button" className="f-pill is-primary login-btn" whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} transition={press} onClick={googleDesktop}>
-                      Continue with Google
+                    <motion.button type="button" className="f-pill login-btn" whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} transition={press} onClick={googleDesktop}>
+                      Connect with Google
                     </motion.button>
                   ) : (
-                    <motion.a className="f-pill is-primary login-btn" href={googleHref} whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} transition={press} onClick={(e) => ripple(e.currentTarget)}>
-                      Continue with Google
+                    <motion.a className="f-pill login-btn" href={googleHref} whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} transition={press} onClick={(e) => ripple(e.currentTarget)}>
+                      Connect with Google
                     </motion.a>
                   )}
-                  <div className="login-via">Same sign-in as Flowform</div>
                 </>
               )
             )}
 
-            {cfg?.devLogin && !waiting && (
-              <form className="login-fields" onSubmit={submit}>
-                {google && <div className="login-or">or, on this machine</div>}
+            {cfg?.devLogin && !waiting && google && !byEmail && (
+              <button type="button" className="login-or" data-clear onClick={openEmail}>
+                Use your email
+              </button>
+            )}
+            {cfg?.devLogin && !waiting && (byEmail || !google) && (
+              <motion.form
+                className="login-fields"
+                onSubmit={submit}
+                initial={google ? { opacity: 0, height: 0 } : false}
+                animate={{ opacity: 1, height: "auto" }}
+                transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              >
                 <input
                   className="f-input"
                   placeholder="Your name"
@@ -398,7 +418,7 @@ export function Login({
                   type="email"
                   value={email}
                   autoComplete="email"
-                  autoFocus={!arriving}
+                  autoFocus={!arriving && (byEmail || !google)}
                   required
                   onChange={(e) => {
                     typed(e.target, e.target.value.length >= email.length);
@@ -406,20 +426,20 @@ export function Login({
                   }}
                   onFocus={(e) => focused(e.currentTarget)}
                 />
-                <motion.button className="f-pill is-primary login-btn login-go" disabled={busy || !email} whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} transition={press}>
+                <motion.button className="f-pill login-btn login-go" disabled={busy || !email} whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} transition={press}>
                   {busy ? "Signing in…" : "Enter Foundation"}
                 </motion.button>
-              </form>
+              </motion.form>
             )}
             {error && (
-              <motion.div className="login-error" role="alert" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} transition={press}>
+              <motion.div className="login-error" role="alert" data-clear initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} transition={press}>
                 {error}
               </motion.div>
             )}
           </motion.div>
         </div>
       )}
-      <div className="login-foot" ref={foot}>
+      <div className="login-foot" data-clear>
         Move the cursor — it's the wind.
       </div>
     </div>

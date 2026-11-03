@@ -2268,11 +2268,10 @@ body.is-connecting .port-in.is-snap {
   --ascii-glow: var(--color-pulse);
 }
 
-/* Sign-in (login/Login.tsx): ordinary type and physical controls inside a
-   frame cut out of the wind. The frame's edges sit between wind cells and the
-   wind keeps out of it, so the field is the frame; there is no card. Day
-   colours always (.f-day). It sits over the board (fixed) so signing in can
-   dissolve into it. */
+/* Sign-in (login/Login.tsx): ordinary type and physical controls in a frame
+   drawn in the wind (a ring of its own glyphs). The wind blows on inside it and
+   clears only the cells behind the text; there is no card. Day colours always
+   (.f-day). It sits over the board (fixed) so signing in can dissolve into it. */
 .login {
   position: fixed;
   inset: 0;
@@ -2298,28 +2297,27 @@ body.is-connecting .port-in.is-snap {
   flex-direction: column;
   gap: var(--space-3);
 }
-.login-mark {
-  color: var(--color-frost);
-  margin-bottom: var(--space-3);
+.login-eyebrow {
+  color: var(--color-dim);
 }
 .login-title {
-  margin: 0;
+  margin: 0 0 var(--space-5);
   font: 600 var(--text-32) / 1.05 var(--font-display);
   letter-spacing: -0.02em;
 }
-.login-sub {
-  margin: 0 0 var(--space-4);
-  color: var(--color-mist);
-  font-size: var(--text-14);
-  line-height: 1.45;
-}
-/* pills, sized up: they lift on hover and press 3 % on springs (motion) */
+/* pills in the paper's own tone, raised off it: they lift on hover and press
+   3 % on springs (motion) */
 .login-btn {
   height: 40px;
   justify-content: center;
   text-decoration: none;
   font-size: var(--text-13);
+  background: var(--color-abyss);
+  border-color: var(--color-line-strong);
   box-shadow: var(--shadow-lift);
+}
+.login-btn:hover {
+  border-color: var(--color-mist);
 }
 .login-btn,
 .login-cancel {
@@ -2329,22 +2327,28 @@ body.is-connecting .port-in.is-snap {
 .login-btn:disabled {
   box-shadow: none;
 }
-.login-via {
-  margin-top: calc(var(--space-1) * -1);
-  text-align: center;
-  color: var(--color-dim);
-  font-size: var(--text-11);
-}
+/* the email sign-in, folded away until asked for */
 .login-or {
-  margin: var(--space-4) 0 var(--space-1);
-  text-align: center;
+  align-self: center;
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  background: none;
   color: var(--color-dim);
-  font-size: var(--text-12);
+  font: 500 var(--text-12) / 1 var(--font-sans);
+  cursor: pointer;
+}
+.login-or:hover {
+  color: var(--color-frost);
 }
 .login-fields {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  /* room for the inputs' focus border while the fold opens */
+  padding: 2px;
+  margin: calc(var(--space-2) - 2px) -2px -2px;
+  overflow: hidden;
 }
 .login-fields .f-input {
   box-shadow: inset 0 1px 2px rgb(32 30 25 / 0.06);
