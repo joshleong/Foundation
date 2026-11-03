@@ -13,6 +13,8 @@
  * A note's text is its own Y.Text (schema 3): a keystroke becomes the
  * smallest insert/delete, so two people typing in one note both keep their
  * words, and the note's card (position, size) is never rewritten by typing.
+ * A table's cells are a Y.Map per table (schema 4): an edit writes only the
+ * cells it changed, so two people editing one table both land.
  *
  * Transport: y-protocols over WebSocket at /sync/:board, with backoff
  * reconnect; the session cookie authenticates it.
@@ -23,7 +25,7 @@ import * as syncProtocol from "y-protocols/sync";
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
-import { BOARD_SCHEMA, boardMaps, noteTextOf, rebaseEdit, setNoteText, type ObjectDoc, type SectionDoc, type UserInfo } from "@foundation/protocol";
+import { BOARD_SCHEMA, boardMaps, noteTextOf, rebaseEdit, setNoteText, setTableCells, tableCellsOf, type ObjectDoc, type SectionDoc, type UserInfo } from "@foundation/protocol";
 import { applyRemote, getState, setSyncHook, updateNoteText, type AnyObject, type AppState, type Section } from "../state/store";
 import { workbook } from "../engine/workbook";
 import { wsUrl } from "../lib/api";
@@ -98,7 +100,15 @@ class BoardSync {
     m.sections.observe((e) => e.transaction.origin !== LOCAL && this.pullSections());
     m.grid.observe((e) => e.transaction.origin !== LOCAL && this.pullGrid());
     m.links.observe((e) => e.transaction.origin !== LOCAL && this.pullLinks());
-    m.cells.observe((e) => e.transaction.origin !== LOCAL && this.pullCells([...e.keysChanged]));
+    m.cells.observeDeep((events, tx) => {
+      if (tx.origin === LOCAL) return;
+      const ids = new Set<string>();
+      for (const e of events) {
+        if (e.target === m.cells) for (const k of (e as Y.YMapEvent<unknown>).keysChanged) ids.add(k);
+        else if (typeof e.path[0] === "string") ids.add(e.path[0]);
+      }
+      this.pullCells([...ids]);
+    });
     m.noteText.observeDeep((events, tx) => {
       if (tx.origin === LOCAL) return;
       const ids = new Set<string>();
@@ -261,9 +271,9 @@ class BoardSync {
     }
     const raw: Record<string, string> = {};
     for (const [k, c] of t.cells) if (c.raw) raw[k] = c.raw;
-    const cur = m.cells.get(tableId);
-    if (cur && sameRecord(cur, raw)) return;
-    this.doc.transact(() => m.cells.set(tableId, raw), LOCAL);
+    if (sameRecord(tableCellsOf(this.doc, tableId), raw)) return;
+    // only the cells that differ: someone editing another cell keeps their edit
+    this.doc.transact(() => setTableCells(this.doc, tableId, raw), LOCAL);
   }
 
   // ---------- doc → store ----------
@@ -350,8 +360,8 @@ class BoardSync {
     try {
       for (const tableId of ids) {
         const t = workbook.getTable(tableId);
-        const raw = m.cells.get(tableId);
-        if (!t || !raw) continue;
+        if (!t || !m.cells.has(tableId)) continue;
+        const raw = tableCellsOf(this.doc, tableId);
         for (const [k, c] of t.cells) if (c.raw && !(k in raw)) setCellKey(tableId, k, "");
         for (const [k, v] of Object.entries(raw)) if (t.cells.get(k)?.raw !== v) setCellKey(tableId, k, v);
       }

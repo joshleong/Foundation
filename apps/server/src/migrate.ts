@@ -10,7 +10,7 @@
  */
 
 import * as Y from "yjs";
-import { BOARD_SCHEMA, boardMaps, isHostable, readTracks, setNoteText, uid, type GridTracks, type ObjectDoc, type PanelDoc, type SectionDoc } from "@foundation/protocol";
+import { BOARD_SCHEMA, boardMaps, isHostable, readTracks, setNoteText, tableCellMap, uid, type GridTracks, type ObjectDoc, type PanelDoc, type SectionDoc } from "@foundation/protocol";
 import { editBoard, getBoard, listBoards } from "./boards.ts";
 
 export function migrateAllBoards() {
@@ -24,9 +24,15 @@ export function migrateBoard(id: string) {
   editBoard(id, "migrate", (doc) => {
     if (schema < 2) hostApps(doc);
     if (schema < 3) noteTextToYText(doc);
+    if (schema < 4) cellsToYMaps(doc);
     boardMaps(doc).meta.set("schema", BOARD_SCHEMA);
   });
   return true;
+}
+
+/** schema 4: each table's cells become a Y.Map, so two people editing different cells both land */
+export function cellsToYMaps(doc: Y.Doc) {
+  for (const id of [...boardMaps(doc).cells.keys()]) tableCellMap(doc, id);
 }
 
 /** schema 3: each note's text moves into its own Y.Text, so concurrent typing merges */

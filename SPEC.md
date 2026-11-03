@@ -9,7 +9,7 @@ Last updated 2026-11-02 · branch `main` · evidence in `docs/evidence/2026-11-0
 ## Open to-dos (kept by Josh, 2026-11-02)
 
 - [ ] **Repo visibility** — `joshleong/Foundation` is public; decide private / move to the Form Industries org (§6.1)
-- [ ] **Phase 1 · Solid ground** (§8): ~~Y.Text notes~~ done; per-table cells, viewer role, offline, perf trace next
+- [ ] **Phase 1 · Solid ground** (§8): ~~Y.Text notes~~, ~~per-table cells~~ done; viewer role, offline, perf trace next
 - [ ] **Keys and setup** — Slack, BomForm + CA, API credits, `npx rea-agents setup` (§6)
 - [ ] **Slack app** — create it from `docs/slack-app-manifest.yml`, set `SLACK_BOT_TOKEN`, then open a real channel card: huddles and Slack cards were verified against a stand-in Slack only (§3, §6.7)
 - [ ] **Vision loop** — the Simulate/Concept hand-off writes the brief today; next it should start a Vision Code (T3) thread and attach what comes back (§8 phase 2)
@@ -123,7 +123,7 @@ One Y.Doc per board, with these top-level maps:
 **Rules:**
 - Section scroll is local, never shared.
 - `blob:` URLs never enter the document.
-- The schema version lives in `meta.schema`. flowform shipped unversioned fields and paid for it; bump it and migrate on change. Migrations are numbered steps in `apps/server/src/migrate.ts`, run at boot. **2:** sections host apps — a section of only apps (the company board's six connectors) becomes one section per app where its card was, other sections shift, nothing overlaps; a section holding one app hosts it (`apps/server/test/hosting.test.ts`). **3:** a note's text is a `Y.Text` in `noteText` (keyed by note id), written as the smallest edit (`setNoteText`, `putNote`); the card in `objects` no longer carries `text`, so typing never rewrites its position or size (`apps/server/test/notes.test.ts`).
+- The schema version lives in `meta.schema`. flowform shipped unversioned fields and paid for it; bump it and migrate on change. Migrations are numbered steps in `apps/server/src/migrate.ts`, run at boot. **2:** sections host apps — a section of only apps (the company board's six connectors) becomes one section per app where its card was, other sections shift, nothing overlaps; a section holding one app hosts it (`apps/server/test/hosting.test.ts`). **3:** a note's text is a `Y.Text` in `noteText` (keyed by note id), written as the smallest edit (`setNoteText`, `putNote`); the card in `objects` no longer carries `text`, so typing never rewrites its position or size (`apps/server/test/notes.test.ts`). **4:** each table's cells are a `Y.Map` ("c,r" → raw) per table in `cells`; edits write only the cells that changed (`setTableCells`, `tableCellsOf` reads either form) (`apps/server/test/tables.test.ts`).
 
 ### 2.1 The Foundation bridge (apps ↔ grid)
 
@@ -149,6 +149,7 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | **Sync** | Yjs board docs, y-protocols wire, update log + compaction, reconnect with backoff, presence/awareness | done | Agent edits verified streaming live into an open browser |
 | | Peer cursors | partial | Code done; needs a second signed-in person to verify by eye |
 | **Grid** | Original Foundation grid (sections, tracks, springs, tables with formulas, maps, notes, media) | done | Now night-aware and on tokens. Layout memoised per state |
+| | **Tables two people can edit** (2026-11-03, phase 1): each table's cells are their own shared map, so an edit writes only the cells it changed and someone editing another cell keeps theirs | done | Two browsers writing different cells within 8 ms converged (`docs/evidence/2026-11-03_table-cells/`); `tables.test.ts` (3) covers both writing blind |
 | | **Notes two people can write in** (2026-11-03, phase 1): every keystroke goes out as it's typed, as the smallest edit to the note's `Y.Text`, rebased past anything that arrived while it was typed (`rebaseEdit`); someone else's words land in an open editor without moving the caret. Agents' `update_card` writes the smallest edit too, so a person typing keeps their words | done | Two browsers typing at opposite ends of one note converged, carets kept (`docs/evidence/2026-11-03_live-notes/`); `notes.test.ts` (5). Esc no longer reverts a note (the words were already shared) |
 | **Files** | Upload anything with progress; images and video show instantly, then swap to the shared URL; range streaming; archive-never-delete | done | |
 | | CAD cards (STEP/IGES header text, download, Send to Vision) | partial | No 3D preview yet (Vision's OpenCascade path is the plan) |
@@ -279,7 +280,8 @@ Every integration is off until its key exists; the server always starts. Copy `.
 
 ## 7. Known issues
 
-- **The cells map is per table**, so two people editing different cells of one table rewrite the same map entry (last writer wins). Move to one Y.Map per table.
+- **Two people editing the same cell** still resolve last-writer-wins for that cell (Yjs picks one). Different cells merge.
+- **Adding a table (⌘K) into a section that hosts an app** puts it behind the app, where nobody sees it. Cards added to an app section should go to the nearest non-app section, or show the app as a card.
 - **No viewer role yet.** Every signed-in member can write. flowform dropped viewer writes on the server; add `room_role` and drop writes in `attachConnection`.
 - **No offline outbox.** The doc lives in memory; a tab closed while offline loses its edits. Add `y-indexeddb`.
 - **WebSocket auth uses the cookie**, which is fine same-origin. A remote Tauri client needs a header-capable transport (ticket exchange, like T3's `websocket-ticket`).
@@ -312,7 +314,7 @@ Every integration is off until its key exists; the server always starts. Copy `.
 
 | Phase | Scope |
 |---|---|
-| **1 · Solid ground (next)** | ~~`Y.Text` notes~~ (done 2026-11-03) and per-table cell maps. Viewer role. `y-indexeddb` offline. Measured perf trace. Playwright two-browser convergence test. Prune legacy CSS. Get `check-design` going (ratchet raw colours like the Data Room) |
+| **1 · Solid ground (next)** | ~~`Y.Text` notes~~ and ~~per-table cell maps~~ (done 2026-11-03). Viewer role. `y-indexeddb` offline. Measured perf trace. Playwright two-browser convergence test. Prune legacy CSS. Get `check-design` going (ratchet raw colours like the Data Room) |
 | **2 · Vision loop** | Foundation starts Vision Code (T3) threads for a brief (`orchestration.dispatchCommand` `thread.turn.start`, see Vision `apps/vision/src/code/handoff.ts`). Vision's exports land back as file panels. A CAD 3D preview via Vision's OpenCascade. Reviews return as asks |
 | **3 · Company brain** | BomForm snapshot cached and diffed. FactoryForm SSE (`/api/events`) pushed into the connector live. A daily "what changed" digest note by the agent. Voice: Vision's `@pacific/voice` realtime session for spoken conversations about the company |
 | **4 · Search depth** | flowform's semantic search (e5 text vectors, SigLIP images, RRF k=60). Slack per-user OAuth with visibility that fails closed. Google Drive and Figma connectors |

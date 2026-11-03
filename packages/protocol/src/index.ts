@@ -17,7 +17,7 @@ export const BOARD = {
   grid: "grid", // key "tracks" → GridTracks
   sections: "sections", // id → SectionDoc
   objects: "objects", // id → ObjectDoc
-  cells: "cells", // tableId → Record<"c,r", raw>
+  cells: "cells", // tableId → Y.Map<"c,r" → raw> (schema 4: one entry per cell; a plain Record before)
   links: "links", // id → LinkDoc
   meta: "meta", // name, createdAt, ...
   activity: "activity", // Y.Array<ActivityEntry>
@@ -44,8 +44,8 @@ export interface SectionDoc {
   host?: string;
 }
 
-/** The board document's schema version (`meta.schema`). 2: sections host apps. 3: note text is a Y.Text. */
-export const BOARD_SCHEMA = 3;
+/** The board document's schema version (`meta.schema`). 2: sections host apps. 3: note text is a Y.Text. 4: each table's cells are a Y.Map. */
+export const BOARD_SCHEMA = 4;
 
 /** Panel kinds a section can host — whole apps, not artifacts. */
 export const HOSTABLE_KINDS = ["app", "link", "machine", "connector"] as const;
@@ -308,12 +308,46 @@ export function boardMaps(doc: Y.Doc) {
     grid: doc.getMap<GridTracks>(BOARD.grid),
     sections: doc.getMap<SectionDoc>(BOARD.sections),
     objects: doc.getMap<ObjectDoc>(BOARD.objects),
-    cells: doc.getMap<Record<string, string>>(BOARD.cells),
+    cells: doc.getMap<TableCells | Record<string, string>>(BOARD.cells),
     links: doc.getMap<LinkDoc>(BOARD.links),
     meta: doc.getMap<unknown>(BOARD.meta),
     activity: doc.getArray<ActivityEntry>(BOARD.activity),
     noteText: doc.getMap<Y.Text>(BOARD.noteText),
   };
+}
+
+// ---------- table cells (schema 4) ----------
+
+/** A table's cells: "c,r" → the raw text typed (formulas as written). */
+export type TableCells = Y.Map<string>;
+
+/** A table's cells as a plain record (either form: before or after schema 4). */
+export function tableCellsOf(doc: Y.Doc, tableId: string): Record<string, string> {
+  const v = boardMaps(doc).cells.get(tableId);
+  if (!v) return {};
+  return v instanceof Y.Map ? (v.toJSON() as Record<string, string>) : { ...v };
+}
+
+/** The live cell map of a table, made (or upgraded from a plain record) if needed. Call inside a transaction. */
+export function tableCellMap(doc: Y.Doc, tableId: string): TableCells {
+  const m = boardMaps(doc);
+  const v = m.cells.get(tableId);
+  if (v instanceof Y.Map) return v;
+  const map = new Y.Map<string>();
+  m.cells.set(tableId, map);
+  for (const [k, raw] of Object.entries(v ?? {})) if (raw) map.set(k, raw);
+  return map;
+}
+
+/**
+ * Make a table's cells match `raw`, touching only the cells that differ — so
+ * someone editing another cell of the same table keeps their edit. Empty
+ * means cleared. Call inside a transaction.
+ */
+export function setTableCells(doc: Y.Doc, tableId: string, raw: Record<string, string>) {
+  const map = tableCellMap(doc, tableId);
+  for (const [k, v] of Object.entries(raw)) if (v && map.get(k) !== v) map.set(k, v);
+  for (const k of [...map.keys()]) if (!raw[k]) map.delete(k);
 }
 
 // ---------- note text (schema 3) ----------
@@ -449,7 +483,7 @@ export function describeBoard(doc: Y.Doc): string {
       } else if (o.kind === "note") {
         lines.push(`- note "${o.name}" (${o.id}): ${noteTextOf(doc, o).slice(0, 240).replace(/\n/g, " ")}`);
       } else if (o.kind === "table") {
-        const cells = m.cells.get(o.id) ?? {};
+        const cells = tableCellsOf(doc, o.id);
         const head = [0, 1, 2, 3, 4, 5].map((c) => cells[`${c},0`] ?? "").filter(Boolean);
         lines.push(`- table "${o.name}" (${o.id}) ${o.cols}×${o.rows} headers: ${head.join(" | ")}`);
       } else {

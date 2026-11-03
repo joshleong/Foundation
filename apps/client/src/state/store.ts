@@ -442,7 +442,7 @@ function emit() {
 }
 
 // dev: let the browser console (and headless checks) read the live model
-if (import.meta.env?.DEV && typeof window !== "undefined") (window as unknown as { __foundation: unknown }).__foundation = { getState: () => state, setState: (p: Partial<AppState>) => set(p) };
+if (import.meta.env?.DEV && typeof window !== "undefined") (window as unknown as { __foundation: unknown }).__foundation = { getState: () => state, setState: (p: Partial<AppState>) => set(p), workbook };
 
 export function getState(): AppState {
   return state;
