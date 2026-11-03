@@ -23,6 +23,7 @@ import { createAsk, listAsks, resolveAsk, startHermes } from "./hermes.ts";
 import { getJob, listJobs, startJob } from "./jobs.ts";
 import { followRun, listSessions, runtimes, sessionTurns, settleOrphanRuns, startRun, stopRun } from "./agent.ts";
 import { t3Thread, t3Threads } from "./t3.ts";
+import { pollHandoffs } from "./vision.ts";
 import { boardPeople, boardRole, canWrite, requireWriter, setBoardRole } from "./roles.ts";
 import { runTool, TOOLS } from "./tools.ts";
 import { handleMcp } from "./mcp.ts";
@@ -473,6 +474,13 @@ server.on("upgrade", (rawReq, socket, head) => {
 
 reindexFilesIfNeeded();
 watchFactoryForm();
+// the Vision loop: bring back what hand-off threads export, and ask the reviewers once they have
+setInterval(() => {
+  void pollHandoffs((h, reviewer) => {
+    const section = h.section_id ? boardMaps(getBoard(h.board_id).doc).sections.get(h.section_id)?.name : undefined;
+    createAsk({ boardId: h.board_id, actor: "Vision Code", userId: h.created_by }, { assignee: reviewer, prompt: `Review what Vision made for “${h.title}”`, kind: "review", section });
+  });
+}, 4000).unref();
 seedCompanyBoard();
 migrateAllBoards();
 settleOrphanRuns();

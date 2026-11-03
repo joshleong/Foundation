@@ -12,7 +12,7 @@ Last updated 2026-11-02 · branch `main` · evidence in `docs/evidence/2026-11-0
 - [x] **Phase 1 · Solid ground** (§8): Y.Text notes, per-table cells, viewer role, offline, the two-browser Playwright test and the perf trace — done 2026-11-03
 - [ ] **Keys and setup** — Slack, BomForm + CA, API credits, `npx rea-agents setup` (§6)
 - [ ] **Slack app** — create it from `docs/slack-app-manifest.yml`, set `SLACK_BOT_TOKEN`, then open a real channel card: huddles and Slack cards were verified against a stand-in Slack only (§3, §6.7)
-- [ ] **Vision loop** — the Simulate/Concept hand-off writes the brief today; next it should start a Vision Code (T3) thread and attach what comes back (§8 phase 2)
+- [x] **Vision loop** (Phase 2, 2026-11-03): briefs start Supervised Vision Code threads (a person presses Run); exports come back as cards; reviewers asked; CAD cards show the part. Remove the scratch "Foundation hand-offs" project left in Vision Code by the check run
 - [ ] **Release → BomForm** — write BOM lines from the Release stage once BomForm's write tools are keyed
 
 ## 0. How this brief was framed
@@ -158,7 +158,7 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | | **Tables two people can edit** (2026-11-03, phase 1): each table's cells are their own shared map, so an edit writes only the cells it changed and someone editing another cell keeps theirs | done | Two browsers writing different cells within 8 ms converged (`docs/evidence/2026-11-03_table-cells/`); `tables.test.ts` (3) covers both writing blind |
 | | **Notes two people can write in** (2026-11-03, phase 1): every keystroke goes out as it's typed, as the smallest edit to the note's `Y.Text`, rebased past anything that arrived while it was typed (`rebaseEdit`); someone else's words land in an open editor without moving the caret. Agents' `update_card` writes the smallest edit too, so a person typing keeps their words | done | Two browsers typing at opposite ends of one note converged, carets kept (`docs/evidence/2026-11-03_live-notes/`); `notes.test.ts` (5). Esc no longer reverts a note (the words were already shared) |
 | **Files** | Upload anything with progress; images and video show instantly, then swap to the shared URL; range streaming; archive-never-delete | done | |
-| | CAD cards (STEP/IGES header text, download, Send to Vision) | partial | No 3D preview yet (Vision's OpenCascade path is the plan) |
+| | CAD cards (the part in 3D, size, download, Send to Vision) | done | See Vision loop |
 | **Search** | ⌘K and the search pane (⌘F): board cards, files (full text and CAD headers), apps, GitHub (token or `gh`), Slack (`search.messages` with a user token) | done (Slack untested) | Local results in ms, remote with a 2.5 s cap. Stemming removed for prefixes |
 | **Panels** | Live app/link/machine frames | done | Mount only on screen at ≥0.3 zoom, poster otherwise. Click to engage, Esc to release. Frame policy probed |
 | | Repo drawer (README, commits), MCP badge, ports, drag-to-connect wires, postMessage bridge | done | Bridge not yet exercised by a real app (§7) |
@@ -171,7 +171,9 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | | (previous note) | | FactoryForm answered from :3001. Vision found T3 and the Archive up. BomForm offline until keyed (§6) |
 | **Hermes** | Ask cards, drop-to-answer, 4-hourly nudges on the board, Slack DM with a bot token | partial | Slack path untested |
 | **REA** | `reverse_engineer` tool queues a job card. A person presses Run; it runs `rea-agents` (local apps) or Claude Code with REA's MCP | partial | Not run in this session: the tool downloads and runs third-party code, so a person should run `npx rea-agents setup` first (§6) |
-| **Vision** | `vision_brief`: brief card, Vision panel, review asks. Vision Code (T3) threads listed in the side pane and replayed in a tab, read from T3's own store | partial | Vision exposes no design API yet. Threads are read-only in Foundation; starting one is §8 phase 2 |
+| **Vision** | Vision Code (T3) threads listed in the side pane and replayed in a tab, read from T3's own store | done | |
+| **Vision loop** (Phase 2, 2026-11-03) | `vision_brief` and the pipeline's Concept/Simulate hand-offs write the brief and a hand-off card. A person presses Run, and a **Supervised** Vision Code thread starts on the brief (a 10-minute T3 session, minted with T3's CLI, used on its `/ws` for `thread.turn.start`, then revoked). The thread puts its work in the hand-off's `exports/`, and Foundation archives what lands and puts it beside the brief. Once the thread settles with something to show, the reviewers are asked | done | `test/vision.test.ts` (3) against a stand-in T3. One real hand-off to Vision Code: the thread started, read the brief and waited on approval; the session was revoked. An export from a real thread is not yet seen (it waits on that approval). `docs/evidence/2026-11-03_vision-loop/` |
+| | **CAD on a card**: STEP/IGES through OpenCascade (`occt-import-js`, as Vision's ModelForm), and STL/OBJ/GLB through three.js. Rendered once to a still with size and triangle count, turned by dragging (one live viewer at a time) | done | Vision's vane-board STEP: 150 × 54 × 40 mm, 2,184 triangles. `e2e/cad.spec.ts`, day and night. OpenCascade's wasm (~10 MB) loads only when a B-rep card shows |
 | **Presentation** | P: chrome fades, camera glides section to section, infinite looping filmstrip with drag/wheel inertia | done | |
 | **Login** | Set in the ASCII wind's own character grid, with no card: page cells are 2×2 wind cells; bracket buttons, inputs with a block cursor, and wrapped errors. Always day colours. Letters decode in; typing stirs the wind, a press ripples, and signing in dissolves outward into the board (also on arrival back from flowform, `?arrive`) | done (`docs/evidence/2026-11-03_ascii-sign-in/`) | The Details original ("ASCII Cursor 2.0", WebGL2) plus Foundation hooks (`root.asciiWind`: tap, stir, holes, dissolve). `#/design/sign-in` previews it while signed in. Without WebGL2, or under reduced motion / high contrast, it's the same characters on plain paper, with a mask-only dissolve |
 | **Design** | `#/design` living page; DESIGN.md | done | |
@@ -287,7 +289,7 @@ Every integration is off until its key exists; the server always starts. Copy `.
 | 8 | **GitHub** | Repo discovery across the org | `GITHUB_TOKEN` (falls back to the `gh` login) and `FOUNDATION_GITHUB_ORG` |
 | 10 | **REA** | Reverse engineering | `npx rea-agents setup` once (registers REA's MCP with Claude Code; MIT; verify it's `morluto/rea`). Then use Run on a reverse-engineering card |
 | 11 | **Lufga** | Display face | Install the licensed files locally; the stack falls back to Hanken Grotesk. Don't commit them to a public repo |
-| 12 | **Vision ↔ Foundation** | Agents driving Vision | Phase 2 (§8): Foundation will start threads in Vision Code (T3 :3783) the way Vision's own agent does |
+| 12 | **Vision ↔ Foundation** | Hand-offs to Vision Code | Works with Vision Code running on this machine (T3 :3783). Foundation finds its CLI at `~/Development/Vision/.tools/code-server/t3` and its data at Vision's T3CODE_HOME; set `T3_CLI`, `T3CODE_HOME` and `T3_URL` if they live elsewhere. A hosted Foundation needs its own route to Vision Code (a pairing link instead of the local CLI). Approve a thread's file writes in Vision Code |
 
 ---
 
@@ -328,6 +330,10 @@ Every integration is off until its key exists; the server always starts. Copy `.
 - **A wire from a split app section can run tight along a neighbour's edge.**
 - **find_images can't see inside images.** It matches titles, names, comments and where an image came from. A picture shared with no words around it is only found by browsing.
 - **Laid-out sections are a default track wide.** A long document or a big grid scrolls inside its section; sizing the track to the layout would affect neighbours in that column.
+- **Hand-offs reach Vision Code through its CLI on the same machine.** A hosted Foundation can't run it; it needs a T3 pairing link and a stored client credential, which is a decision for Josh.
+- **A hand-off thread's file writes wait for approval in Vision Code** (Supervised, by design). Nothing comes back until someone approves there.
+- **Exports are found by watching a folder**, every 4 s. A thread that writes elsewhere brings nothing back; the brief tells it where.
+- **Reviews return as asks to people**, not as a verdict from Vision's own review tools.
 - **Cards at rest have no title** (by design); a connector shown as a card (not hosted) reads by its body only. Hosted apps and pipeline stages name themselves.
 
 ---
@@ -337,7 +343,7 @@ Every integration is off until its key exists; the server always starts. Copy `.
 | Phase | Scope |
 |---|---|
 | **1 · Solid ground (done 2026-11-03)** | ~~`Y.Text` notes~~, ~~per-table cell maps~~, ~~viewer role~~, ~~offline~~, ~~Playwright two-browser test~~, ~~perf trace~~. Viewer role. `y-indexeddb` offline. Measured perf trace. Playwright two-browser convergence test. Prune legacy CSS. Get `check-design` going (ratchet raw colours like the Data Room) |
-| **2 · Vision loop** | Foundation starts Vision Code (T3) threads for a brief (`orchestration.dispatchCommand` `thread.turn.start`, see Vision `apps/vision/src/code/handoff.ts`). Vision's exports land back as file panels. A CAD 3D preview via Vision's OpenCascade. Reviews return as asks |
+| **2 · Vision loop (done 2026-11-03)** | Foundation starts Vision Code (T3) threads for a brief (`orchestration.dispatchCommand` `thread.turn.start`, see Vision `apps/vision/src/code/handoff.ts`). Vision's exports land back as file panels. A CAD 3D preview via Vision's OpenCascade. Reviews return as asks |
 | **3 · Company brain** | BomForm snapshot cached and diffed. FactoryForm SSE (`/api/events`) pushed into the connector live. A daily "what changed" digest note by the agent. Voice: Vision's `@pacific/voice` realtime session for spoken conversations about the company |
 | **4 · Search depth** | flowform's semantic search (e5 text vectors, SigLIP images, RRF k=60). Slack per-user OAuth with visibility that fails closed. Google Drive and Figma connectors |
 | **5 · Apps as first-class** | An app registry UI. `foundation.json` adoption across our vibe-coded apps. Wires that call MCP tools on input. Machines: noVNC/ttyd presets, Docker launch from a card |

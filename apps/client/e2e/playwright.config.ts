@@ -51,6 +51,10 @@ export default defineConfig({
         SLACK_USER_TOKEN: "xoxp-standin",
         SLACK_BOT_TOKEN: "xoxb-standin",
         FOUNDATION_CLAUDE_CLI: "/nonexistent/claude",
+        // never the real Vision Code: hand-offs here fail to start, and say why
+        T3_CLI: "/nonexistent/t3",
+        T3_URL: "http://127.0.0.1:9",
+        T3CODE_HOME: "/nonexistent/t3home",
         ANTHROPIC_API_KEY: "",
       },
       url: "http://127.0.0.1:4430/api/me",

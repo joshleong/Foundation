@@ -10,6 +10,7 @@
  * board so people can see what it is touching.
  */
 
+import { queueHandoff } from "./vision.ts";
 import { findImages, layOut } from "./construct.ts";
 import { READ_TOOLS, canWrite } from "./roles.ts";
 import { HttpError } from "./http.ts";
@@ -456,7 +457,7 @@ export const TOOLS: BoardTool[] = [
   def({
     name: "vision_brief",
     description:
-      "Hand a design to Vision: writes a design brief card (goal, constraints, what to simulate, who reviews), opens Vision on the board, and asks the reviewers. Vision's own agent picks the brief up from the board.",
+      "Hand a design to Vision: writes a design brief card (goal, constraints, what to simulate, who reviews) and a hand-off card. A person presses Run on it to start a Supervised Vision Code thread on the brief; what the thread puts in its exports/ folder comes back to the board beside the brief, and the reviewers are asked then.",
     schema: z.object({
       title: z.string(),
       goal: z.string(),
@@ -467,19 +468,24 @@ export const TOOLS: BoardTool[] = [
     }),
     write: true,
     run: (ctx, i) => {
-      const md = `## ${i.title}\n\n**Goal** ${i.goal}\n\n${i.constraints ? `**Constraints** ${i.constraints}\n\n` : ""}${i.simulate ? `**Simulate** ${i.simulate}\n\n` : ""}**Reviewers** ${i.reviewers.join(", ") || "—"}\n\n_Brief written by ${ctx.actor} for Vision. Status: waiting for Vision._`;
+      const md = `## ${i.title}\n\n**Goal** ${i.goal}\n\n${i.constraints ? `**Constraints** ${i.constraints}\n\n` : ""}${i.simulate ? `**Simulate** ${i.simulate}\n\n` : ""}**Reviewers** ${i.reviewers.join(", ") || "—"}\n\n*Brief written by ${ctx.actor} for Vision.*`;
       const noteId = editBoard(ctx.boardId, "agent", (doc) => {
         const sec = sectionOrCreate(doc, i.section);
         const n: NoteDoc & { text: string } = { id: uid("note"), kind: "note", sectionId: sec.id, name: `Brief · ${i.title}`, x: 0, y: 0, float: false, bornAt: Date.now(), w: 440, h: 320, text: md };
         putNote(doc, n);
         return n.id;
       });
-      const visionUrl = process.env.VISION_URL || "http://localhost:1420";
-      const already = [...boardMaps(getBoard(ctx.boardId).doc).objects.values()].find((o) => o.kind === "panel" && o.connector === "vision");
-      const vision = already ?? addPanel(ctx, { section: i.section, panel: "app", name: "Vision", url: visionUrl, connector: "vision", text: "Design, simulate and test — Pacific Futures Studio", ports: [{ name: "brief", dir: "in", type: "json" }, { name: "design", dir: "out", type: "cad" }] });
-      for (const r of i.reviewers) createAsk(ctx, { assignee: r, prompt: `Review the Vision brief “${i.title}”`, kind: "review", section: i.section });
+      // the hand-off waits on its card for a person to press Run (a thread runs a model on their plan)
+      const job = queueJob(ctx, "vision", i.title, md);
+      const card = addPanel(ctx, { section: i.section, panel: "agent", name: `Vision Code · ${i.title}`, text: "Press Run to start a Supervised Vision Code thread on this brief. What it makes comes back here, and the reviewers are asked then.", status: "idle" });
+      const sectionId = editBoard(ctx.boardId, "agent", (doc) => {
+        const cur = getPanel(doc, card.id);
+        boardMaps(doc).objects.set(card.id, { ...cur, sessionId: job.id });
+        return cur.sectionId;
+      });
+      queueHandoff({ jobId: job.id, boardId: ctx.boardId, sectionId, briefNote: noteId, title: i.title, brief: md, reviewers: i.reviewers, by: ctx.userId });
       touch(ctx, noteId, `briefed Vision: ${i.title}`);
-      return { brief: noteId, vision: vision.id };
+      return { brief: noteId, handoff: card.id, note: "A person starts the Vision Code thread from the hand-off card (Run). Reviewers are asked when results come back." };
     },
   }),
   def({
@@ -583,7 +589,7 @@ export const TOOLS: BoardTool[] = [
   def({
     name: "stage_request",
     description:
-      "Run a stage's hand-off to people and studios: for CAD, Hermes asks the CAD owner for the STEP and delivers it to the stage when it lands; for Concept or Simulate, writes a Vision brief from the stage (with the chosen concept or the CAD and the analysis settings) and opens Vision; for Review, asks every reviewer.",
+      "Run a stage's hand-off to people and studios: for CAD, Hermes asks the CAD owner for the STEP and delivers it to the stage when it lands; for Concept or Simulate, writes a Vision brief from the stage (with the chosen concept or the CAD and the analysis settings) and a hand-off card a person presses Run on to start the Vision Code thread; for Review, asks every reviewer.",
     schema: z.object({ stage_panel: z.string(), who: z.string().optional().describe("override the person to ask") }),
     write: true,
     run: (ctx, { stage_panel, who }) => {
@@ -623,8 +629,16 @@ export const TOOLS: BoardTool[] = [
           return n.id;
         });
         if (p.status === "idle") editBoard(ctx.boardId, "agent", (d) => boardMaps(d).objects.set(p.id, { ...p, status: "open" }));
+        // a hand-off card under the brief: a person presses Run to start the Vision Code thread; what it makes lands in this section
+        const job = queueJob(ctx, "vision", `${def.title} · ${product}`, md);
+        const card = editBoard(ctx.boardId, "agent", (d) => {
+          const c: PanelDoc = { id: uid("pnl"), kind: "panel", panel: "agent", sectionId: p.sectionId, name: `Vision Code · ${def.title.toLowerCase()} of ${product}`, x: BRIEF_X, y: p.y + 280, float: true, bornAt: Date.now(), w: 420, h: 260, ports: [], status: "idle", sessionId: job.id, text: "Press Run to start a Supervised Vision Code thread on this brief. What it makes comes back to this pipeline." };
+          boardMaps(d).objects.set(c.id, c);
+          return c.id;
+        });
+        queueHandoff({ jobId: job.id, boardId: ctx.boardId, sectionId: p.sectionId, briefNote: noteId, title: `${def.title} of ${product}`, brief: md, reviewers: [], by: ctx.userId });
         touch(ctx, p.id, `briefed Vision for ${def.title.toLowerCase()} of ${product}`);
-        return { brief: noteId, vision: process.env.VISION_URL || "http://localhost:1420" };
+        return { brief: noteId, handoff: card, note: "A person starts the Vision Code thread from the hand-off card (Run)." };
       }
       throw new Error(`${def.title} has no hand-off — complete it when it's done`);
     },

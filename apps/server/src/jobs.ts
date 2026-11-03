@@ -13,6 +13,7 @@
  *    Claude Code.
  */
 
+import { startHandoff } from "./vision.ts";
 import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { randomBytes } from "node:crypto";
@@ -49,13 +50,13 @@ export function listJobs() {
   return all<JobRow>("select * from jobs order by created_at desc limit 100");
 }
 
-function setCard(boardId: string, jobId: string, status: "running" | "done" | "error" | "idle", text?: string) {
+export function setCard(boardId: string, jobId: string, status: "running" | "done" | "error" | "idle", text?: string, who = "REA", what = "reverse-engineering") {
   editBoard(boardId, "jobs", (doc) => {
     const m = boardMaps(doc);
     for (const o of m.objects.values()) {
       if (o.kind === "panel" && o.sessionId === jobId) {
         m.objects.set(o.id, { ...o, status, ...(text ? { text } : {}) });
-        if (status === "done" || status === "error") logActivity(doc, { who: "REA", role: "agent", text: `reverse-engineering ${status === "done" ? "finished" : "failed"}`, objectId: o.id });
+        if (status === "done" || status === "error") logActivity(doc, { who, role: "agent", text: `${what} ${status === "done" ? "finished" : "failed"}`, objectId: o.id });
       }
     }
   });
@@ -65,6 +66,7 @@ export function startJob(id: string, boardId: string, by: string) {
   const job = getJob(id);
   if (!job) throw new Error("no such job");
   if (job.status === "running") return job;
+  if (job.kind === "vision") return startVisionJob(job, boardId, by);
   const goal = job.goal || "Map how it works: structure, data flow, APIs, and anything we can reuse.";
   const local = existsSync(job.target);
   const args = local && (statSync(job.target).isDirectory() || job.target.endsWith(".asar"))
@@ -101,4 +103,21 @@ export function startJob(id: string, boardId: string, by: string) {
     setCard(boardId, id, ok ? "done" : "error", ok ? out.slice(0, 4000) : `failed (${code}): ${out.slice(-800)}`);
   });
   return getJob(id)!;
+}
+
+/** a Vision hand-off: a person pressed Run, so the Supervised Vision Code thread starts (vision.ts) */
+function startVisionJob(job: JobRow, boardId: string, by: string) {
+  run("update jobs set status = 'running' where id = ?", job.id);
+  setCard(boardId, job.id, "running", "Starting a Vision Code thread…", "Vision Code", "the hand-off");
+  editBoard(boardId, "jobs", (doc) => logActivity(doc, { who: by, role: "human", text: `started Vision on ${job.target}` }));
+  void startHandoff(job.id)
+    .then((h) => {
+      run("update jobs set output = ? where id = ?", h.thread_url ?? h.thread_id ?? "", job.id);
+      setCard(boardId, job.id, "running", `Running in Vision Code (Supervised: changes wait for approval there).${h.thread_url ? ` Open the thread: ${h.thread_url}` : ""} What it puts in exports/ comes back here.`, "Vision Code", "the hand-off");
+    })
+    .catch((e: Error) => {
+      run("update jobs set status = 'error', output = ?, finished_at = ? where id = ?", e.message, Date.now(), job.id);
+      setCard(boardId, job.id, "error", `Couldn't start Vision Code: ${e.message}`, "Vision Code", "the hand-off");
+    });
+  return getJob(job.id)!;
 }

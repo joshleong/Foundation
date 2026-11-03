@@ -95,6 +95,23 @@ create table if not exists asks (
   resolved_file_id text
 );
 
+create table if not exists vision_handoffs (
+  id text primary key,
+  board_id text not null,
+  section_id text,
+  brief_note text,
+  title text not null,
+  folder text not null,
+  thread_id text,
+  thread_url text,
+  reviewers_json text not null default '[]',
+  seen_json text not null default '[]',
+  reviewed integer not null default 0,
+  status text not null,
+  created_by text not null,
+  created_at integer not null
+);
+
 create table if not exists board_roles (
   board_id text not null,
   user_id text not null references users(id) on delete cascade,
