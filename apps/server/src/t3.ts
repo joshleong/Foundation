@@ -16,7 +16,8 @@ import { join } from "node:path";
 
 const HOME = process.env.T3CODE_HOME ?? join(homedir(), "Library", "Application Support", "co.normallab.vision", "code");
 const DB = join(HOME, "userdata", "state.sqlite");
-const T3_URL = (process.env.T3_URL ?? "http://localhost:3783").replace(/\/$/, "");
+/** Read when used, not at import: a test (or a launcher) may set T3_URL after this module loads. */
+const t3Url = () => (process.env.T3_URL ?? "http://localhost:3783").replace(/\/$/, "");
 
 let db: DatabaseSync | null = null;
 function open(): DatabaseSync | null {
@@ -35,7 +36,7 @@ let envId: { id: string | null; at: number } = { id: null, at: 0 };
 async function environmentId(): Promise<string | null> {
   if (Date.now() - envId.at < 60_000) return envId.id;
   try {
-    const r = await fetch(`${T3_URL}/.well-known/t3/environment`, { signal: AbortSignal.timeout(1200) });
+    const r = await fetch(`${t3Url()}/.well-known/t3/environment`, { signal: AbortSignal.timeout(1200) });
     const j = (await r.json()) as { environmentId?: string };
     envId = { id: j.environmentId ?? null, at: Date.now() };
   } catch {
@@ -87,7 +88,7 @@ export async function t3Threads(limit = 24): Promise<{ available: boolean; threa
         status: statusOf(r.status, r.pending, r.last_error),
         pending: r.pending,
         updatedAt: Date.parse(r.updated_at) || 0,
-        url: env ? `${T3_URL}/${env}/${r.thread_id}` : null,
+        url: env ? `${t3Url()}/${env}/${r.thread_id}` : null,
       })),
     };
   } catch {

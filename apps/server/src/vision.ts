@@ -33,7 +33,8 @@ import { t3Thread } from "./t3.ts";
 import { imageSize } from "./construct.ts";
 
 const T3_HOME = process.env.T3CODE_HOME ?? join(homedir(), "Library", "Application Support", "co.normallab.vision", "code");
-const T3_URL = (process.env.T3_URL ?? "http://localhost:3783").replace(/\/$/, "");
+/** Read when used, not at import: a test (or a launcher) may set T3_URL after this module loads. */
+const t3Url = () => (process.env.T3_URL ?? "http://localhost:3783").replace(/\/$/, "");
 function t3Cli() {
   if (process.env.T3_CLI) return process.env.T3_CLI;
   const vision = join(homedir(), "Development", "Vision", ".tools", "code-server", "t3");
@@ -81,7 +82,7 @@ class Rpc {
   }
 
   static open(token: string): Promise<Rpc> {
-    const url = `${T3_URL.replace(/^http/, "ws")}/ws?orchestrationProtocol=1&clientSurface=desktop`;
+    const url = `${t3Url().replace(/^http/, "ws")}/ws?orchestrationProtocol=1&clientSurface=desktop`;
     return new Promise((ok, fail) => {
       const ws = new WebSocket(url, { headers: { authorization: `Bearer ${token}` } });
       const t = setTimeout(() => (ws.terminate(), fail(new Error("Vision Code didn't answer"))), 8000);
@@ -178,7 +179,7 @@ export function turnStart(threadId: string, projectId: string, title: string, te
 
 async function environmentId(): Promise<string | null> {
   try {
-    const r = await fetch(`${T3_URL}/.well-known/t3/environment`, { signal: AbortSignal.timeout(2000) });
+    const r = await fetch(`${t3Url()}/.well-known/t3/environment`, { signal: AbortSignal.timeout(2000) });
     return ((await r.json()) as { environmentId?: string }).environmentId ?? null;
   } catch {
     return null;
@@ -206,7 +207,7 @@ export async function startThread(folder: string, title: string, text: string): 
       await rpc.call("orchestration.dispatchCommand", turnStart(threadId, projectId, title, text));
       const env = await environmentId();
       void folder;
-      return { threadId, url: env ? `${T3_URL}/${env}/${threadId}` : null };
+      return { threadId, url: env ? `${t3Url()}/${env}/${threadId}` : null };
     } finally {
       rpc.close();
     }

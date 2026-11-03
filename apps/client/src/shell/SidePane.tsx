@@ -4,7 +4,8 @@
  * ⌘\, resized by its right edge.
  *
  * Top to bottom: Sessions — this board's agent sessions and Vision Code's
- * threads, each opening a tab — then Boards, Activity, Settings, and you.
+ * threads, each opening a tab — then Boards, Activity, Release & plan (the
+ * app's floorplan and the plan), Tools, and you.
  */
 
 import { useEffect, useState } from "react";
@@ -75,6 +76,12 @@ export function SidePane({ user, boards, current, onSwitch, onNew, onUpload }: P
             {user.role === "admin" && current && <People board={current} me={user.id} />}
 
             <Activity />
+
+            <section className="pane-group">
+              <div className="pane-eyebrow">Release & plan</div>
+              <PaneRow glyph="⌗" label="App floorplan" onClick={openFloorplan} />
+              <PaneRow glyph="◇" label="The plan (SPEC §8)" onClick={() => window.open(PLAN_URL, "_blank", "noopener")} />
+            </section>
 
             <section className="pane-group">
               <div className="pane-eyebrow">Tools</div>
@@ -221,6 +228,19 @@ function People({ board, me }: { board: string; me: string }) {
       {err && <div className="pane-empty is-bad">{err}</div>}
     </section>
   );
+}
+
+/**
+ * Release & plan. The floorplan is a map of Foundation's own code (every part,
+ * file and connection, in plain words), made with the floorplan plugin and
+ * exported to `public/floorplan.html` — a static page the client serves.
+ * Rebuild it after a release: see docs/floorplan.md.
+ */
+export const FLOORPLAN_URL = "/floorplan.html";
+const PLAN_URL = "https://github.com/joshleong/Foundation/blob/main/SPEC.md#8-plan";
+
+function openFloorplan() {
+  window.open(FLOORPLAN_URL, "_blank", "noopener");
 }
 
 function PaneRow({ glyph, label, kbd, onClick }: { glyph: string; label: string; kbd?: string; onClick(): void }) {
