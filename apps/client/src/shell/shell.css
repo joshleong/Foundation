@@ -3383,3 +3383,70 @@ body.is-viewer .port {
   white-space: nowrap;
   flex-shrink: 0;
 }
+
+/* ---------- talk to the agent (V): a mic pill in the HUD, the words as you say them ---------- */
+
+.hud-talk {
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  color: var(--color-mist);
+  cursor: pointer;
+}
+.hud-talk:hover {
+  color: var(--color-frost);
+}
+.hud-talk.is-on {
+  color: var(--color-agent);
+  box-shadow: 0 0 0 1.5px var(--color-agent), 0 0 0 6px var(--color-agent-dim);
+}
+.hud-talk.is-on svg {
+  animation: f-breathe 1.2s var(--ease-out-soft) infinite;
+}
+.hud-heard {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + var(--space-4));
+  translate: -50% 0;
+  width: max-content;
+  max-width: min(640px, 80vw);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-pane);
+  color: var(--color-frost);
+  font: 500 var(--text-14) / 1.4 var(--font-sans);
+}
+.hud-heard-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-agent);
+  box-shadow: 0 0 0 4px var(--color-agent-dim);
+  animation: f-breathe 1.2s var(--ease-out-soft) infinite;
+}
+.hud-heard-text {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+/* design page: the talk pill's "listening" state, laid out still */
+.oncall-talking {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding-bottom: 52px; /* the cell's caption sits along its bottom */
+}
+.oncall-talking .hud-heard {
+  position: static;
+  translate: none;
+  max-width: 280px;
+}

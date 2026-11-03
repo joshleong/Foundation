@@ -16,6 +16,7 @@ import { getState, requestSnap, useObjectSetVersion } from "../state/store";
 import { WIDTHS, getUi, setUi, useUi, type SessionTab } from "../state/ui";
 import { READ_ONLY, TOOL_WORDS, loadSession, objectIn, planOf, sendToSession, stopSession, touchedBy, useSession, type Plan, type Turn } from "../state/sessions";
 import { renderMarkdown } from "../utils/markdown";
+import { listen, type Listening } from "../lib/voice";
 import { FloorEdge } from "./FloorEdge";
 import { ago } from "./SidePane";
 
@@ -40,16 +41,6 @@ export function SessionView() {
 
 // ---------- a Foundation agent session ----------
 
-type SpeechCtor = new () => {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  onresult: (e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void;
-  onend: () => void;
-  onerror: (e: { error: string }) => void;
-  start(): void;
-  stop(): void;
-};
 
 type Step = { name: string; input: unknown; ok?: boolean; summary?: string };
 type Item = { kind: "text"; text: string } | { kind: "steps"; steps: Step[] } | { kind: "error"; text: string };
@@ -89,11 +80,11 @@ function AgentSession({ tab }: { tab: SessionTab }) {
   const [avail, setAvail] = useState<{ subscription: boolean; api: boolean; model: string } | null>(null);
   const [listening, setListening] = useState(false);
   const [voiceNote, setVoiceNote] = useState<string | null>(null);
-  const rec = useRef<InstanceType<SpeechCtor> | null>(null);
+  const rec = useRef<Listening | null>(null);
   const list = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => () => rec.current?.stop(), []);
+  useEffect(() => () => rec.current?.cancel(), []);
 
   useEffect(() => {
     void loadSession(tab.id);
@@ -134,37 +125,25 @@ function AgentSession({ tab }: { tab: SessionTab }) {
     void sendToSession(tab.id, text, runtime === "auto" ? undefined : runtime);
   };
 
-  /** talk instead of typing: the browser's speech recognition fills the composer, and sends when you stop */
-  const listen = () => {
-    const W = window as unknown as { SpeechRecognition?: SpeechCtor; webkitSpeechRecognition?: SpeechCtor };
-    const Ctor = W.SpeechRecognition ?? W.webkitSpeechRecognition;
-    if (!Ctor) {
-      setVoiceNote("Voice needs a browser with speech recognition (Chrome, Edge, Safari).");
-      return;
-    }
-    if (listening) {
-      rec.current?.stop();
-      return;
-    }
-    const r = new Ctor();
-    r.lang = navigator.language || "en-US";
-    r.interimResults = true;
-    r.continuous = false;
-    let final = "";
-    r.onresult = (e) => {
-      final = Array.from(e.results).map((x) => x[0].transcript).join("");
-      setDraft(final);
-    };
-    r.onerror = (e) => setVoiceNote(e.error === "not-allowed" ? "The browser didn't allow the microphone." : `Voice stopped: ${e.error}`);
-    r.onend = () => {
-      setListening(false);
-      rec.current = null;
-      if (final.trim()) send(final);
-    };
-    rec.current = r;
+  /** talk instead of typing: the composer fills as you speak, and sends when you stop */
+  const talk = () => {
+    if (rec.current) return rec.current.stop();
     setVoiceNote(null);
     setListening(true);
-    r.start();
+    rec.current = listen({
+      heard: setDraft,
+      done: (t) => {
+        rec.current = null;
+        setListening(false);
+        if (t) send(t);
+      },
+      failed: (m) => {
+        rec.current = null;
+        setListening(false);
+        setVoiceNote(m);
+      },
+    });
+    if (!rec.current) setListening(false);
   };
 
   return (
@@ -236,7 +215,7 @@ function AgentSession({ tab }: { tab: SessionTab }) {
         />
         {voiceNote && <div className="session-voice-note">{voiceNote}</div>}
         <div className="session-actions">
-          <button type="button" className={`f-pill session-mic${listening ? " is-agent is-listening" : ""}`} onClick={listen} title={listening ? "Stop listening" : "Talk (sends when you stop)"} aria-pressed={listening}>
+          <button type="button" className={`f-pill session-mic${listening ? " is-agent is-listening" : ""}`} onClick={talk} title={listening ? "Stop listening" : "Talk (sends when you stop)"} aria-pressed={listening}>
             <MicGlyph />
             {listening ? "Listening" : ""}
           </button>

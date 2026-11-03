@@ -33,6 +33,7 @@ export const READ_TOOLS = new Set([
   "huddle_transcript",
   "slack_read",
   "set_plan", // shows the session's plan; writes nothing to the board
+  "find_images",
 ]);
 
 function accountRole(userId: string): BoardRole {

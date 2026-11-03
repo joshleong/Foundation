@@ -302,9 +302,31 @@ export function DesignPage() {
                 <span className="hud-label">Search</span>
                 <span className="f-kbd">⌘F</span>
               </button>
+              <button className="hud-talk f-glass">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
+                  <rect x="5.5" y="1.5" width="5" height="9" rx="2.5" />
+                  <path d="M3 7.5a5 5 0 0 0 10 0M8 12.5v2" strokeLinecap="round" />
+                </svg>
+                <span className="f-kbd">V</span>
+              </button>
               <button className="hud-zoom f-glass">64%</button>
             </div>
-            <div className="effect-label">The search pill (opens search at the right) and the zoom</div>
+            <div className="effect-label">The search pill, talk (V: what you say goes to the agent) and the zoom</div>
+          </div>
+          <div className="oncall-cell">
+            <div className="oncall-talking">
+              <div className="hud-heard f-glass">
+                <span className="hud-heard-dot" />
+                <span className="hud-heard-text">lay out all the images from Slack about the Airform PTHP</span>
+              </div>
+              <button className="hud-talk f-glass is-on">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
+                  <rect x="5.5" y="1.5" width="5" height="9" rx="2.5" />
+                  <path d="M3 7.5a5 5 0 0 0 10 0M8 12.5v2" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+            <div className="effect-label">Talking: the words as they're heard; the pill sends them when you stop (Esc drops them)</div>
           </div>
           <div className="oncall-cell">
             <div className="frame-anchor chrome-bar oncall-static is-hover" style={{ width: 240 }}>

@@ -9,7 +9,7 @@ Last updated 2026-11-02 · branch `main` · evidence in `docs/evidence/2026-11-0
 ## Open to-dos (kept by Josh, 2026-11-02)
 
 - [ ] **Repo visibility** — `joshleong/Foundation` is public; decide private / move to the Form Industries org (§6.1)
-- [ ] **Phase 1 · Solid ground** (§8): ~~Y.Text notes~~, ~~per-table cells~~, ~~viewer role~~, ~~offline~~ done; perf trace and the two-browser Playwright test next
+- [x] **Phase 1 · Solid ground** (§8): Y.Text notes, per-table cells, viewer role, offline, the two-browser Playwright test and the perf trace — done 2026-11-03
 - [ ] **Keys and setup** — Slack, BomForm + CA, API credits, `npx rea-agents setup` (§6)
 - [ ] **Slack app** — create it from `docs/slack-app-manifest.yml`, set `SLACK_BOT_TOKEN`, then open a real channel card: huddles and Slack cards were verified against a stand-in Slack only (§3, §6.7)
 - [ ] **Vision loop** — the Simulate/Concept hand-off writes the brief today; next it should start a Vision Code (T3) thread and attach what comes back (§8 phase 2)
@@ -123,7 +123,7 @@ One Y.Doc per board, with these top-level maps:
 **Rules:**
 - Section scroll is local, never shared.
 - `blob:` URLs never enter the document.
-- The schema version lives in `meta.schema`. flowform shipped unversioned fields and paid for it; bump it and migrate on change. Migrations are numbered steps in `apps/server/src/migrate.ts`, run at boot. **2:** sections host apps — a section of only apps (the company board's six connectors) becomes one section per app where its card was, other sections shift, nothing overlaps; a section holding one app hosts it (`apps/server/test/hosting.test.ts`). **3:** a note's text is a `Y.Text` in `noteText` (keyed by note id), written as the smallest edit (`setNoteText`, `putNote`); the card in `objects` no longer carries `text`, so typing never rewrites its position or size (`apps/server/test/notes.test.ts`). **4:** each table's cells are a `Y.Map` ("c,r" → raw) per table in `cells`; edits write only the cells that changed (`setTableCells`, `tableCellsOf` reads either form) (`apps/server/test/tables.test.ts`).
+- The schema version lives in `meta.schema`. flowform shipped unversioned fields and paid for it; bump it and migrate on change. Migrations are numbered steps in `apps/server/src/migrate.ts`, run at boot. **2:** sections host apps — a section of only apps (the company board's six connectors) becomes one section per app where its card was, other sections shift, nothing overlaps; a section holding one app hosts it (`apps/server/test/hosting.test.ts`). **3:** a note's text is a `Y.Text` in `noteText` (keyed by note id), written as the smallest edit (`setNoteText`, `putNote`); the card in `objects` no longer carries `text`, so typing never rewrites its position or size (`apps/server/test/notes.test.ts`). **4:** each table's cells are a `Y.Map` ("c,r" → raw) per table in `cells`; edits write only the cells that changed (`setTableCells`, `tableCellsOf` reads either form) (`apps/server/test/tables.test.ts`). **5:** every table has its cell map from the start, made in the same change as the table: a map made lazily by two people at once is two maps, and one is lost (found by the two-browser test).
 
 ### 2.1 The Foundation bridge (apps ↔ grid)
 
@@ -149,6 +149,10 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | **Sync** | Yjs board docs, y-protocols wire, update log + compaction, reconnect with backoff, presence/awareness | done | Agent edits verified streaming live into an open browser |
 | | Peer cursors | partial | Code done; needs a second signed-in person to verify by eye |
 | **Grid** | Original Foundation grid (sections, tracks, springs, tables with formulas, maps, notes, media) | done | Now night-aware and on tokens. Layout memoised per state |
+| **Checks in a real browser** (2026-11-03, phase 1) | `npm run e2e -w @foundation/client`: Playwright (Chromium 1.64.1), its own server and data (:4430/:1450) and a stand-in Slack (:4440), no agent runtime. Two people in two browsers (one note typed at once, one table written at once, a rename); sections moved and split, each step checked for cell clashes, overlaps, spills, clipped welcomes and new voids, and photographed; the perf trace; voice → session; the four layouts | done | 17 pass, 1 skipped by design. Found and fixed: the lazy cell-map race, section names that didn't drag, voids after moves, clipped welcomes. Screenshots in `docs/evidence/2026-11-03_{sections,together,build,perf}/` |
+| **Moving and splitting sections** (2026-11-03) | Drag by the name (or anywhere on the header); a gap a section leaves is filled by the neighbours that line one side of it (fewest wins); a short or narrow empty section shows a compact welcome | done | `test/sections.test.ts` (4), `e2e/sections.spec.ts` |
+| **Voice** (2026-11-03) | Talk to the agent from anywhere: the HUD's mic pill or V; the words show as heard; when you stop they go to the session on screen (or a new one) and run; Esc drops them. The composer's mic shares the same voice code | done | Checked with a stand-in recogniser; not with a real voice. Web Speech sends audio to the browser maker's service (§7) |
+| **Agent construction** (2026-11-03) | `find_images` (archive full text + where it came from, board, Slack: `search.files` phrase then words, or the bot's `files.list`) and `lay_out` (a section as a grid, mood board, document or timeline; Slack images copied into the archive; captions with title, source and date). The agent is told when to build pages | partial | Real agent turn on the subscription, against a stand-in Slack: "lay out all the images from Slack related to the Airform PTHP" → 3, then (after phrase-then-word search) 4 as a mood board. **Real Slack not run**: needs a token (§6.7). `test/construct.test.ts` (4) |
 | **Offline** (2026-11-03, phase 1) | Every board opened here keeps a copy on the device (IndexedDB via `y-indexeddb`); the app opens from it before the server answers or without it, with the person and the board list remembered. Edits made offline are saved there and sent by the reconnect handshake. Board tab: **Saved on this device** (changes waiting, survives a reload) or **This device's copy**. Each board has an epoch: a copy of a board the server has since made again is set aside, checked when the board opens, before every reconnect, and by the server at the socket (`syncAccess`: mismatch refused; a client that doesn't say reads only). Sign-out forgets the person, the copies and the waiting flags | done | Verified with the API taken down and brought back: offline rename + note line survived a reload and reached the server; a reset board stayed clean (`docs/evidence/2026-11-03_offline/`). `offline.test.ts` (3). Not run in the Tauri app |
 | **Roles** (2026-11-03, phase 1) | **Viewers read; they can't change a board.** A person's role on a board is what an admin set for that board (side pane → People on this board: Can edit / View only / the account's role), else their account's (admin, member, or viewer for a flowform viewer let in by `FLOWFORM_ADMIT_VIEWERS`). Enforced on the server: the sync socket drops a viewer's updates (they still get the board and send presence); `runTool` refuses all but read-only tools, which covers HTTP tools, MCP and the agent (it's told the person is view-only); the HTTP gate refuses a viewer's other writes. A role change closes their socket and their tab re-reads it, so it applies at once. In the app, a View only pill, editing controls hidden, and any local edit snaps back with a notice | done | Invariant tests: `roles.test.ts` (4). Browser: an admin made a member view-only live; their rename snapped back, `add_note` and an upload got 403, `read_board` worked; reversed live (`docs/evidence/2026-11-03_viewer-role/`) |
 | | **Tables two people can edit** (2026-11-03, phase 1): each table's cells are their own shared map, so an edit writes only the cells it changed and someone editing another cell keeps theirs | done | Two browsers writing different cells within 8 ms converged (`docs/evidence/2026-11-03_table-cells/`); `tables.test.ts` (3) covers both writing blind |
@@ -254,11 +258,16 @@ One definition (`apps/server/src/tools.ts`), three doors: the built-in agent, `/
 | Search | Local < 20 ms; remote ≤ 2.5 s | FTS5 with prefix indexes; remote sources raced against a timeout |
 | ASCII wind | < 5 ms/frame at 1440×900 | WebGL2, two draws a frame at 25 fps (100 fps only while a ripple runs); backs off then suspends on late frames; paused when hidden or unfocused; settles after 3 min until touched |
 
-**To measure next:**
-- A Playwright trace of pan, zoom and drag with 200 cards and 20 live frames.
-- The long-task count.
-- Frame time p95.
-- Record the numbers in `docs/evidence`.
+**Measured** (2026-11-03, `e2e/perf.spec.ts`; 180 notes + 20 live frames, headless Chromium with software WebGL, so upper bounds; `docs/evidence/2026-11-03_perf/`):
+
+| Action | p50 | p95 | Longest | Frames > 33 ms | Long tasks |
+|---|---|---|---|---|---|
+| Pan | 16.7 ms | 16.8 ms | 33.4 ms | 2 of 712 | 1 |
+| Pinch zoom | 16.7 ms | 33.4 ms | 33.5 ms | 30 of 664 | 0 |
+| Drag a card | 16.7 ms | 16.8 ms | 99.9 ms | 3 of 294 | 2 |
+| Pan with 8 live frames running | 16.7 ms | 33.4 ms | 50.1 ms | 38 of 678 | 0 |
+
+Pan and drag hold 60 fps. Live frames and zoom drop about 5 % of frames to 30 fps. Picking up a docked card has one ~100 ms frame (the section lays out again). Next: measure on a real GPU and trackpad, then decide between pausing frames while the camera moves (a still in their place) and leaving them live.
 
 ---
 
@@ -274,7 +283,7 @@ Every integration is off until its key exists; the server always starts. Copy `.
 | 4 | **Anthropic API credits** | API runtime | `ANTHROPIC_API_KEY`. The subscription runtime needs only `claude` installed and signed in |
 | 5 | **BomForm** | The connector | Now reads the **Airform Data Room's daily copy** through its read-only `GET /api/foundation/bomform` digest (branch `foundation-bomform-read` in AirformDataRoom): set `FOUNDATION_READ_TOKEN` there and `DATAROOM_BOMFORM_URL` + `DATAROOM_READ_TOKEN` here. Locally the launcher runs that branch's worktree on :3010 (`node scripts/sibling.mjs dataroom AirformDataRoom-foundation`). **For production:** merge the branch, set the token on Vercel, deploy, and point `DATAROOM_BOMFORM_URL` at airformdata.com. **The copy is stale:** last synced 2026-09-05; the Data Room's daily sync has stopped (check `BOMFORM_API_KEY` / `CRON_SECRET` on Vercel). A direct BomForm key (`BOMFORM_MCP_URL` + `BOMFORM_API_KEY` + `NODE_EXTRA_CA_CERTS`) still takes precedence when present |
 | 6 | **FactoryForm, Creation** | Live factory data; the studio and its Hub | `npm run services` starts FactoryForm (:3001), Creation (:5173 — its own config says 1420, Vision's port) and the Creation Hub (:4317) from the sibling folders (or `FOUNDATION_SIBLINGS`); each is also a launch config. FactoryForm is followed live through its `/api/events` stream. For FactoryForm writes over MCP, `FACTORY_MCP_TOKEN` |
-| 7 | **Slack** | Channel cards, links, huddle invites, Hermes DMs, search | Create the app from **`docs/slack-app-manifest.yml`** (api.slack.com/apps → From a manifest), install it, and set the bot token as `SLACK_BOT_TOKEN`. That covers channel cards (read, post as the person, links, invites, huddle notes) and Hermes DMs. For ⌘K search, set the user token as `SLACK_USER_TOKEN` (`search:read`). For private channels, `/invite @Foundation` first |
+| 7 | **Slack** | Channel cards, links, huddle invites, Hermes DMs, search | Create the app from **`docs/slack-app-manifest.yml`** (api.slack.com/apps → From a manifest), install it, and set the bot token as `SLACK_BOT_TOKEN`. That covers channel cards (read, post as the person, links, invites, huddle notes) and Hermes DMs. For ⌘K search, set the user token as `SLACK_USER_TOKEN` (`search:read`). For private channels, `/invite @Foundation` first. For the agent to lay out Slack images: the user token's search:read finds them by full text; the bot token needs `files:read` (in the manifest now), and then finds them by name |
 | 8 | **GitHub** | Repo discovery across the org | `GITHUB_TOKEN` (falls back to the `gh` login) and `FOUNDATION_GITHUB_ORG` |
 | 10 | **REA** | Reverse engineering | `npx rea-agents setup` once (registers REA's MCP with Claude Code; MIT; verify it's `morluto/rea`). Then use Run on a reverse-engineering card |
 | 11 | **Lufga** | Display face | Install the licensed files locally; the stack falls back to Hanken Grotesk. Don't commit them to a public repo |
@@ -313,6 +322,12 @@ Every integration is off until its key exists; the server always starts. Copy `.
 - **Note editing is a plain textarea.** Concurrent edits rebase as one contiguous change each, so two people editing the very same word can interleave letters, and the browser's undo stack resets when someone else's text lands. A CodeMirror + y-codemirror binding would add shared cursors and per-person undo.
 - **The floor's fade is a mask over the whole world layer.** Measured smooth here, but it's one more full-screen composite; profile on a big board.
 - **Touched-card rings come from ids in tool inputs and results**, so a card a tool changed without naming it (rare) goes unringed.
+- **Live frames and zoom cost frames:** with live apps on screen, about 5 % of frames drop to 30 fps in headless Chromium (§5). Measure on a GPU first.
+- **Picking up a docked card has one ~100 ms frame** while its section lays out again.
+- **Framing a section zooms to its cards**, so its top-right tools can sit off screen. Hover still finds them once you pan.
+- **A wire from a split app section can run tight along a neighbour's edge.**
+- **find_images can't see inside images.** It matches titles, names, comments and where an image came from. A picture shared with no words around it is only found by browsing.
+- **Laid-out sections are a default track wide.** A long document or a big grid scrolls inside its section; sizing the track to the layout would affect neighbours in that column.
 - **Cards at rest have no title** (by design); a connector shown as a card (not hosted) reads by its body only. Hosted apps and pipeline stages name themselves.
 
 ---
@@ -321,7 +336,7 @@ Every integration is off until its key exists; the server always starts. Copy `.
 
 | Phase | Scope |
 |---|---|
-| **1 · Solid ground (next)** | ~~`Y.Text` notes~~, ~~per-table cell maps~~, ~~viewer role~~ and ~~offline~~ (done 2026-11-03). Viewer role. `y-indexeddb` offline. Measured perf trace. Playwright two-browser convergence test. Prune legacy CSS. Get `check-design` going (ratchet raw colours like the Data Room) |
+| **1 · Solid ground (done 2026-11-03)** | ~~`Y.Text` notes~~, ~~per-table cell maps~~, ~~viewer role~~, ~~offline~~, ~~Playwright two-browser test~~, ~~perf trace~~. Viewer role. `y-indexeddb` offline. Measured perf trace. Playwright two-browser convergence test. Prune legacy CSS. Get `check-design` going (ratchet raw colours like the Data Room) |
 | **2 · Vision loop** | Foundation starts Vision Code (T3) threads for a brief (`orchestration.dispatchCommand` `thread.turn.start`, see Vision `apps/vision/src/code/handoff.ts`). Vision's exports land back as file panels. A CAD 3D preview via Vision's OpenCascade. Reviews return as asks |
 | **3 · Company brain** | BomForm snapshot cached and diffed. FactoryForm SSE (`/api/events`) pushed into the connector live. A daily "what changed" digest note by the agent. Voice: Vision's `@pacific/voice` realtime session for spoken conversations about the company |
 | **4 · Search depth** | flowform's semantic search (e5 text vectors, SigLIP images, RRF k=60). Slack per-user OAuth with visibility that fails closed. Google Drive and Figma connectors |

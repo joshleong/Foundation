@@ -10,6 +10,7 @@
  * board so people can see what it is touching.
  */
 
+import { findImages, layOut } from "./construct.ts";
 import { READ_TOOLS, canWrite } from "./roles.ts";
 import { HttpError } from "./http.ts";
 import { z } from "zod";
@@ -188,6 +189,37 @@ export const TOOLS: BoardTool[] = [
       steps: z.array(z.object({ text: z.string(), status: z.enum(["pending", "active", "done"]) })).max(12),
     }),
     run: (_ctx, { steps }) => `plan set: ${steps.filter((x) => x.status === "done").length}/${steps.length} done`,
+  }),
+  def({
+    name: "find_images",
+    description:
+      "Find images about something: in Foundation's archive (uploaded files, full text and where they came from), on this board, and in Slack (when connected). Returns refs to pass to lay_out, with titles, where each came from and when. Notes say what couldn't be searched.",
+    schema: z.object({
+      query: z.string().describe("what the images are about, e.g. \"Airform PTHP\""),
+      sources: z.array(z.enum(["files", "slack", "board"])).optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+    }),
+    run: async (ctx, { query, sources, limit }) => findImages(getBoard(ctx.boardId).doc, ctx.boardId, query, sources, limit),
+  }),
+  def({
+    name: "lay_out",
+    description:
+      "Build a page on the board: a new section (or an existing one) with the items placed as a grid (masonry), a board (mood board, some images wide), a document (one readable column: heading, intro, each image with its caption) or a timeline (left to right by date). Items are image refs from find_images (Slack images are copied into the archive), markdown notes, or links. Use it for 'lay out', 'make a page/board/document of', 'put together'.",
+    schema: z.object({
+      title: z.string(),
+      style: z.enum(["grid", "board", "document", "timeline"]).optional(),
+      section: z.string().optional().describe("an existing section's name or id; omit for a new section named after the title"),
+      intro: z.string().optional().describe("markdown shown first: what this is and why"),
+      columns: z.number().int().min(1).max(6).optional(),
+      items: z.array(z.object({ ref: z.string().optional(), markdown: z.string().optional(), url: z.string().optional(), title: z.string().optional(), caption: z.string().optional() })).min(1).max(120),
+      request_id: z.string().optional(),
+    }),
+    write: true,
+    run: async (ctx, i) => {
+      const out = await layOut(ctx, i);
+      touch(ctx, out.section, `laid out “${i.title}” (${out.cards} cards)`);
+      return out;
+    },
   }),
   def({
     name: "add_section",

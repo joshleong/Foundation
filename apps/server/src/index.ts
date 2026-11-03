@@ -13,7 +13,7 @@ import { config } from "./config.ts";
 import "./db.ts";
 import { HttpError, json, readJson, Router, sse, type Req } from "./http.ts";
 import { clearSession, createSession, googleAuthUrl, googleCallback, isAllowed, requireUser, setSessionCookie, upsertUser, userFromRequest, createSession as mintToken } from "./auth.ts";
-import { attachConnection, boardEpoch, syncAccess, ensureBoardRow, getBoard, listBoards, presence } from "./boards.ts";
+import { attachConnection, boardEpoch, editBoard, syncAccess, ensureBoardRow, getBoard, listBoards, presence } from "./boards.ts";
 import { archiveFile, listFiles, reindexFilesIfNeeded, serveFile, uploadFile } from "./files.ts";
 import { integrationStatus, searchAll } from "./search.ts";
 import { listApps, probeApp, saveApp } from "./apps.ts";
@@ -29,7 +29,7 @@ import { handleMcp } from "./mcp.ts";
 import { seedCompanyBoard } from "./seed.ts";
 import { addLine, attachHuddle, attachRecording, huddleArchive, transcriptText } from "./huddles.ts";
 import { boardLink, channelHistory, channelInfo, inviteText, listChannels, postMessage, shareText, SlackError, slackStatus } from "./slack.ts";
-import { boardMaps } from "@foundation/protocol";
+import { appendSection, boardMaps } from "@foundation/protocol";
 import { migrateAllBoards } from "./migrate.ts";
 import * as flowform from "./flowform.ts";
 
@@ -101,7 +101,9 @@ r.post("/api/boards", async (req) => {
   const { name } = await readJson<{ name?: string }>(req);
   const id = (name ?? "board").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || `board-${Date.now().toString(36)}`;
   ensureBoardRow(id, name ?? id);
-  getBoard(id);
+  // the server lays the first section, so two people opening a new board at once don't both seed it
+  const doc = getBoard(id).doc;
+  if (boardMaps(doc).sections.size === 0) editBoard(id, "system", (d) => appendSection(d, "Section 1"));
   return { id };
 });
 r.get("/api/boards/:id/presence", (req) => {

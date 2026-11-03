@@ -13,7 +13,7 @@ import * as Y from "yjs";
 
 process.env.FOUNDATION_DATA_DIR = mkdtempSync(join(tmpdir(), "foundation-test-"));
 
-const { boardMaps, describeBoard, setTableCells, tableCellsOf, BOARD_SCHEMA } = await import("@foundation/protocol");
+const { boardMaps, describeBoard, setTableCells, tableCellMap, tableCellsOf, BOARD_SCHEMA } = await import("@foundation/protocol");
 const { migrateBoard } = await import("../src/migrate.ts");
 const { getBoard, editBoard, closeBoards } = await import("../src/boards.ts");
 
@@ -57,6 +57,29 @@ test("clearing a cell removes just that cell", () => {
   deliver();
   assert.deepEqual(tableCellsOf(a, "t"), { "0,0": "x", "2,0": "z" });
   assert.deepEqual(tableCellsOf(b, "t"), tableCellsOf(a, "t"));
+});
+
+test("two people writing the first cells of a new table at once both land (the map is made with the table)", () => {
+  const { a, b, deliver } = pair();
+  // the table is made, and its cell map with it, in one change
+  a.transact(() => {
+    boardMaps(a).objects.set("table_new", { id: "table_new", kind: "table", sectionId: "s", name: "T", x: 0, y: 0, float: false, bornAt: 1, cols: 4, rows: 4 } as never);
+    tableCellMap(a, "table_new");
+  });
+  deliver();
+  a.transact(() => setTableCells(a, "table_new", { "0,0": "Part" }));
+  b.transact(() => setTableCells(b, "table_new", { "1,0": "Qty" }));
+  deliver();
+  assert.deepEqual(tableCellsOf(a, "table_new"), { "0,0": "Part", "1,0": "Qty" });
+  assert.deepEqual(tableCellsOf(b, "table_new"), tableCellsOf(a, "table_new"));
+});
+
+test("…and why: a map made lazily by both at once loses one person's cells", () => {
+  const { a, b, deliver } = pair();
+  a.transact(() => setTableCells(a, "table_lazy", { "0,0": "Part" }));
+  b.transact(() => setTableCells(b, "table_lazy", { "1,0": "Qty" }));
+  deliver();
+  assert.equal(Object.keys(tableCellsOf(a, "table_lazy")).length, 1, "one of the two maps wins — the reason maps are made with their table");
 });
 
 test("schema 4: an older board's cells become a Y.Map per table, once; the agent still reads them", () => {

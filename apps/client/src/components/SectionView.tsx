@@ -84,6 +84,7 @@ export const SectionView = memo(function SectionView({
     startY: 0,
     target: null as { c: number; r: number } | null,
     edge: null as BoardEdge | null,
+    justDragged: false,
   });
 
   const worldPoint = useCallback(
@@ -99,7 +100,8 @@ export const SectionView = memo(function SectionView({
 
   const onSectionHeaderDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    if ((e.target as HTMLElement).closest("button, input")) return;
+    // the name is a button (click to rename) and also the natural handle: it drags too
+    if ((e.target as HTMLElement).closest("button:not(.section-name), input")) return;
     const d = moveDrag.current;
     d.down = true;
     d.dragging = false;
@@ -142,6 +144,9 @@ export const SectionView = memo(function SectionView({
     d.down = false;
     if (d.dragging) {
       d.dragging = false;
+      // the click that ends a drag isn't a click on the name
+      d.justDragged = true;
+      setTimeout(() => (d.justDragged = false), 0);
       const el = cardRef.current;
       if (el) {
         el.style.translate = "";
@@ -395,7 +400,7 @@ export const SectionView = memo(function SectionView({
             }}
           />
         ) : (
-          <button className="section-name" onClick={() => setRenaming(true)} data-tip="Rename · drag to move">
+          <button className="section-name" onClick={() => !moveDrag.current.justDragged && setRenaming(true)} data-tip="Rename · drag to move">
             {host && <span className="section-app-glyph">{PANEL_GLYPH[host.panel]}</span>}
             {section.name}
           </button>

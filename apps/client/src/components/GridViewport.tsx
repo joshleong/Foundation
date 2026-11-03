@@ -31,6 +31,7 @@ import { WireLayer } from "./WireLayer";
 import { publishCamera, publishPointer } from "../state/camera";
 import { isNight, onNight } from "@foundation/ui";
 import { floorInsets, getUi, setUi, useUi } from "../state/ui";
+import { TalkButton } from "../shell/Talk";
 import { PeerCursors } from "../shell/Presence";
 import { PortWires } from "../shell/AgentLayer";
 import { openContextMenu } from "./ContextMenu";
@@ -911,6 +912,7 @@ export function GridViewport() {
             <span className="f-kbd">⌘F</span>
           </button>
         )}
+        <TalkButton />
         <button
           className="hud-zoom f-glass"
           title="Zoom — click for 100% (1) · 0 fits all · F frames the focus · double-click zooms in"

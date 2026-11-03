@@ -788,6 +788,41 @@ function getObjectIn(
 }
 
 /** drop tracks that no section spans anymore, shifting spans down */
+/**
+ * A section left a rectangle of cells empty: grow neighbours into it rather
+ * than leave a void. On any side, the sections touching the hole that
+ * together cover that whole side (and stay within it) extend across; the side
+ * needing the fewest sections wins (one aligned neighbour is the tidiest).
+ * Mutates `sections`; returns false when no side lines up (the cells stay
+ * empty, each offering "+ Section").
+ */
+export function fillHole(sections: Record<string, Section>, hole: { c0: number; c1: number; r0: number; r1: number }): boolean {
+  const others = Object.values(sections);
+  type Side = { list: Section[]; grow: (o: Section) => Section };
+  const tiles = (list: Section[], lo: (o: Section) => number, hi: (o: Section) => number, from: number, to: number) => {
+    const sorted = [...list].sort((a, b) => lo(a) - lo(b));
+    let at = from;
+    for (const o of sorted) {
+      if (lo(o) !== at || hi(o) > to) return false;
+      at = hi(o) + 1;
+    }
+    return at === to + 1;
+  };
+  const sides: Side[] = [];
+  const above = others.filter((o) => o.r1 === hole.r0 - 1 && o.c0 >= hole.c0 && o.c1 <= hole.c1);
+  if (tiles(above, (o) => o.c0, (o) => o.c1, hole.c0, hole.c1)) sides.push({ list: above, grow: (o) => ({ ...o, r1: hole.r1 }) });
+  const left = others.filter((o) => o.c1 === hole.c0 - 1 && o.r0 >= hole.r0 && o.r1 <= hole.r1);
+  if (tiles(left, (o) => o.r0, (o) => o.r1, hole.r0, hole.r1)) sides.push({ list: left, grow: (o) => ({ ...o, c1: hole.c1 }) });
+  const below = others.filter((o) => o.r0 === hole.r1 + 1 && o.c0 >= hole.c0 && o.c1 <= hole.c1);
+  if (tiles(below, (o) => o.c0, (o) => o.c1, hole.c0, hole.c1)) sides.push({ list: below, grow: (o) => ({ ...o, r0: hole.r0 }) });
+  const right = others.filter((o) => o.c0 === hole.c1 + 1 && o.r0 >= hole.r0 && o.r1 <= hole.r1);
+  if (tiles(right, (o) => o.r0, (o) => o.r1, hole.r0, hole.r1)) sides.push({ list: right, grow: (o) => ({ ...o, c0: hole.c0 }) });
+  if (!sides.length) return false;
+  const best = sides.reduce((a, b) => (b.list.length < a.list.length ? b : a));
+  for (const o of best.list) sections[o.id] = best.grow(o);
+  return true;
+}
+
 function pruneEmptyTracks(grid: GridTracks, sections: Record<string, Section>) {
   const secList = () => Object.values(sections);
   for (let c = grid.cols.length - 1; c >= 0; c--) {
@@ -841,6 +876,11 @@ export function moveSectionTo(id: string, c: number, r: number) {
     sections[target.id] = { ...target, c0: s.c0, c1: s.c1, r0: s.r0, r1: s.r1 };
   } else {
     sections[id] = { ...s, c0: c, c1: c, r0: r, r1: r };
+    // where it was is a hole now: the neighbours that line up grow into it
+    const rest = { ...sections };
+    delete rest[id];
+    fillHole(rest, s);
+    Object.assign(sections, rest);
   }
   const grid: GridTracks = { cols: [...state.grid.cols], rows: [...state.grid.rows] };
   pruneEmptyTracks(grid, sections);
@@ -874,15 +914,7 @@ export function moveSectionToEdge(id: string, edge: BoardEdge) {
   const grid: GridTracks = { cols: [...state.grid.cols], rows: [...state.grid.rows] };
   const sections: Record<string, Section> = { ...state.sections };
   delete sections[id];
-  const others = Object.values(sections);
-  const above = others.find((o) => o.c0 === s.c0 && o.c1 === s.c1 && o.r1 === s.r0 - 1);
-  const below = others.find((o) => o.c0 === s.c0 && o.c1 === s.c1 && o.r0 === s.r1 + 1);
-  const left = others.find((o) => o.r0 === s.r0 && o.r1 === s.r1 && o.c1 === s.c0 - 1);
-  const right = others.find((o) => o.r0 === s.r0 && o.r1 === s.r1 && o.c0 === s.c1 + 1);
-  if (above) sections[above.id] = { ...above, r1: s.r1 };
-  else if (below) sections[below.id] = { ...below, r0: s.r0 };
-  else if (left) sections[left.id] = { ...left, c1: s.c1 };
-  else if (right) sections[right.id] = { ...right, c0: s.c0 };
+  fillHole(sections, s);
   const xo = trackOffsets(grid.cols);
   const yo = trackOffsets(grid.rows);
   // the new track takes the section's own size, within a normal track's

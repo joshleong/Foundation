@@ -53,7 +53,19 @@ export async function uploadFile(req: Req, userId: string): Promise<FileRow> {
   const mime = (req.headers["content-type"] || "application/octet-stream").split(";")[0];
   const body = await readBody(req);
   if (!body.length) throw new HttpError(400, "empty file");
+  return storeFile(body, { name, mime, boardId, userId });
+}
+
+/**
+ * Keep bytes in the archive as a file (content-addressed; the same bytes on
+ * the same board are one file, not two). `about` is extra searchable text —
+ * where an imported image came from (a Slack channel, its message).
+ */
+export async function storeFile(body: Buffer, f: { name: string; mime: string; boardId: string | null; userId: string; about?: string }): Promise<FileRow> {
+  const { name, mime, boardId, userId } = f;
   const sha = createHash("sha256").update(body).digest("hex");
+  const same = one<FileRow>("select * from files where sha256 = ? and board_id is ? and archived_at is null", sha, boardId);
+  if (same) return same;
   const dest = filePath(sha);
   if (!existsSync(dest)) {
     const tmp = `${dest}.${randomBytes(4).toString("hex")}.part`;
@@ -65,7 +77,7 @@ export async function uploadFile(req: Req, userId: string): Promise<FileRow> {
     "insert into files (id, board_id, name, mime, size, sha256, uploaded_by, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
     id, boardId, name, mime, body.length, sha, userId, Date.now(),
   );
-  indexDoc("file", id, boardId, name, extractText(name, mime, body));
+  indexDoc("file", id, boardId, name, `${extractText(name, mime, body)}${f.about ? ` ${f.about}` : ""}`);
   return one<FileRow>("select * from files where id = ?", id)!;
 }
 

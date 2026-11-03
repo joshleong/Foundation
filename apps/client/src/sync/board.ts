@@ -32,7 +32,7 @@ import * as awarenessProtocol from "y-protocols/awareness";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import { IndexeddbPersistence } from "y-indexeddb";
-import { BOARD_SCHEMA, boardMaps, noteTextOf, rebaseEdit, setNoteText, setTableCells, tableCellsOf, type ObjectDoc, type SectionDoc, type UserInfo } from "@foundation/protocol";
+import { BOARD_SCHEMA, boardMaps, noteTextOf, rebaseEdit, setNoteText, setTableCells, tableCellMap, tableCellsOf, type ObjectDoc, type SectionDoc, type UserInfo } from "@foundation/protocol";
 import { applyRemote, getState, setSyncHook, updateNoteText, type AnyObject, type AppState, type Section } from "../state/store";
 import { workbook } from "../engine/workbook";
 import { api, wsUrl } from "../lib/api";
@@ -311,6 +311,7 @@ class BoardSync {
         for (const o of Object.values(st[slice]) as AnyObject[]) m.objects.set(o.id, toObjectDoc(o));
       }
       for (const n of Object.values(st.notes)) setNoteText(this.doc, n.id, n.text);
+      for (const t of Object.keys(st.tables)) tableCellMap(this.doc, t);
       for (const l of Object.values(st.links)) m.links.set(l.id, l);
     }, LOCAL);
     for (const t of Object.keys(st.tables)) this.pushCells(t);
@@ -374,7 +375,11 @@ class BoardSync {
             // typing touches only the text; the card is rewritten only when the card changed
             if (!p || !sameCard(p as unknown as Record<string, unknown>, n as unknown as Record<string, unknown>)) m.objects.set(id, toObjectDoc(o));
             if (!p || p.text !== n.text) setNoteText(this.doc, id, n.text);
-          } else m.objects.set(id, toObjectDoc(o));
+          } else {
+            m.objects.set(id, toObjectDoc(o));
+            // a new table's cell map is made with it, in this same change (see tableCellMap)
+            if (slice === "tables" && !was) tableCellMap(this.doc, id);
+          }
         }
         for (const id of Object.keys(b)) {
           if (a[id]) continue;

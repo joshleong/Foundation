@@ -26,8 +26,9 @@ oauth_config:
       - users:read # names instead of user ids
       - users:read.email # Hermes finds the person to nudge by email
       - im:write # …and DMs them
+      - files:read # the agent lays out images shared in Slack (copied into Foundation's archive)
     user:
-      - search:read # ⌘K searches Slack as the person who connected it
+      - search:read # ⌘K searches Slack as the person who connected it; find_images searches its files
 settings:
   org_deploy_enabled: false
   socket_mode_enabled: false

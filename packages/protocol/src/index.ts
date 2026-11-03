@@ -44,8 +44,13 @@ export interface SectionDoc {
   host?: string;
 }
 
-/** The board document's schema version (`meta.schema`). 2: sections host apps. 3: note text is a Y.Text. 4: each table's cells are a Y.Map. */
-export const BOARD_SCHEMA = 4;
+/**
+ * The board document's schema version (`meta.schema`). 2: sections host apps.
+ * 3: note text is a Y.Text. 4: each table's cells are a Y.Map. 5: every table
+ * has its cell map from the start (made with the table, never lazily — two
+ * people making it at once would each make one, and one would be lost).
+ */
+export const BOARD_SCHEMA = 5;
 
 /** Panel kinds a section can host — whole apps, not artifacts. */
 export const HOSTABLE_KINDS = ["app", "link", "machine", "connector"] as const;
@@ -328,7 +333,11 @@ export function tableCellsOf(doc: Y.Doc, tableId: string): Record<string, string
   return v instanceof Y.Map ? (v.toJSON() as Record<string, string>) : { ...v };
 }
 
-/** The live cell map of a table, made (or upgraded from a plain record) if needed. Call inside a transaction. */
+/**
+ * The live cell map of a table, made (or upgraded from a plain record) if
+ * needed. Call inside a transaction. Make it when the table is made: a map
+ * made lazily by two people at once is two maps, and one of them is lost.
+ */
 export function tableCellMap(doc: Y.Doc, tableId: string): TableCells {
   const m = boardMaps(doc);
   const v = m.cells.get(tableId);

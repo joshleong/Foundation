@@ -11,7 +11,7 @@ import type { AgentEvent } from "@foundation/protocol";
 import { api, followRun, streamAgent } from "../lib/api";
 import { activeBoard } from "../sync/board";
 import { getState } from "./store";
-import { renameTab } from "./ui";
+import { getUi, newSession, renameTab } from "./ui";
 
 export interface Turn {
   /** the server's run, once it has said (reattach and stop by it) */
@@ -113,6 +113,15 @@ export async function sendToSession(id: string, prompt: string, runtime?: string
   await follow(id, (ctrl, on) => streamAgent({ board: activeBoard()?.boardId ?? "company", prompt: text, runtime, session: id }, on, ctrl.signal));
 }
 
+/** said out loud (the talk button, V): into the agent session on screen if it's free, else a new one — sent at once */
+export function sayToAgent(text: string) {
+  const ui = getUi();
+  const showing = ui.tabs.find((t) => t.id === ui.tab && t.kind === "agent");
+  const id = showing && !runs.get(showing.id)?.busy ? showing.id : newSession().id;
+  const pref = localStorage.getItem("foundation-runtime");
+  void sendToSession(id, text, pref && pref !== "auto" ? pref : undefined);
+}
+
 /** Stop ends the run on the server; the stream then closes on its own */
 export function stopSession(id: string) {
   const t = (runs.get(id)?.turns ?? []).at(-1);
@@ -149,7 +158,7 @@ export function planOf(turns: Turn[]): Plan | null {
 }
 
 /** tools that only look: what they mention isn't something the session touched */
-export const READ_ONLY = new Set(["read_board", "search", "company", "read_file", "read_repo", "find_repo", "app_tools", "pipeline_status", "set_plan", "huddle_transcript", "slack_read"]);
+export const READ_ONLY = new Set(["read_board", "search", "find_images", "company", "read_file", "read_repo", "find_repo", "app_tools", "pipeline_status", "set_plan", "huddle_transcript", "slack_read"]);
 
 /** cards and sections a session's tools named — ringed on the grid while it shows */
 export function touchedBy(turns: Turn[]): string[] {
@@ -193,6 +202,8 @@ export const TOOL_WORDS: Record<string, string> = {
   read_board: "Read the board",
   search: "Searched",
   set_plan: "Updated the plan",
+  find_images: "Found images",
+  lay_out: "Laid out a page",
   add_section: "Added a section",
   add_note: "Wrote a note",
   add_panel: "Opened a panel",
