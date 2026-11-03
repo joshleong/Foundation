@@ -2263,95 +2263,131 @@ body.is-connecting .port-in.is-snap {
   --ascii-color: var(--color-frost);
   --ascii-glow: var(--color-pulse);
 }
+
+/* Sign-in (login/Login.tsx): characters on the wind's grid, no card. One page
+   cell is 2×2 wind cells (--ag-uw × --ag-uh); every line is monospace tracked
+   out to exactly one cell per character, so text, buttons and inputs land on
+   the same columns as the wind. Day colours always (.f-day). It sits over the
+   board (fixed) so signing in can dissolve into it. */
 .login {
-  position: relative;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: fixed;
+  inset: 0;
+  z-index: 900;
   overflow: hidden;
+  color: var(--color-frost);
+}
+.login.is-leaving {
+  pointer-events: none;
+}
+.ag-paper {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
   background: var(--color-void);
 }
-.login-orb {
+.ag-line {
   position: absolute;
-  top: 20px;
-  right: 20px;
-}
-.login-card {
-  position: relative;
-  width: min(380px, calc(100% - 32px));
-  padding: var(--space-7);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  background: var(--glass-fill);
-  box-shadow: var(--shadow-pane);
-}
-.login-mark {
-  color: var(--color-frost);
-  margin-bottom: var(--space-3);
-}
-.login-title {
-  font: 600 var(--text-32) / 1.05 var(--font-display);
-  letter-spacing: -0.02em;
-}
-.login-sub {
-  color: var(--color-mist);
-  margin-bottom: var(--space-4);
-}
-.login-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-.login-go,
-.login-google {
-  height: 40px;
-  justify-content: center;
-  text-decoration: none;
-  font-size: var(--text-13);
-}
-.login-via {
-  margin-top: calc(var(--space-2) * -1);
-  text-align: center;
-  color: var(--color-dim);
-  font-size: var(--text-11);
-}
-.login-waiting {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  text-align: center;
-  color: var(--color-dim);
-  font-size: var(--text-13);
-}
-.login-waiting p {
+  box-sizing: border-box;
+  height: var(--ag-uh);
   margin: 0;
+  padding: 0 0 0 calc(var(--ag-ls) / 2);
+  border: 0;
+  overflow: hidden;
+  font: 400 var(--ag-fs) / var(--ag-uh) var(--font-grid);
+  letter-spacing: var(--ag-ls);
+  white-space: pre;
+  color: var(--color-frost);
+  background: transparent;
 }
-.login-or {
-  text-align: center;
+.ag-title {
+  padding-left: calc(var(--ag-title-ls) / 2);
+  font-size: var(--ag-title-fs);
+  font-weight: 600;
+  letter-spacing: var(--ag-title-ls);
+}
+.ag-eyebrow {
+  color: var(--color-moss);
+}
+.ag-dim,
+.ag-label {
+  color: var(--color-mist);
+}
+.ag-label.is-on {
+  color: var(--color-pulse);
+}
+.ag-faint {
   color: var(--color-dim);
-  font-size: var(--text-12);
-  margin: var(--space-3) 0 var(--space-2);
 }
-.login-error {
+.ag-bad {
   color: var(--color-bad);
-  font-size: var(--text-12);
 }
-.login-wait {
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--color-pulse), transparent);
-  background-size: 200% 100%;
-  animation: shimmer 1.2s linear infinite;
+/* buttons are a run of cells; on hover or focus the cells invert */
+.ag-button {
+  display: block;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  outline: none;
 }
-.login-foot {
+.ag-button:hover,
+.ag-button:focus-visible {
+  color: var(--color-void);
+  background: var(--color-frost);
+}
+.ag-button:active {
+  color: var(--color-void);
+  background: var(--color-pulse);
+}
+.ag-button:disabled {
+  cursor: default;
+  color: var(--color-dim);
+  background: transparent;
+}
+.login.is-leaving .ag-button {
+  color: var(--color-frost);
+  background: transparent;
+}
+/* the input's own caret hides; a block cursor sits in the cell instead */
+.ag-input {
+  outline: none;
+  caret-color: transparent;
+}
+.ag-input::selection {
+  background: var(--color-pulse-dim);
+}
+.ag-input:-webkit-autofill {
+  -webkit-text-fill-color: var(--color-frost);
+  transition: background-color 9999s;
+}
+.ag-cursor {
+  pointer-events: none;
+  color: var(--color-void);
+  background: var(--color-frost);
+  animation: ag-blink 1.06s steps(1) infinite;
+}
+@keyframes ag-blink {
+  50% {
+    color: var(--color-frost);
+    background: transparent;
+  }
+}
+.ag-foot {
   position: absolute;
-  bottom: 18px;
   left: 0;
   right: 0;
+  bottom: 18px;
   text-align: center;
+  font: 400 var(--text-12) var(--font-grid);
   color: var(--color-dim);
-  font-size: var(--text-12);
+  transition: opacity var(--dur-pane) var(--ease-out-soft);
+}
+.login.is-leaving .ag-foot {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ag-cursor {
+    animation: none;
+  }
 }
 
 /* ---------- design page ---------- */

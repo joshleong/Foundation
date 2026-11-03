@@ -28,7 +28,10 @@
   initial-value: 0;
 }
 
-:root {
+/* .f-day re-declares every token with night pinned off: a surface that is
+   always paper, whatever the room (the sign-in page). */
+:root,
+.f-day {
   /* surfaces — paper by day, navy by night (Vision values) */
   --color-void: color-mix(in srgb, #0a111f calc(var(--night) * 100%), #f6f3ec);
   --color-abyss: color-mix(in srgb, #111a2c calc(var(--night) * 100%), #fcfbf7);
@@ -69,6 +72,8 @@
   --font-display: "Lufga", "Hanken Grotesk Variable", "Hanken Grotesk", system-ui, sans-serif;
   --font-sans: "Hanken Grotesk Variable", "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-code: "Cascadia Code", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  /* the ASCII wind's own stack, so page characters and wind glyphs share one face */
+  --font-grid: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --text-11: 11px;
   --text-12: 12px;
   --text-13: 13px;
@@ -135,6 +140,11 @@ html.is-night {
   --night: 1;
   --night-hard: 1;
   color-scheme: dark;
+}
+html .f-day {
+  --night: 0;
+  --night-hard: 0;
+  color-scheme: light;
 }
 
 /* ---------- primitives every surface uses ---------- */
