@@ -27,6 +27,14 @@ export function TopBar({ boardName }: { boardName: string }) {
           <span className="tab-glyph">▦</span>
           <span className="tab-title">{boardName || "Board"}</span>
           <span className={`f-dot ${status === "live" ? "is-ok" : status === "offline" ? "is-warn" : "is-live"}`} title={status === "live" ? "Live" : status === "offline" ? "Offline — edits will sync when back" : "Connecting…"} />
+          {status !== "live" && board && (board.pending || board.fromDevice) && (
+            <span
+              className="offline-pill"
+              title={board.pending ? "Your changes are saved on this device and go to the server when it's back." : "Showing this device's copy until the server answers."}
+            >
+              {board.pending ? "Saved on this device" : "This device's copy"}
+            </span>
+          )}
           {ui.role === "viewer" && (
             <span className="view-only" title="You can read this board, ask the agent about it and present it. An admin can make you a member.">
               View only

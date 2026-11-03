@@ -382,6 +382,37 @@ export function objectWorldRect(obj: AnyObject) {
   };
 }
 
+/**
+ * The window a wire between two objects is seen through: when both sit in one
+ * section's scrolling body, that body — so a wire to a card scrolled out of
+ * view runs to the section's edge rather than across the grid. Otherwise none.
+ */
+export function wireClipRect(a: AnyObject, b: AnyObject) {
+  const sec = sharedSection(a, b);
+  return sec ? sectionBodyRect(getState().grid, sec) : null;
+}
+
+/** the section whose scrolling body holds both objects (neither a hosted app), if any */
+export function sharedSection(a: AnyObject, b: AnyObject) {
+  const sec = a.sectionId === b.sectionId ? getState().sections[a.sectionId] : undefined;
+  return sec && sec.host !== a.id && sec.host !== b.id ? sec : null;
+}
+
+/** Point an SVG wire group at its clip window (a `clipPath` with one rect inside the group), or let it run free. */
+export function applyWireClip(g: SVGGElement, clip: { x: number; y: number; w: number; h: number } | null) {
+  const path = g.querySelector("clipPath");
+  const rect = path?.querySelector("rect");
+  if (!clip || !path || !rect) {
+    g.removeAttribute("clip-path");
+    return;
+  }
+  rect.setAttribute("x", String(clip.x));
+  rect.setAttribute("y", String(clip.y));
+  rect.setAttribute("width", String(clip.w));
+  rect.setAttribute("height", String(clip.h));
+  g.setAttribute("clip-path", `url(#${path.id})`);
+}
+
 // ---------- store ----------
 
 const firstSectionId = uid("sec");

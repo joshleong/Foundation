@@ -253,6 +253,10 @@ button.tab,
 .tab-new {
   font-size: var(--text-16);
 }
+/* the board's tab carries its status pills: room for the name beside them */
+.tab.is-board {
+  max-width: 360px;
+}
 .top-tools {
   display: flex;
   align-items: center;
@@ -1136,7 +1140,7 @@ body.is-presenting .empty-cell {
 
 /* Wires, after Vision's data pipes: a translucent road, an ink wire on it,
    short packets of the port type's tone moving when data flows. 45° bends,
-   bevelled joins. A wire that passes under another is cut there, with portal
+   drawn round. A wire that passes under another is cut there, with portal
    marks either side and a faint trace through. */
 .pipe {
   --pipe-opacity: 0.38;
@@ -1154,7 +1158,7 @@ body.is-presenting .empty-cell {
 .pipe-ghost {
   fill: none;
   stroke-linecap: round;
-  stroke-linejoin: bevel;
+  stroke-linejoin: round;
 }
 .pipe-lane {
   stroke: color-mix(in srgb, var(--color-frost) 8%, transparent);
@@ -3325,4 +3329,21 @@ body.is-viewer .port {
 }
 .pane-empty.is-bad {
   color: var(--color-bad);
+}
+
+/* ---------- offline: the board from this device's copy ---------- */
+
+.offline-pill {
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--color-pulse-dim);
+  color: var(--color-pulse);
+  font: 600 10px / 1 var(--font-sans);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
 }

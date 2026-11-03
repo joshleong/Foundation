@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { workbook } from "../engine/workbook";
-import { bindMap, getState, gridSize, objectWorldRect, useAppState } from "../state/store";
+import { applyWireClip, bindMap, getState, gridSize, objectWorldRect, useAppState, wireClipRect } from "../state/store";
 import { polyline, route, routeAvoiding, tunnelGeometry, type P } from "../shell/wireGeometry";
 import { cardRects, obstaclesFor } from "../shell/ports";
 import { allCrossings, publishRoutes, routesVersion, unpublishRoutes } from "../shell/routeRegistry";
@@ -195,8 +195,11 @@ export function WireLayer() {
         // recalc pulse: packets flow for a moment after the source table changes
         g.classList.toggle("is-live", (hotUntil.current.get(edge.from) ?? 0) > now);
         const d = polyline(pts);
-        if (lastD.get(edge.key) === d) continue;
-        lastD.set(edge.key, d);
+        const clip = activeRebind ? null : wireClipRect(a, b);
+        const key = clip ? `${d}|${clip.x},${clip.y},${clip.w},${clip.h}` : d;
+        if (lastD.get(edge.key) === key) continue;
+        lastD.set(edge.key, key);
+        applyWireClip(g, clip);
         g.querySelectorAll<SVGPathElement>("path[data-route]").forEach((p) => p.setAttribute("d", d));
         const ends = g.querySelectorAll("circle");
         ends[0]?.setAttribute("cx", String(start.x));
@@ -282,6 +285,9 @@ export function WireLayer() {
         >
           <title>{e.kind === "map" ? "Table → map: rows with Lat/Lng become pins" : "Formula: this table reads the other"}</title>
           <defs>
+            <clipPath id={`sheet-clip-${e.key.replace(/[^\w-]/g, "_")}`} clipPathUnits="userSpaceOnUse">
+              <rect />
+            </clipPath>
             <mask id={`sheet-tun-${e.key.replace(/[^\w-]/g, "_")}`} maskUnits="userSpaceOnUse">
               <rect fill="white" />
               <path className="tunnel-cut" fill="black" />

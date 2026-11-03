@@ -10,6 +10,7 @@
  */
 
 import * as Y from "yjs";
+import { randomUUID } from "node:crypto";
 import * as syncProtocol from "y-protocols/sync";
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as encoding from "lib0/encoding";
@@ -94,8 +95,15 @@ export function getBoard(id: string): Board {
   });
 
   boards.set(id, board);
+  // the board's lineage: a device's offline copy only merges into the board it came from
+  if (!boardMaps(doc).meta.get("epoch")) doc.transact(() => boardMaps(doc).meta.set("epoch", `ep_${randomUUID()}`), "system");
   scheduleIndex(board);
   return board;
+}
+
+/** which board this is, across deletes and re-creations (see getBoard) */
+export function boardEpoch(id: string): string {
+  return String(boardMaps(getBoard(id).doc).meta.get("epoch"));
 }
 
 function compact(board: Board) {
@@ -243,4 +251,16 @@ export function dropConnections(boardId: string, userId: string) {
     n++;
   }
   return n;
+}
+
+/**
+ * What a sync socket may do. `said` is the epoch the client says it holds
+ * (empty: it holds no board yet; missing: a build from before epochs).
+ * A copy of a board the server has since made again is refused, so it can't
+ * pour the old board into the new one; a client that doesn't say can read.
+ */
+export function syncAccess(said: string | null, epoch: string, writer: boolean): "refuse" | "read" | "write" {
+  if (said && said !== epoch) return "refuse";
+  if (said === null || !writer) return "read";
+  return "write";
 }

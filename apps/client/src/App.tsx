@@ -6,7 +6,7 @@ import { Login } from "./login/Login";
 import { Shell } from "./shell/Shell";
 import { DesignPage } from "./design/DesignPage";
 import { Tip } from "./shell/Tip";
-import { me } from "./lib/api";
+import { rememberMe, whoAmI } from "./lib/api";
 import "./App.css";
 import "./shell/shell.css";
 import "./panels/live.css";
@@ -32,9 +32,7 @@ function App() {
   const route = useHashRoute();
 
   useEffect(() => {
-    me()
-      .then((r) => setUser(r.user))
-      .catch(() => setUser(null));
+    void whoAmI().then((r) => setUser(r.user));
   }, []);
 
   return (
@@ -43,6 +41,7 @@ function App() {
         <Login
           onSignedIn={(u) => {
             // signing in from the preview goes in
+            rememberMe(u);
             setUser(u);
             window.location.hash = "";
           }}
@@ -52,7 +51,12 @@ function App() {
       ) : user === undefined ? (
         <div className="boot" />
       ) : !user ? (
-        <Login onSignedIn={setUser} />
+        <Login
+          onSignedIn={(u) => {
+            rememberMe(u);
+            setUser(u);
+          }}
+        />
       ) : (
         <Shell user={user} />
       )}

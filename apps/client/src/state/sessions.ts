@@ -251,7 +251,8 @@ export async function refreshLists() {
   lists = {
     sessions: s.status === "fulfilled" ? s.value.sessions : lists.sessions,
     t3: t.status === "fulfilled" ? t.value.threads : lists.t3,
-    t3Available: t.status === "fulfilled" ? t.value.available : false,
+    // unreachable (offline) isn't "not installed": keep what we last knew
+    t3Available: t.status === "fulfilled" ? t.value.available : lists.t3Available,
   };
   for (const fn of listListeners) fn();
 }

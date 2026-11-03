@@ -43,7 +43,14 @@ export interface BoardRow {
 export function Shell({ user }: { user: UserInfo }) {
   const ui = useUi();
   const board = useSyncExternalStore(onBoardChange, activeBoard);
-  const [boards, setBoards] = useState<BoardRow[]>([]);
+  // the board list is kept on the device too, so names (and roles) show offline
+  const [boards, setBoards] = useState<BoardRow[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("foundation-boards") ?? "[]") as BoardRow[];
+    } catch {
+      return [];
+    }
+  });
   const fileRef = useRef<HTMLInputElement>(null);
 
   // join the board named in the URL, or the company board
@@ -63,7 +70,12 @@ export function Shell({ user }: { user: UserInfo }) {
   useEffect(() => {
     const load = () =>
       api<{ boards: BoardRow[] }>("/api/boards")
-        .then((r) => setBoards(r.boards))
+        .then((r) => {
+          setBoards(r.boards);
+          try {
+            localStorage.setItem("foundation-boards", JSON.stringify(r.boards));
+          } catch { /* private window */ }
+        })
         .catch(() => {});
     void load();
     window.addEventListener("foundation:boards", load);

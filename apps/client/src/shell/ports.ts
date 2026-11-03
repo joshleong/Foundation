@@ -12,7 +12,7 @@
  */
 
 import type { LinkDoc } from "@foundation/protocol";
-import { SECTION_HEADER, allObjects, getState, objectWorldRect, sectionCardRect, type PanelMeta } from "../state/store";
+import { SECTION_HEADER, allObjects, getState, objectWorldRect, sectionBodyRect, sectionCardRect, sharedSection, type PanelMeta } from "../state/store";
 import type { P, Rect, Side } from "./wireGeometry";
 import { pipeIntake, pipeMetrics, sideToward } from "./wireGeometry";
 
@@ -127,10 +127,31 @@ export function endRect(rects: Map<string, Rect>, panelId: string): Rect | undef
 /**
  * What a wire between `from` and `to` must go round: every other card, and
  * every section neither end lives in — so wires between apps run section to
- * section through the gaps, never across another app.
+ * section through the gaps, never across another app. A wire inside one
+ * section is only seen through that section's body, so it goes round that
+ * section's cards alone.
  */
 export function obstaclesFor(rects: Map<string, Rect>, from: string, to: string): Rect[] {
   const st = getState();
+  const objects = allObjects();
+  const a = objects.find((o) => o.id === from);
+  const b = objects.find((o) => o.id === to);
+  const home = a && b && sharedSection(a, b);
+  if (home) {
+    // its cards, and walls round the body so the road keeps to what can be
+    // seen — save a wall one of its own cards is scrolled behind
+    const body = sectionBodyRect(st.grid, home);
+    const T = 400;
+    const ends = [rects.get(from), rects.get(to)].filter((r): r is Rect => Boolean(r));
+    const overlaps = (r: Rect, s: Rect) => r.x < s.x + s.w && s.x < r.x + r.w && r.y < s.y + s.h && s.y < r.y + r.h;
+    const walls: Rect[] = [
+      { x: body.x - T, y: body.y - T, w: T, h: body.h + 2 * T },
+      { x: body.x + body.w, y: body.y - T, w: T, h: body.h + 2 * T },
+      { x: body.x, y: body.y - T, w: body.w, h: T },
+      { x: body.x, y: body.y + body.h, w: body.w, h: T },
+    ].filter((wall) => !ends.some((r) => overlaps(r, wall)));
+    return [...objects.filter((o) => o.sectionId === home.id && o.id !== from && o.id !== to && rects.has(o.id)).map((o) => rects.get(o.id)!), ...walls];
+  }
   const out: Rect[] = [];
   for (const [id, r] of rects) if (id !== from && id !== to) out.push(r);
   const homes = new Set([st.panels[from]?.sectionId, st.panels[to]?.sectionId]);

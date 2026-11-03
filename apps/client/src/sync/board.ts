@@ -18,6 +18,12 @@
  *
  * Transport: y-protocols over WebSocket at /sync/:board, with backoff
  * reconnect; the session cookie authenticates it.
+ *
+ * Offline: every board keeps a copy on this device (IndexedDB). It opens
+ * from that copy before the server answers (or without it), edits made
+ * offline are saved there, and the reconnect handshake sends them. A copy
+ * only merges into the board it came from: if the server's board has a
+ * different epoch (deleted and made again), the copy is set aside.
  */
 
 import * as Y from "yjs";
@@ -25,10 +31,11 @@ import * as syncProtocol from "y-protocols/sync";
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
+import { IndexeddbPersistence } from "y-indexeddb";
 import { BOARD_SCHEMA, boardMaps, noteTextOf, rebaseEdit, setNoteText, setTableCells, tableCellsOf, type ObjectDoc, type SectionDoc, type UserInfo } from "@foundation/protocol";
 import { applyRemote, getState, setSyncHook, updateNoteText, type AnyObject, type AppState, type Section } from "../state/store";
 import { workbook } from "../engine/workbook";
-import { wsUrl } from "../lib/api";
+import { api, wsUrl } from "../lib/api";
 import { toast } from "../state/ui";
 
 const LOCAL = Symbol("local");
@@ -67,7 +74,13 @@ class BoardSync {
   status: SyncStatus = "connecting";
   private ws: WebSocket | null = null;
   private retry = 0;
-  private synced = false;
+  /** the store is wired to the doc: from this device's copy, or from the server's first answer */
+  private ready = false;
+  private idb: IndexeddbPersistence | null = null;
+  /** changes made here that the server hasn't been sent yet (offline) */
+  pending = false;
+  /** the board on screen came from this device's copy (the server hasn't answered yet, or can't) */
+  fromDevice = false;
   private closed = false;
   private applyingCells = false;
   private listeners = new Set<() => void>();
@@ -83,6 +96,8 @@ class BoardSync {
     this.awareness.setLocalState({ user: { name: user.name, color: user.color, email: user.email }, cursor: null, focus: null });
     this.doc.on("update", (update: Uint8Array, origin: unknown) => {
       if (origin === this) return; // came from the server
+      if (origin === this.idb) return; // this device's copy, loading: the handshake sends what the server lacks
+      if (this.status !== "live" && !this.pending) this.setPending(true);
       const enc = encoding.createEncoder();
       encoding.writeVarUint(enc, MSG_SYNC);
       syncProtocol.writeUpdate(enc, update);
@@ -123,15 +138,77 @@ class BoardSync {
       this.pullNoteText([...ids]);
     });
     m.activity.observe(() => this.notify());
-    this.connect();
+    void this.start();
+  }
+
+  /** the server's board isn't the one we hold: forget ours (kept and offline copy) and start over from the server */
+  private async setAside() {
+    this.closed = true;
+    try {
+      await this.idb?.clearData();
+    } catch { /* already gone */ }
+    toast("This board was reset on the server, so this device's copy was set aside. Reloading…", "warn");
+    setTimeout(() => window.location.reload(), 1200);
+  }
+
+  /** changes waiting for the server, remembered across a reload */
+  private setPending(on: boolean) {
+    this.pending = on;
+    try {
+      if (on) localStorage.setItem(`foundation-pending:${this.boardId}`, "1");
+      else localStorage.removeItem(`foundation-pending:${this.boardId}`);
+    } catch { /* private window */ }
+    this.notify();
+  }
+
+  private async start() {
+    const name = `foundation-board:${this.boardId}`;
+    try {
+      this.pending = localStorage.getItem(`foundation-pending:${this.boardId}`) === "1";
+    } catch { /* private window */ }
+    try {
+      // look at this device's copy before it touches the live doc
+      const staging = new Y.Doc();
+      const peek = new IndexeddbPersistence(name, staging);
+      await peek.whenSynced;
+      const copyEpoch = boardMaps(staging).meta.get("epoch") as string | undefined;
+      const hasCopy = boardMaps(staging).sections.size > 0;
+      await peek.destroy();
+      staging.destroy();
+      const serverEpoch = await fetchEpoch(this.boardId);
+      if (this.closed) return;
+      if (hasCopy && serverEpoch && copyEpoch !== serverEpoch) {
+        // the server's board was made again since this copy: don't merge a different board into it
+        await new IndexeddbPersistence(name, new Y.Doc()).clearData();
+        toast("This board was reset on the server, so this device's older copy was set aside.", "warn");
+      }
+      this.idb = new IndexeddbPersistence(name, this.doc);
+      await this.idb.whenSynced;
+      if (this.closed) return;
+      if (boardMaps(this.doc).sections.size > 0) {
+        this.fromDevice = true;
+        this.wire(false);
+      }
+    } catch {
+      /* no IndexedDB here (a private window): online only */
+    }
+    if (!this.closed) void this.connect();
   }
 
   // ---------- transport ----------
 
-  private connect() {
+  private async connect() {
     if (this.closed) return;
     this.setStatus("connecting");
-    const ws = new WebSocket(wsUrl(`/sync/${encodeURIComponent(this.boardId)}`));
+    // a board on screen only rejoins the board it came from: if the server's was made again, set ours aside
+    const mine = boardMaps(this.doc).meta.get("epoch") as string | undefined;
+    if (this.ready) {
+      const theirs = await fetchEpoch(this.boardId);
+      if (this.closed) return;
+      if (theirs && theirs !== mine) return this.setAside();
+    }
+    // say which board we hold (empty: none yet); the server refuses a copy of a board it has since made again
+    const ws = new WebSocket(wsUrl(`/sync/${encodeURIComponent(this.boardId)}?epoch=${encodeURIComponent(mine ?? "")}`));
     ws.binaryType = "arraybuffer";
     this.ws = ws;
     ws.onopen = () => {
@@ -153,8 +230,13 @@ class BoardSync {
         encoding.writeVarUint(enc, MSG_SYNC);
         const kind = syncProtocol.readSyncMessage(dec, enc, this.doc, this);
         if (encoding.length(enc) > 1) ws.send(encoding.toUint8Array(enc));
-        if (kind === syncProtocol.messageYjsSyncStep2 && !this.synced) this.onFirstSync();
-        else if (this.synced) this.setStatus("live");
+        // our answer to the server's step 1 carried everything it lacked: offline changes included
+        if (kind === syncProtocol.messageYjsSyncStep1 && this.pending) this.setPending(false);
+        if (kind === syncProtocol.messageYjsSyncStep2) {
+          this.wire(true);
+          this.fromDevice = false;
+          this.setStatus("live");
+        } else if (this.ready && this.status !== "live") this.setStatus("live");
       } else if (type === MSG_AWARENESS) {
         awarenessProtocol.applyAwarenessUpdate(this.awareness, decoding.readVarUint8Array(dec), this);
       }
@@ -164,9 +246,11 @@ class BoardSync {
       if (this.closed) return;
       // an admin changed my role here: the shell reads it again, the socket comes back under it
       if (ev.code === 4001) window.dispatchEvent(new Event("foundation:boards"));
+      // the server's board was made again since ours: don't keep offering the old one
+      if (ev.code === 4002) return void this.setAside();
       this.setStatus("offline");
       const delay = Math.min(15_000, 400 * 2 ** this.retry++) * (0.75 + Math.random() * 0.5);
-      setTimeout(() => this.connect(), delay);
+      setTimeout(() => void this.connect(), delay);
     };
   }
 
@@ -192,10 +276,12 @@ class BoardSync {
 
   // ---------- first sync: doc → store (or seed an empty board from the store) ----------
 
-  private onFirstSync() {
-    this.synced = true;
+  /** wire the store to the doc, once: `seed` an empty board from the store (the server's first answer only) */
+  private wire(seed: boolean) {
+    if (this.ready) return;
+    this.ready = true;
     const m = boardMaps(this.doc);
-    if (m.sections.size === 0) {
+    if (m.sections.size === 0 && seed) {
       this.pushAll(getState());
     } else {
       this.pullGrid();
@@ -211,7 +297,6 @@ class BoardSync {
         else this.pushCells(tableId);
       }
     });
-    this.setStatus("live");
   }
 
   // ---------- store → doc ----------
@@ -259,7 +344,7 @@ class BoardSync {
   }
 
   private push(next: AppState, prev: AppState) {
-    if (!this.synced) return;
+    if (!this.ready) return;
     if (this.readOnly) {
       // only what everyone shares snaps back; camera, focus and scroll stay local
       const shared = next.grid !== prev.grid || next.sections !== prev.sections || next.links !== prev.links || Object.values(SLICE).some((k) => next[k] !== prev[k]);
@@ -420,7 +505,7 @@ class BoardSync {
   editNote(id: string, base: string, next: string): string {
     const t = boardMaps(this.doc).noteText.get(id);
     if (this.readOnly) return t?.toString() ?? base;
-    if (!this.synced || !t) return next;
+    if (!this.ready || !t) return next;
     const e = rebaseEdit(base, next, t.toString());
     if (!e) return t.toString();
     this.doc.transact(() => {
@@ -461,6 +546,7 @@ class BoardSync {
     this.unsubWorkbook?.();
     awarenessProtocol.removeAwarenessStates(this.awareness, [this.doc.clientID], "local");
     this.ws?.close();
+    void this.idb?.destroy(); // closes the copy; it stays on the device
     this.doc.destroy();
   }
 }
@@ -525,6 +611,8 @@ export function joinBoard(boardId: string, user: UserInfo): BoardSync {
 export function activeBoard(): BoardSync | null {
   return current;
 }
+// dev: the live sync, for headless checks
+if (import.meta.env?.DEV && typeof window !== "undefined") (window as unknown as { __foundationBoard: () => BoardSync | null }).__foundationBoard = () => current;
 
 export function onBoardChange(fn: () => void) {
   boardListeners.add(fn);
@@ -547,4 +635,35 @@ function viewOnlyNotice() {
   if (Date.now() - lastNotice < 4000) return;
   lastNotice = Date.now();
   toast("View only — you can look around, but changes don't stick. An admin can make you a member.", "warn");
+}
+
+async function fetchEpoch(boardId: string): Promise<string | null> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 2500);
+  try {
+    return (await api<{ epoch: string }>(`/api/boards/${encodeURIComponent(boardId)}/epoch`, { signal: ctrl.signal })).epoch;
+  } catch {
+    return null; // offline (or signed out): this device's copy stands
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/** signing out: this device forgets every board copy it kept */
+export async function forgetDevice() {
+  current?.destroy();
+  current = null;
+  try {
+    const dbs = (await indexedDB.databases?.()) ?? [];
+    await Promise.all(
+      dbs
+        .filter((d) => d.name?.startsWith("foundation-board:"))
+        .map((d) => new Promise<void>((ok) => {
+          const r = indexedDB.deleteDatabase(d.name!);
+          r.onsuccess = r.onerror = r.onblocked = () => ok();
+        })),
+    );
+  } catch {
+    /* nothing kept */
+  }
 }

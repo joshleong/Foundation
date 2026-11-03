@@ -13,7 +13,7 @@ import { config } from "./config.ts";
 import "./db.ts";
 import { HttpError, json, readJson, Router, sse, type Req } from "./http.ts";
 import { clearSession, createSession, googleAuthUrl, googleCallback, isAllowed, requireUser, setSessionCookie, upsertUser, userFromRequest, createSession as mintToken } from "./auth.ts";
-import { attachConnection, ensureBoardRow, getBoard, listBoards, presence } from "./boards.ts";
+import { attachConnection, boardEpoch, syncAccess, ensureBoardRow, getBoard, listBoards, presence } from "./boards.ts";
 import { archiveFile, listFiles, reindexFilesIfNeeded, serveFile, uploadFile } from "./files.ts";
 import { integrationStatus, searchAll } from "./search.ts";
 import { listApps, probeApp, saveApp } from "./apps.ts";
@@ -80,6 +80,10 @@ r.post("/api/agent/token", (req) => {
 r.get("/api/boards", (req) => {
   const u = requireUser(req);
   return { boards: listBoards().map((b) => ({ ...b, role: boardRole(u.id, b.id) })) };
+});
+r.get("/api/boards/:id/epoch", (req) => {
+  requireUser(req);
+  return { epoch: boardEpoch(req.params.id) };
 });
 r.get("/api/boards/:id/people", (req) => {
   requireUser(req);
@@ -456,7 +460,13 @@ server.on("upgrade", (rawReq, socket, head) => {
     socket.destroy();
     return;
   }
-  wss.handleUpgrade(req, socket, head, (ws) => attachConnection(m[1], ws, !canWrite(user.id, m[1]), user.id));
+  // the board a client holds must be this board: a copy from before a reset is refused, and a client
+  // that doesn't say (a build from before epochs) can read but not write until it reloads
+  const access = syncAccess(req.query.get("epoch"), boardEpoch(m[1]), canWrite(user.id, m[1]));
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    if (access === "refuse") return ws.close(4002, "this board was reset");
+    attachConnection(m[1], ws, access === "read", user.id);
+  });
 });
 
 reindexFilesIfNeeded();
