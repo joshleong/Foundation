@@ -10,4 +10,4 @@ Every session:
 5. Verify in the browser (`npm run dev`, http://localhost:1430; `?rafshim` for hidden/headless panes) and capture evidence in `docs/evidence/<date>_<slice>/`.
 6. Update SPEC §3 status and §7 honestly. Commit with what changed and how it was checked.
 
-Invariants (tested in `apps/server/test`): one board schema (`packages/protocol`); writes name their board; `request_id` idempotency; deletes need `confirm`; uploaded files are archived, never deleted; session tokens are stored hashed and never travel in URLs; nothing that spends money or runs third-party code starts without a person.
+Invariants (tested in `apps/server/test`): one board schema (`packages/protocol`); writes name their board; `request_id` idempotency; deletes need `confirm`; uploaded files are archived, never deleted; session tokens are stored hashed and never travel in URLs; nothing that spends money or runs third-party code starts without a person; viewers can't write a board (socket, tools or HTTP).

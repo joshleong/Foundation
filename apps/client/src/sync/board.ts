@@ -29,6 +29,7 @@ import { BOARD_SCHEMA, boardMaps, noteTextOf, rebaseEdit, setNoteText, setTableC
 import { applyRemote, getState, setSyncHook, updateNoteText, type AnyObject, type AppState, type Section } from "../state/store";
 import { workbook } from "../engine/workbook";
 import { wsUrl } from "../lib/api";
+import { toast } from "../state/ui";
 
 const LOCAL = Symbol("local");
 const MSG_SYNC = 0;
@@ -71,6 +72,9 @@ class BoardSync {
   private applyingCells = false;
   private listeners = new Set<() => void>();
   private unsubWorkbook: (() => void) | null = null;
+  /** a viewer: the server drops our updates, so local edits are put back from the doc */
+  private readOnly = false;
+  private reverting = false;
 
   constructor(
     public boardId: string,
@@ -155,9 +159,11 @@ class BoardSync {
         awarenessProtocol.applyAwarenessUpdate(this.awareness, decoding.readVarUint8Array(dec), this);
       }
     };
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       this.ws = null;
       if (this.closed) return;
+      // an admin changed my role here: the shell reads it again, the socket comes back under it
+      if (ev.code === 4001) window.dispatchEvent(new Event("foundation:boards"));
       this.setStatus("offline");
       const delay = Math.min(15_000, 400 * 2 ** this.retry++) * (0.75 + Math.random() * 0.5);
       setTimeout(() => this.connect(), delay);
@@ -200,7 +206,10 @@ class BoardSync {
     }
     setSyncHook((next, prev) => this.push(next, prev));
     this.unsubWorkbook = workbook.subscribeAll((tableId) => {
-      if (!this.applyingCells && tableId) this.pushCells(tableId);
+      if (!this.applyingCells && tableId) {
+        if (this.readOnly) this.revert();
+        else this.pushCells(tableId);
+      }
     });
     this.setStatus("live");
   }
@@ -222,8 +231,41 @@ class BoardSync {
     for (const t of Object.keys(st.tables)) this.pushCells(t);
   }
 
+  setReadOnly(on: boolean) {
+    if (this.readOnly === on) return;
+    this.readOnly = on;
+    this.notify();
+  }
+  get isReadOnly() {
+    return this.readOnly;
+  }
+
+  /** a viewer changed something locally: put the board back the way the doc has it */
+  private revert() {
+    if (this.reverting) return;
+    this.reverting = true;
+    queueMicrotask(() => {
+      try {
+        this.pullGrid();
+        this.pullSections();
+        this.pullObjects(null);
+        this.pullLinks();
+        this.pullCells(null);
+      } finally {
+        this.reverting = false;
+      }
+      viewOnlyNotice();
+    });
+  }
+
   private push(next: AppState, prev: AppState) {
     if (!this.synced) return;
+    if (this.readOnly) {
+      // only what everyone shares snaps back; camera, focus and scroll stay local
+      const shared = next.grid !== prev.grid || next.sections !== prev.sections || next.links !== prev.links || Object.values(SLICE).some((k) => next[k] !== prev[k]);
+      if (shared) this.revert();
+      return;
+    }
     const m = boardMaps(this.doc);
     this.doc.transact(() => {
       if (next.grid !== prev.grid) m.grid.set("tracks", next.grid);
@@ -377,6 +419,7 @@ class BoardSync {
    */
   editNote(id: string, base: string, next: string): string {
     const t = boardMaps(this.doc).noteText.get(id);
+    if (this.readOnly) return t?.toString() ?? base;
     if (!this.synced || !t) return next;
     const e = rebaseEdit(base, next, t.toString());
     if (!e) return t.toString();
@@ -497,4 +540,11 @@ export function editNoteText(id: string, base: string, next: string) {
   const text = current ? current.editNote(id, base, next) : next;
   updateNoteText(id, text);
   return text;
+}
+
+let lastNotice = 0;
+function viewOnlyNotice() {
+  if (Date.now() - lastNotice < 4000) return;
+  lastNotice = Date.now();
+  toast("View only — you can look around, but changes don't stick. An admin can make you a member.", "warn");
 }

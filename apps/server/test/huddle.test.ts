@@ -19,6 +19,9 @@ import { WebSocket, WebSocketServer } from "ws";
 process.env.FOUNDATION_DATA_DIR = mkdtempSync(join(tmpdir(), "foundation-huddle-"));
 process.env.FOUNDATION_CLIENT_URL = "http://localhost:1430";
 
+// the person the tools act for: a member (an unknown id would be a viewer, and viewers can't write)
+const { run: runSql } = await import("../src/db.ts");
+runSql("insert or ignore into users (id, email, name, color, role, created_at) values (?, ?, ?, ?, 'member', ?)", "u0", "u0@formindustries.com", "Tester", "#325bb4", Date.now());
 const { getBoard, closeBoards } = await import("../src/boards.ts");
 const { attachHuddle, addLine, attachRecording, huddleArchive, huddleRoster, transcriptText } = await import("../src/huddles.ts");
 const { runTool } = await import("../src/tools.ts");

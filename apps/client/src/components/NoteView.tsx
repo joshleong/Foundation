@@ -8,6 +8,7 @@ import {
 } from "../state/store";
 import { renderMarkdown } from "../utils/markdown";
 import { editNoteText } from "../sync/board";
+import { getUi } from "../state/ui";
 import { openExternal } from "../utils/media";
 import { ObjectFrame } from "./ObjectFrame";
 
@@ -97,7 +98,7 @@ export const NoteView = memo(function NoteView({ note, pos, isActive, getScale }
         ) : (
           <div
             className="note-rendered"
-            onDoubleClick={() => setEditing(true)}
+            onDoubleClick={() => getUi().role !== "viewer" && setEditing(true)}
             onClick={onBodyClick}
             dangerouslySetInnerHTML={{ __html: html }}
           />

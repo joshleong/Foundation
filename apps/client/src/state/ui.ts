@@ -41,6 +41,8 @@ export interface UiState {
   searchW: number;
   /** cards the showing session touched — ringed on the grid */
   touched: string[];
+  /** my role on the board that's showing: a viewer reads, and edits snap back */
+  role: "admin" | "member" | "viewer";
 }
 
 export const TOP_BAR = 44;
@@ -84,6 +86,7 @@ let ui: UiState = {
   search: s0.search ?? false,
   searchW: clampW(s0.searchW, WIDTHS.search),
   touched: [],
+  role: "member",
 };
 if (s0.tab && ui.tabs.some((t) => t.id === s0.tab)) ui.tab = s0.tab;
 

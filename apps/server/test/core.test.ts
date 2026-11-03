@@ -13,6 +13,9 @@ import { join } from "node:path";
 process.env.FOUNDATION_DATA_DIR = mkdtempSync(join(tmpdir(), "foundation-test-"));
 process.env.FOUNDATION_ALLOWLIST = "@formindustries.com,josh.leong@gmail.com";
 
+// the person the tools act for: a member (an unknown id would be a viewer, and viewers can't write)
+const { run: runSql } = await import("../src/db.ts");
+runSql("insert or ignore into users (id, email, name, color, role, created_at) values (?, ?, ?, ?, 'member', ?)", "u", "u@formindustries.com", "Tester", "#325bb4", Date.now());
 const { cadHeaderText } = await import("../src/files.ts");
 const { parseRepo } = await import("../src/github.ts");
 const { isAllowed } = await import("../src/auth.ts");

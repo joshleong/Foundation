@@ -23,6 +23,7 @@ import { createAsk, listAsks, resolveAsk, startHermes } from "./hermes.ts";
 import { getJob, listJobs, startJob } from "./jobs.ts";
 import { followRun, listSessions, runtimes, sessionTurns, settleOrphanRuns, startRun, stopRun } from "./agent.ts";
 import { t3Thread, t3Threads } from "./t3.ts";
+import { boardPeople, boardRole, canWrite, requireWriter, setBoardRole } from "./roles.ts";
 import { runTool, TOOLS } from "./tools.ts";
 import { handleMcp } from "./mcp.ts";
 import { seedCompanyBoard } from "./seed.ts";
@@ -77,11 +78,22 @@ r.post("/api/agent/token", (req) => {
 // ---------- boards ----------
 
 r.get("/api/boards", (req) => {
+  const u = requireUser(req);
+  return { boards: listBoards().map((b) => ({ ...b, role: boardRole(u.id, b.id) })) };
+});
+r.get("/api/boards/:id/people", (req) => {
   requireUser(req);
-  return { boards: listBoards() };
+  return { people: boardPeople(req.params.id) };
+});
+r.post("/api/boards/:id/people", async (req) => {
+  const u = requireUser(req);
+  const { userId, role } = await readJson<{ userId?: string; role?: "member" | "viewer" | null }>(req);
+  if (!userId || (role !== null && role !== "member" && role !== "viewer")) throw new HttpError(400, "userId and role (member, viewer or null) required");
+  setBoardRole(u, req.params.id, userId, role);
+  return { people: boardPeople(req.params.id) };
 });
 r.post("/api/boards", async (req) => {
-  requireUser(req);
+  requireWriter(requireUser(req));
   const { name } = await readJson<{ name?: string }>(req);
   const id = (name ?? "board").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || `board-${Date.now().toString(36)}`;
   ensureBoardRow(id, name ?? id);
@@ -370,6 +382,25 @@ r.post("/api/agent/runs/:id/stop", (req) => {
   return { stopped: stopRun(req.params.id, user.id) };
 });
 
+// ---------- view only ----------
+
+/**
+ * Viewers don't write. Any non-GET under /api is a write except these: the
+ * agent (its tools check per call, so a viewer can still ask it things),
+ * stopping your own run, an MCP token (its tools check too), board tools
+ * (runTool checks), and setting roles (admins only). The board is the
+ * route's :id, or ?board=, else the person's account role decides.
+ */
+const READ_POSTS = [/^\/api\/agent$/, /^\/api\/agent\/runs\/[^/]+\/stop$/, /^\/api\/agent\/token$/, /^\/api\/boards\/[^/]+\/tools\//, /^\/api\/boards\/[^/]+\/people$/, /^\/api\/apps\/probe$/];
+function gateWrites(req: Req, path: string) {
+  if (req.method === "GET" || req.method === "OPTIONS" || !path.startsWith("/api/")) return;
+  if (READ_POSTS.some((p) => p.test(path))) return;
+  const user = userFromRequest(req);
+  if (!user) return; // the route's own requireUser answers 401
+  const board = /^\/api\/boards\/([^/]+)/.exec(path)?.[1] ?? req.query.get("board");
+  requireWriter(user, board);
+}
+
 // ---------- server ----------
 
 const server = createServer(async (rawReq, res: ServerResponse) => {
@@ -397,6 +428,7 @@ const server = createServer(async (rawReq, res: ServerResponse) => {
     const m = r.match(req.method ?? "GET", url.pathname);
     if (!m) throw new HttpError(404, "not found");
     req.params = m.params;
+    gateWrites(req, url.pathname);
     const out = await m.handler(req, res);
     if (!res.headersSent && out !== undefined) json(res, out);
   } catch (e) {
@@ -424,7 +456,7 @@ server.on("upgrade", (rawReq, socket, head) => {
     socket.destroy();
     return;
   }
-  wss.handleUpgrade(req, socket, head, (ws) => attachConnection(m[1], ws));
+  wss.handleUpgrade(req, socket, head, (ws) => attachConnection(m[1], ws, !canWrite(user.id, m[1]), user.id));
 });
 
 reindexFilesIfNeeded();

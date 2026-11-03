@@ -95,6 +95,15 @@ create table if not exists asks (
   resolved_file_id text
 );
 
+create table if not exists board_roles (
+  board_id text not null,
+  user_id text not null references users(id) on delete cascade,
+  role text not null,
+  set_by text,
+  set_at integer not null,
+  primary key (board_id, user_id)
+);
+
 create table if not exists agent_runs (
   id text primary key,
   board_id text not null,

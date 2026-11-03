@@ -9,7 +9,7 @@ Last updated 2026-11-02 · branch `main` · evidence in `docs/evidence/2026-11-0
 ## Open to-dos (kept by Josh, 2026-11-02)
 
 - [ ] **Repo visibility** — `joshleong/Foundation` is public; decide private / move to the Form Industries org (§6.1)
-- [ ] **Phase 1 · Solid ground** (§8): ~~Y.Text notes~~, ~~per-table cells~~ done; viewer role, offline, perf trace next
+- [ ] **Phase 1 · Solid ground** (§8): ~~Y.Text notes~~, ~~per-table cells~~, ~~viewer role~~ done; offline, perf trace next
 - [ ] **Keys and setup** — Slack, BomForm + CA, API credits, `npx rea-agents setup` (§6)
 - [ ] **Slack app** — create it from `docs/slack-app-manifest.yml`, set `SLACK_BOT_TOKEN`, then open a real channel card: huddles and Slack cards were verified against a stand-in Slack only (§3, §6.7)
 - [ ] **Vision loop** — the Simulate/Concept hand-off writes the brief today; next it should start a Vision Code (T3) thread and attach what comes back (§8 phase 2)
@@ -149,6 +149,7 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | **Sync** | Yjs board docs, y-protocols wire, update log + compaction, reconnect with backoff, presence/awareness | done | Agent edits verified streaming live into an open browser |
 | | Peer cursors | partial | Code done; needs a second signed-in person to verify by eye |
 | **Grid** | Original Foundation grid (sections, tracks, springs, tables with formulas, maps, notes, media) | done | Now night-aware and on tokens. Layout memoised per state |
+| **Roles** (2026-11-03, phase 1) | **Viewers read; they can't change a board.** A person's role on a board is what an admin set for that board (side pane → People on this board: Can edit / View only / the account's role), else their account's (admin, member, or viewer for a flowform viewer let in by `FLOWFORM_ADMIT_VIEWERS`). Enforced on the server: the sync socket drops a viewer's updates (they still get the board and send presence); `runTool` refuses all but read-only tools, which covers HTTP tools, MCP and the agent (it's told the person is view-only); the HTTP gate refuses a viewer's other writes. A role change closes their socket and their tab re-reads it, so it applies at once. In the app, a View only pill, editing controls hidden, and any local edit snaps back with a notice | done | Invariant tests: `roles.test.ts` (4). Browser: an admin made a member view-only live; their rename snapped back, `add_note` and an upload got 403, `read_board` worked; reversed live (`docs/evidence/2026-11-03_viewer-role/`) |
 | | **Tables two people can edit** (2026-11-03, phase 1): each table's cells are their own shared map, so an edit writes only the cells it changed and someone editing another cell keeps theirs | done | Two browsers writing different cells within 8 ms converged (`docs/evidence/2026-11-03_table-cells/`); `tables.test.ts` (3) covers both writing blind |
 | | **Notes two people can write in** (2026-11-03, phase 1): every keystroke goes out as it's typed, as the smallest edit to the note's `Y.Text`, rebased past anything that arrived while it was typed (`rebaseEdit`); someone else's words land in an open editor without moving the caret. Agents' `update_card` writes the smallest edit too, so a person typing keeps their words | done | Two browsers typing at opposite ends of one note converged, carets kept (`docs/evidence/2026-11-03_live-notes/`); `notes.test.ts` (5). Esc no longer reverts a note (the words were already shared) |
 | **Files** | Upload anything with progress; images and video show instantly, then swap to the shared URL; range streaming; archive-never-delete | done | |
@@ -235,6 +236,7 @@ One definition (`apps/server/src/tools.ts`), three doors: the built-in agent, `/
 - Deletes need `confirm: true`.
 - Every write lands in `activity` and moves the agent's presence ring.
 - Nothing that spends money or runs third-party code starts without a person.
+- A viewer can't change a board: not through its sync socket, a tool (HTTP, MCP, the agent) or any other write (`roles.test.ts`).
 
 ---
 
@@ -282,7 +284,7 @@ Every integration is off until its key exists; the server always starts. Copy `.
 
 - **Two people editing the same cell** still resolve last-writer-wins for that cell (Yjs picks one). Different cells merge.
 - **Adding a table (⌘K) into a section that hosts an app** puts it behind the app, where nobody sees it. Cards added to an app section should go to the nearest non-app section, or show the app as a card.
-- **No viewer role yet.** Every signed-in member can write. flowform dropped viewer writes on the server; add `room_role` and drop writes in `attachConnection`.
+- **Roles are per board or per account, with no per-section or per-card permissions.** Admins are global (`FOUNDATION_ADMIN_EMAILS`, or flowform admins). A viewer can still start agent sessions (read-only) and join huddles. A viewer's presence (cursor) still shows to others.
 - **No offline outbox.** The doc lives in memory; a tab closed while offline loses its edits. Add `y-indexeddb`.
 - **WebSocket auth uses the cookie**, which is fine same-origin. A remote Tauri client needs a header-capable transport (ticket exchange, like T3's `websocket-ticket`).
 - **Flowform sign-in attempts live in server memory** for up to 10 minutes. A server restart (tsx watch) in the middle of a sign-in expires it, and the person has to click again.
@@ -314,7 +316,7 @@ Every integration is off until its key exists; the server always starts. Copy `.
 
 | Phase | Scope |
 |---|---|
-| **1 · Solid ground (next)** | ~~`Y.Text` notes~~ and ~~per-table cell maps~~ (done 2026-11-03). Viewer role. `y-indexeddb` offline. Measured perf trace. Playwright two-browser convergence test. Prune legacy CSS. Get `check-design` going (ratchet raw colours like the Data Room) |
+| **1 · Solid ground (next)** | ~~`Y.Text` notes~~, ~~per-table cell maps~~ and ~~viewer role~~ (done 2026-11-03). Viewer role. `y-indexeddb` offline. Measured perf trace. Playwright two-browser convergence test. Prune legacy CSS. Get `check-design` going (ratchet raw colours like the Data Room) |
 | **2 · Vision loop** | Foundation starts Vision Code (T3) threads for a brief (`orchestration.dispatchCommand` `thread.turn.start`, see Vision `apps/vision/src/code/handoff.ts`). Vision's exports land back as file panels. A CAD 3D preview via Vision's OpenCascade. Reviews return as asks |
 | **3 · Company brain** | BomForm snapshot cached and diffed. FactoryForm SSE (`/api/events`) pushed into the connector live. A daily "what changed" digest note by the agent. Voice: Vision's `@pacific/voice` realtime session for spoken conversations about the company |
 | **4 · Search depth** | flowform's semantic search (e5 text vectors, SigLIP images, RRF k=60). Slack per-user OAuth with visibility that fails closed. Google Drive and Figma connectors |

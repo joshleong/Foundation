@@ -26,6 +26,7 @@ import { config } from "./config.ts";
 import { all, one, run } from "./db.ts";
 import { boardDigest, editBoard } from "./boards.ts";
 import { runTool, TOOLS, type ToolCtx } from "./tools.ts";
+import { canWrite } from "./roles.ts";
 import { createSession, revokeSession } from "./auth.ts";
 import { logActivity } from "@foundation/protocol";
 
@@ -98,7 +99,8 @@ export async function runAgent(opts: {
     "insert into agent_runs (id, board_id, runtime, prompt, status, created_by, created_at, session_id) values (?, ?, ?, ?, 'running', ?, ?, ?)",
     runId, opts.boardId, runtime, opts.prompt, opts.user.id, Date.now(), opts.session ?? null,
   );
-  editBoard(opts.boardId, "agent", (doc) => logActivity(doc, { who: opts.user.name, role: "human", text: `asked the agent: ${opts.prompt.slice(0, 140)}` }));
+  // a viewer's question isn't a change to the board, so it doesn't go in its activity
+  if (canWrite(opts.user.id, opts.boardId)) editBoard(opts.boardId, "agent", (doc) => logActivity(doc, { who: opts.user.name, role: "human", text: `asked the agent: ${opts.prompt.slice(0, 140)}` }));
   const transcript: AgentEvent[] = [];
   // the transcript is saved as the turn runs, so a reload mid-turn replays it
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -209,7 +211,7 @@ async function runApi(opts: Parameters<typeof runAgent>[0], emit: (e: AgentEvent
   const history = histories.get(key) ?? [];
   history.push({
     role: "user",
-    content: `${opts.prompt}\n\n<board name="${opts.boardId}" person="${opts.user.name}">\n${boardDigest(opts.boardId)}\n</board>`,
+    content: `${opts.prompt}\n\n<board name="${opts.boardId}" person="${opts.user.name}"${canWrite(opts.user.id, opts.boardId) ? "" : ' access="view only — read and answer; do not try to change the board"'}>\n${boardDigest(opts.boardId)}\n</board>`,
   });
   const ctx: ToolCtx = { boardId: opts.boardId, actor: "Foundation Agent", userId: opts.user.id };
   const tools = apiTools();
@@ -283,7 +285,7 @@ async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: A
     }),
     { mode: 0o600 },
   );
-  const prompt = `${opts.prompt}\n\n<board name="${opts.boardId}" person="${opts.user.name}">\n${boardDigest(opts.boardId)}\n</board>`;
+  const prompt = `${opts.prompt}\n\n<board name="${opts.boardId}" person="${opts.user.name}"${canWrite(opts.user.id, opts.boardId) ? "" : ' access="view only — read and answer; do not try to change the board"'}>\n${boardDigest(opts.boardId)}\n</board>`;
   const argv = [
     "-p",
     prompt,

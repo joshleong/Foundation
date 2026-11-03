@@ -10,6 +10,8 @@
  * board so people can see what it is touching.
  */
 
+import { READ_TOOLS, canWrite } from "./roles.ts";
+import { HttpError } from "./http.ts";
 import { z } from "zod";
 import * as Y from "yjs";
 import {
@@ -657,6 +659,10 @@ export async function runTool(ctx: ToolCtx, name: string, rawInput: unknown): Pr
   if (!tool) throw new Error(`unknown tool ${name}`);
   const parsed = tool.schema.safeParse(rawInput ?? {});
   if (!parsed.success) throw new Error(`invalid input for ${name}: ${parsed.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; ")}`);
+  // viewers read: every other tool is a write (or acts for the board) and is refused
+  if (!READ_TOOLS.has(name) && !canWrite(ctx.userId, ctx.boardId)) {
+    throw new HttpError(403, `View only: this person can read the board “${ctx.boardId}” but not change it, so ${name} can't run. Say what you would change instead.`);
+  }
   const rid = (parsed.data as { request_id?: string }).request_id;
   const key = rid ? `${ctx.boardId}:${ctx.userId}:${rid}` : null;
   if (key && seenRequests.has(key)) return seenRequests.get(key);

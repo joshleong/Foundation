@@ -34,10 +34,16 @@ function typing(e: KeyboardEvent) {
   return !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
 }
 
+export interface BoardRow {
+  id: string;
+  name: string;
+  role: "admin" | "member" | "viewer";
+}
+
 export function Shell({ user }: { user: UserInfo }) {
   const ui = useUi();
   const board = useSyncExternalStore(onBoardChange, activeBoard);
-  const [boards, setBoards] = useState<Array<{ id: string; name: string }>>([]);
+  const [boards, setBoards] = useState<BoardRow[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // join the board named in the URL, or the company board
@@ -55,10 +61,22 @@ export function Shell({ user }: { user: UserInfo }) {
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    api<{ boards: Array<{ id: string; name: string }> }>("/api/boards")
-      .then((r) => setBoards(r.boards))
-      .catch(() => {});
+    const load = () =>
+      api<{ boards: BoardRow[] }>("/api/boards")
+        .then((r) => setBoards(r.boards))
+        .catch(() => {});
+    void load();
+    window.addEventListener("foundation:boards", load);
+    return () => window.removeEventListener("foundation:boards", load);
   }, [board?.boardId]);
+
+  // my role on this board: a viewer reads (the server drops their writes; edits snap back here)
+  const role = boards.find((b) => b.id === board?.boardId)?.role ?? (user.role === "viewer" ? "viewer" : "member");
+  useEffect(() => {
+    board?.setReadOnly(role === "viewer");
+    setUi({ role });
+    document.body.classList.toggle("is-viewer", role === "viewer");
+  }, [board, role]);
 
   // ?focus=<card or section> (links sent to Slack, Hermes nudges): frame it once it has synced
   useEffect(() => {
@@ -91,7 +109,7 @@ export function Shell({ user }: { user: UserInfo }) {
     const name = window.prompt("Name the new board");
     if (!name) return;
     const { id } = await api<{ id: string }>("/api/boards", { method: "POST", json: { name } });
-    setBoards((b) => [{ id, name }, ...b]);
+    setBoards((b) => [{ id, name, role: user.role === "admin" ? "admin" : "member" }, ...b]);
     switchBoard(id);
   };
 

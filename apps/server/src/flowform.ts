@@ -181,6 +181,11 @@ export function admitFlowformUser(me: FlowformMe): UserInfo {
     }
     user = upsertUser(me.email, me.display_name);
     run("update users set flowform_user_id = ? where id = ?", me.user_id, user.id);
+    // a flowform viewer (let in by FLOWFORM_ADMIT_VIEWERS) starts as a viewer here too; an admin can open a board to them
+    if (!holder && me.role === "viewer" && user.role === "member") {
+      run("update users set role = 'viewer' where id = ?", user.id);
+      user = { ...user, role: "viewer" };
+    }
   }
   // flowform's admins are Foundation's admins (as are FOUNDATION_ADMIN_EMAILS)
   if ((me.role === "admin" || me.is_admin) && user.role !== "admin") {

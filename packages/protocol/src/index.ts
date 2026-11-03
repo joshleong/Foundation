@@ -534,5 +534,6 @@ export interface UserInfo {
   email: string;
   name: string;
   color: string;
-  role: "admin" | "member";
+  /** account-wide; a board can set its own (viewer: may read, not change) */
+  role: "admin" | "member" | "viewer";
 }

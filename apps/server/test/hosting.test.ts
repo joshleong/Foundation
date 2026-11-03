@@ -13,6 +13,9 @@ import { join } from "node:path";
 
 process.env.FOUNDATION_DATA_DIR = mkdtempSync(join(tmpdir(), "foundation-test-"));
 
+// the person the tools act for: a member (an unknown id would be a viewer, and viewers can't write)
+const { run: runSql } = await import("../src/db.ts");
+runSql("insert or ignore into users (id, email, name, color, role, created_at) values (?, ?, ?, ?, 'member', ?)", "u", "u@formindustries.com", "Tester", "#325bb4", Date.now());
 const { seedCompanyBoard } = await import("../src/seed.ts");
 const { migrateBoard } = await import("../src/migrate.ts");
 const { runTool } = await import("../src/tools.ts");

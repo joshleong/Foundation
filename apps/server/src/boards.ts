@@ -151,8 +151,13 @@ function send(ws: WebSocket, data: Uint8Array) {
   }
 }
 
-export function attachConnection(boardId: string, ws: WebSocket) {
+/** who each sync socket belongs to, so a role change can make them reconnect */
+const socketUser = new WeakMap<WebSocket, string>();
+
+/** `readOnly`: a viewer — they get the board and send presence, but their updates are dropped */
+export function attachConnection(boardId: string, ws: WebSocket, readOnly = false, userId?: string) {
   const board = getBoard(boardId);
+  if (userId) socketUser.set(ws, userId);
   board.conns.set(ws, new Set());
   ws.binaryType = "arraybuffer";
 
@@ -163,7 +168,11 @@ export function attachConnection(boardId: string, ws: WebSocket) {
     if (type === MSG_SYNC) {
       const enc = encoding.createEncoder();
       encoding.writeVarUint(enc, MSG_SYNC);
-      syncProtocol.readSyncMessage(dec, enc, board.doc, ws);
+      if (readOnly) {
+        // a viewer may ask for the board (step 1); anything that would change it is dropped
+        if (decoding.readVarUint(dec) !== syncProtocol.messageYjsSyncStep1) return;
+        syncProtocol.readSyncStep1(dec, enc, board.doc);
+      } else syncProtocol.readSyncMessage(dec, enc, board.doc, ws);
       if (encoding.length(enc) > 1) send(ws, encoding.toUint8Array(enc));
     } else if (type === MSG_AWARENESS) {
       awarenessProtocol.applyAwarenessUpdate(board.awareness, decoding.readVarUint8Array(dec), ws);
@@ -221,4 +230,17 @@ export function closeBoards() {
     b.doc.destroy();
   }
   boards.clear();
+}
+
+/** a person's role on a board changed: close their sockets, and the client reconnects under the new role */
+export function dropConnections(boardId: string, userId: string) {
+  const board = boards.get(boardId);
+  if (!board) return 0;
+  let n = 0;
+  for (const ws of board.conns.keys()) {
+    if (socketUser.get(ws) !== userId) continue;
+    ws.close(4001, "role changed");
+    n++;
+  }
+  return n;
 }

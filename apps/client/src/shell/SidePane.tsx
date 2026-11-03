@@ -14,15 +14,16 @@ import { isNight, setNight } from "@foundation/ui";
 import { appendSectionLocal, requestSnap } from "../state/store";
 import { WIDTHS, newSession, openTab, setUi, useUi } from "../state/ui";
 import { refreshLists, useLists } from "../state/sessions";
-import { logout } from "../lib/api";
+import { api, logout } from "../lib/api";
 import { NightOrb } from "./NightOrb";
 import { initials, useBoardTick } from "./Presence";
 import { copyMcpCommand } from "./CommandBar";
 import { FloorEdge } from "./FloorEdge";
+import type { BoardRow } from "./Shell";
 
 interface Props {
   user: UserInfo;
-  boards: Array<{ id: string; name: string }>;
+  boards: BoardRow[];
   current: string;
   onSwitch(id: string): void;
   onNew(): void;
@@ -70,6 +71,8 @@ export function SidePane({ user, boards, current, onSwitch, onNew, onUpload }: P
                 <span className="pane-label">New board</span>
               </button>
             </section>
+
+            {user.role === "admin" && current && <People board={current} me={user.id} />}
 
             <Activity />
 
@@ -160,6 +163,63 @@ function Sessions() {
         )}
       </section>
     </>
+  );
+}
+
+interface Person {
+  id: string;
+  name: string;
+  email: string;
+  color: string;
+  role: "admin" | "member" | "viewer";
+  account: "admin" | "member" | "viewer";
+  onBoard: boolean;
+}
+
+/** admins: who may change this board. A role set here beats the person's account role; admins always can. */
+function People({ board, me }: { board: string; me: string }) {
+  const [people, setPeople] = useState<Person[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    api<{ people: Person[] }>(`/api/boards/${encodeURIComponent(board)}/people`).then((r) => setPeople(r.people)).catch(() => {});
+  }, [board]);
+  const set = async (userId: string, role: "member" | "viewer" | null) => {
+    try {
+      const r = await api<{ people: Person[] }>(`/api/boards/${encodeURIComponent(board)}/people`, { method: "POST", json: { userId, role } });
+      setPeople(r.people);
+      setErr(null);
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+  return (
+    <section className="pane-group">
+      <div className="pane-eyebrow">People on this board</div>
+      {people.map((p) => (
+        <div key={p.id} className="pane-row is-person" title={p.email}>
+          <span className="person-dot" style={{ background: p.color }}>
+            {initials(p.name)}
+          </span>
+          <span className="pane-label">{p.name}</span>
+          {p.account === "admin" ? (
+            <span className="person-role">Admin</span>
+          ) : (
+            <select
+              className={`person-role-pick${p.role === "viewer" ? " is-viewer" : ""}`}
+              value={p.onBoard ? p.role : "default"}
+              disabled={p.id === me}
+              aria-label={`${p.name} on this board`}
+              onChange={(e) => void set(p.id, e.target.value === "default" ? null : (e.target.value as "member" | "viewer"))}
+            >
+              <option value="default">{p.account === "viewer" ? "Viewer (account)" : "Member (account)"}</option>
+              <option value="member">Can edit</option>
+              <option value="viewer">View only</option>
+            </select>
+          )}
+        </div>
+      ))}
+      {err && <div className="pane-empty is-bad">{err}</div>}
+    </section>
   );
 }
 

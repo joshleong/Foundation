@@ -13,6 +13,9 @@ import * as Y from "yjs";
 
 process.env.FOUNDATION_DATA_DIR = mkdtempSync(join(tmpdir(), "foundation-test-"));
 
+// the person the tools act for: a member (an unknown id would be a viewer, and viewers can't write)
+const { run: runSql } = await import("../src/db.ts");
+runSql("insert or ignore into users (id, email, name, color, role, created_at) values (?, ?, ?, ?, 'member', ?)", "u1", "u1@formindustries.com", "Tester", "#325bb4", Date.now());
 const { boardMaps, noteTextOf, putNote, rebaseEdit, setNoteText, textDiff, BOARD_SCHEMA } = await import("@foundation/protocol");
 const { migrateBoard } = await import("../src/migrate.ts");
 const { runTool } = await import("../src/tools.ts");
