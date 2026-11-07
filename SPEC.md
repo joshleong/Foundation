@@ -71,7 +71,7 @@ The running system:
 | **Is** | A shared, infinite, spreadsheet-like grid of sections. A section holds cards: notes, tables, maps, media, and **panels**: live apps, web pages, machines, files and CAD, company connectors, agent jobs, and asks to people |
 | **Above the grid** | The **agent layer**: wires between app ports, rings where agents are working, and an activity feed of who did what |
 | **Agents can** | Run the whole interface through one tool surface (§4): organize, open and wire apps, find repos, read company systems, brief Vision, ask people for CAD (Hermes), queue reverse-engineering (REA) |
-| **Runs** | Locally with one command (`npm run dev`). Desktop via Tauri (`npm run tauri dev`) |
+| **Runs** | Locally with one command (`npm run dev`), on macOS, Linux or Windows. Desktop via Tauri (`npm run desktop`: the server and the window together) |
 
 ### 1.1 Architecture
 
@@ -335,6 +335,7 @@ Every integration is off until its key exists; the server always starts. Copy `.
 - **A wire from a split app section can run tight along a neighbour's edge.**
 - **find_images can't see inside images.** It matches titles, names, comments and where an image came from. A picture shared with no words around it is only found by browsing.
 - **Laid-out sections are a default track wide.** A long document or a big grid scrolls inside its section; sizing the track to the layout would affect neighbours in that column.
+- **Windows is set up but not yet run on a Windows machine** (2026-11-07). `npm run dev`, `npm run desktop` and `npm run services` start `npm`/`npx` through a shell on Windows (they're `.cmd` files there) and stop the whole process tree with `taskkill`; the README has the setup. Still Mac-only: Vision Code hand-offs (T3 paths under `~/Library`), and the REA job, which spawns `npx` without a shell (it would need `npx.cmd` resolved safely, since its arguments include a target). The agent needs `claude.exe` on PATH. A Windows CI job (`npm test`, typecheck and `cargo build` on windows-latest) would prove it on every push.
 - **Hand-offs reach Vision Code through its CLI on the same machine.** A hosted Foundation can't run it; it needs a T3 pairing link and a stored client credential, which is a decision for Josh.
 - **A hand-off thread's file writes wait for approval in Vision Code** (Supervised, by design). Nothing comes back until someone approves there.
 - **Exports are found by watching a folder**, every 4 s. A thread that writes elsewhere brings nothing back; the brief tells it where.

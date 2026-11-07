@@ -21,8 +21,25 @@ Sign in with **Continue with Google**, the same Google sign-in as the flowform c
 ```sh
 npm test               # server invariants (node:test)
 npm run typecheck      # every workspace
-npm run tauri dev      # the desktop window (needs Rust)
+npm run desktop        # the server + the desktop window (needs Rust; see below)
 ```
+
+### On Windows
+
+1. Install **Node 22.13 or newer** (nodejs.org, LTS) and **Git for Windows**.
+2. Clone and run, in PowerShell:
+   ```powershell
+   git clone https://github.com/joshleong/Foundation.git
+   cd Foundation
+   copy .env.example .env
+   npm install
+   npm run dev
+   ```
+   Open http://localhost:1430. Sign in with Google, or with your name and an allowlisted email (`.env` sets `FOUNDATION_ALLOWLIST`). Every ⌘ shortcut is Ctrl on Windows.
+3. **The desktop window** also needs the Tauri toolchain: **Visual Studio Build Tools** with the *Desktop development with C++* workload, **Rust** from rustup.rs (the default MSVC toolchain), and **WebView2** (already on Windows 10 and 11). Then `npm run desktop`. The first build compiles the Rust side, which takes a few minutes.
+4. **The agent** runs on Claude Code: install it with Anthropic's native Windows installer so `claude.exe` is on your PATH (an npm-installed `claude.cmd` can't be started without a shell; point `FOUNDATION_CLAUDE_CLI` at a `claude.exe` instead), or set `ANTHROPIC_API_KEY` for the API runtime.
+
+Vision Code hand-offs look for Vision on macOS paths, and the reverse-engineering job starts `npx` directly, so neither starts on Windows yet (SPEC §7).
 
 Connect Claude Code (or Codex) to a board: press **⌘K**, choose **Connect Claude Code**, and paste the command it copies.
 
