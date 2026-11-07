@@ -20,7 +20,6 @@ import {
   liveScroll,
   moveSectionTo,
   objectPixelSize,
-  objectsInSection,
   removeSection,
   renameSection,
   requestRemoveSection,
@@ -31,8 +30,7 @@ import {
   setSectionHost,
   setSectionScroll,
   splitSection,
-  hostOf,
-  useAppState,
+  useSection,
 } from "../state/store";
 import { Spring, Spring2D, presets } from "../physics/spring";
 import { TableView } from "./TableView";
@@ -68,7 +66,7 @@ export const SectionView = memo(function SectionView({
   getScale,
   zoomSpring,
 }: Props) {
-  const state = useAppState();
+  const view = useSection(section.id);
   const cardRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -160,17 +158,23 @@ export const SectionView = memo(function SectionView({
 
   const rect = sectionCardRect(grid, section);
   // a section that hosts an app is that app; any other cards sit over it
-  const host = hostOf(section.id);
-  const objects = objectsInSection(section.id).filter((o) => o.id !== host?.id);
+  const { host, objects } = view;
   const hostable = !host && objects.length === 1 && isPanel(objects[0]) && isHostable(objects[0].panel) ? objects[0] : null;
+  const lastLayout = useRef(new Map<string, { x: number; y: number }>());
   const layout = useMemo(
     () => {
+      // a card that didn't move keeps its position object, so it doesn't render again when a neighbour is picked up
       const m = new Map<string, { x: number; y: number }>();
-      for (const o of objects) m.set(o.id, effectivePos(o));
+      for (const o of objects) {
+        const p = effectivePos(o);
+        const was = lastLayout.current.get(o.id);
+        m.set(o.id, was && was.x === p.x && was.y === p.y ? was : p);
+      }
+      lastLayout.current = m;
       return m;
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.tables, state.maps, state.notes, state.media, state.panels, rect.w, section.id],
+    [objects, rect.w, section.id],
   );
 
   // ----- scrollable content (spring-smoothed nested grid) -----
@@ -323,7 +327,7 @@ export const SectionView = memo(function SectionView({
   );
 
   // confirmation can be requested locally (✕ button) or via the context menu
-  const confirmingActive = confirming || state.pendingRemoval === section.id;
+  const confirmingActive = confirming || view.pendingRemoval;
   const cancelConfirm = () => {
     setConfirming(false);
     requestRemoveSection(null);
@@ -336,7 +340,7 @@ export const SectionView = memo(function SectionView({
     </button>
   );
 
-  const sectionCtx = active && state.focusLevel === "section";
+  const sectionCtx = active && view.sectionFocus;
 
   return (
     <motion.div
@@ -499,7 +503,7 @@ export const SectionView = memo(function SectionView({
         <div ref={contentRef} className="section-content">
           {objects.map((o) => {
             const pos = layout.get(o.id) ?? { x: o.x, y: o.y };
-            const isObjActive = state.focusLevel === "object" && state.activeObjectId === o.id;
+            const isObjActive = view.activeObjectId === o.id;
             const slot = (child: React.ReactNode) => (
               <div key={o.id} className="obj-slot" data-obj-id={o.id} style={{ left: CONTENT_PAD, top: CONTENT_PAD }}>
                 {child}
@@ -551,7 +555,7 @@ export const SectionView = memo(function SectionView({
           panel={host}
           pos={{ x: 0, y: 0 }}
           hosted
-          isActive={state.focusLevel === "object" && state.activeObjectId === host.id}
+          isActive={view.activeObjectId === host.id}
           getScale={getScale}
         />
       )}

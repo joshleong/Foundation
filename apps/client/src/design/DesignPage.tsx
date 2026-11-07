@@ -520,6 +520,42 @@ export function DesignPage() {
         </div>
       </Section>
 
+      <Section title="Writing together" note="Each person keeps their own colour. In a note you're writing in, someone else's caret is a 2 px bar in their colour, named while it moves and quiet once it rests; their selection is a 22 % tint. A note at rest names whoever is writing in it with a breathing chip at the bottom right, clear of the bar that drops in at the top. ⌘Z takes back only your own words.">
+        <div className="adapt-row">
+          <div className="frame-card" style={{ width: 400 }}>
+            <div className="note-inner" style={{ height: 220 }}>
+              <div className="note-editor note-caret-mirror" aria-hidden style={{ color: "var(--ink)" }}>
+                {"Goals:\n- ship the fan\n"}
+                <span className="note-caret" style={{ ["--peer" as string]: "var(--viz-3)" }}>
+                  <span className="note-caret-name" style={{ animation: "none" }}>Kai</span>
+                </span>
+                {"\nRisks:\n- "}
+                <mark className="note-peer-sel" style={{ ["--peer" as string]: "var(--viz-5)", color: "var(--ink)" }}>
+                  supplier slip
+                </mark>
+                {"\n"}
+              </div>
+              <div className="note-editor" style={{ background: "var(--color-abyss)" }} />
+            </div>
+          </div>
+          <div className="frame-card" style={{ width: 260 }}>
+            <div className="note-inner" style={{ height: 220 }}>
+              <div className="note-writers">
+                <span className="note-writer" style={{ ["--peer" as string]: "var(--viz-3)" }}>
+                  Kai
+                </span>
+              </div>
+              <div className="note-rendered">
+                <p>Goals:</p>
+                <ul>
+                  <li>ship the fan</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Section>
+
       <Section title="Panels that adapt" note="Design for the narrowest width first; container queries, never the window. Check 260, 400 and 560 px.">
         <div className="adapt-row">
           {[260, 400, 560].map((w) => (

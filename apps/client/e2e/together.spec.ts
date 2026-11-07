@@ -1,13 +1,16 @@
 /**
  * Two people on one board, in two browsers (Phase 1): typing in one note at
  * once, writing cells of one table at once, renaming a section — and both
- * end up looking at the same board.
+ * end up looking at the same board. Then (2026-11-07) each sees where the
+ * other is: pointer cursors on the board, named carets in a note, and ⌘Z
+ * takes back only your own words.
  */
 
 import { test, expect, type Page } from "@playwright/test";
 import { CLIENT, person, settle } from "./helpers";
 
 const SHOTS = "../../docs/evidence/2026-11-03_together";
+const SHOTS2 = "../../docs/evidence/2026-11-07_together-notes";
 let ada: Page;
 let kai: Page;
 let board = "";
@@ -34,6 +37,22 @@ test.beforeAll(async ({ browser }) => {
   await settle(ada, 800);
 });
 
+/** frame the shared note, open it for writing, and put the caret after "Goals:" or at the end */
+async function openShared(p: Page, at: "goals" | "end") {
+  const id = await p.evaluate(() => Object.values((window as unknown as { __foundation: { getState(): { notes: Record<string, { id: string; name: string }> } } }).__foundation.getState().notes).find((n) => n.name === "Shared")!.id);
+  await p.evaluate((i) => (window as unknown as { __foundation: { setState(x: object): void } }).__foundation.setState({ snapRequest: { kind: "object", id: i, nonce: Math.random() } }), id);
+  await settle(p, 1200);
+  await p.locator(`[data-obj-id="${id}"] .note-rendered`).dblclick();
+  const ed = p.locator(`[data-obj-id="${id}"] textarea`);
+  await ed.waitFor();
+  // the caret: after "Goals:\n" for Ada, at the end for Kai
+  await ed.evaluate((el: HTMLTextAreaElement, where) => {
+    const at = where === "goals" ? el.value.indexOf("\n") + 1 : el.value.length;
+    el.setSelectionRange(at, at);
+  }, at);
+  return ed;
+}
+
 test("both see one board, with one first section", async () => {
   const [a, k] = [await state(ada), await state(kai)];
   expect(a.sections).toEqual(["Section 1"]);
@@ -41,21 +60,7 @@ test("both see one board, with one first section", async () => {
 });
 
 test("two people typing in one note at once both keep their words", async () => {
-  const open = async (p: Page, at: "goals" | "end") => {
-    const id = await p.evaluate(() => Object.values((window as unknown as { __foundation: { getState(): { notes: Record<string, { id: string; name: string }> } } }).__foundation.getState().notes).find((n) => n.name === "Shared")!.id);
-    await p.evaluate((i) => (window as unknown as { __foundation: { setState(x: object): void } }).__foundation.setState({ snapRequest: { kind: "object", id: i, nonce: Math.random() } }), id);
-    await settle(p, 1200);
-    await p.locator(`[data-obj-id="${id}"] .note-rendered`).dblclick();
-    const ed = p.locator(`[data-obj-id="${id}"] textarea`);
-    await ed.waitFor();
-    // the caret: after "Goals:\n" for Ada, at the end for Kai
-    await ed.evaluate((el: HTMLTextAreaElement, where) => {
-      const at = where === "goals" ? el.value.indexOf("\n") + 1 : el.value.length;
-      el.setSelectionRange(at, at);
-    }, at);
-    return ed;
-  };
-  const [ea, ek] = [await open(ada, "goals"), await open(kai, "end")];
+  const [ea, ek] = [await openShared(ada, "goals"), await openShared(kai, "end")];
   // interleaved keystrokes, as two people typing at the same time
   const a = "- ship the fan\n";
   const k = "- supplier slip\n";
@@ -113,4 +118,47 @@ test("a rename by one is seen by the other, and both boards match", async () => 
   });
   await kai.waitForFunction(() => Object.values((window as unknown as { __foundation: { getState(): { sections: Record<string, { name: string }> } } }).__foundation.getState().sections).some((s) => s.name === "Fan programme"));
   expect(await state(kai)).toEqual(await state(ada));
+});
+
+test("each sees the other's pointer on the board", async () => {
+  await ada.mouse.move(700, 420);
+  await ada.mouse.move(720, 440, { steps: 4 });
+  await kai.waitForFunction(() => [...document.querySelectorAll(".peer-cursor .peer-name")].some((n) => n.textContent === "Ada Test"));
+  await kai.mouse.move(500, 300);
+  await kai.mouse.move(520, 320, { steps: 4 });
+  await ada.waitForFunction(() => [...document.querySelectorAll(".peer-cursor .peer-name")].some((n) => n.textContent === "Kai Test"));
+});
+
+test("each sees where the other is writing; ⌘Z takes back only your own words", async () => {
+  const before = "Goals:\n- ship the fan\n\nRisks:\n- supplier slip\n";
+  const [ea, ek] = [await openShared(ada, "goals"), await openShared(kai, "end")];
+  expect(await ea.inputValue()).toBe(before);
+  // a named caret for the other person, in both editors
+  await ada.locator(".note-caret-name", { hasText: "Kai Test" }).waitFor();
+  await kai.locator(".note-caret-name", { hasText: "Ada Test" }).waitFor();
+  await ada.keyboard.type("- tooling\n");
+  await kai.keyboard.type("- late resin\n");
+  await settle(ada, 700);
+  const both = "Goals:\n- tooling\n- ship the fan\n\nRisks:\n- supplier slip\n- late resin\n";
+  expect(await ea.inputValue()).toBe(both);
+  expect(await ek.inputValue()).toBe(both);
+  await ada.screenshot({ path: `${SHOTS2}/01_ada-sees-kai-writing.png` });
+  await kai.screenshot({ path: `${SHOTS2}/02_kai-sees-ada-writing.png` });
+  // Ada's undo takes back her line; Kai's stays, in both editors
+  const mod = process.platform === "darwin" ? "Meta" : "Control";
+  await ada.keyboard.press(`${mod}+z`);
+  await settle(ada, 700);
+  const undone = "Goals:\n- ship the fan\n\nRisks:\n- supplier slip\n- late resin\n";
+  expect(await ea.inputValue()).toBe(undone);
+  expect(await ek.inputValue()).toBe(undone);
+  // and redo puts it back
+  await ada.keyboard.press(`${mod}+Shift+z`);
+  await settle(ada, 700);
+  expect(await ek.inputValue()).toBe(both);
+  // Ada closes the note: a chip names whoever is still writing in it, until they stop
+  await ada.keyboard.press("Escape");
+  await ada.locator(".note-writer", { hasText: "Kai Test" }).waitFor();
+  await ada.screenshot({ path: `${SHOTS2}/03_ada-sees-kai-in-the-note.png` });
+  await kai.keyboard.press("Escape");
+  await expect(ada.locator(".note-writer")).toHaveCount(0);
 });
