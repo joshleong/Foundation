@@ -12,9 +12,9 @@
  * crossings are recomputed only when the set of routes changes.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { LinkDoc } from "@foundation/protocol";
-import { addLink, applyWireClip, getState, gridSize, objectWorldRect, removeLink, uid, updatePanel, useAppState, wireClipRect, type PanelMeta } from "../state/store";
+import { addLink, applyWireClip, getState, gridSize, objectWorldRect, removeLink, subscribe, uid, updatePanel, useAppState, wireClipRect, type PanelMeta } from "../state/store";
 import { toast, useUi } from "../state/ui";
 import { useBoardTick } from "./Presence";
 import { toWorld, camera } from "../state/camera";
@@ -449,6 +449,7 @@ export function PortWires() {
 
 /** the shared port layout for a card (PanelView renders its pills from this) */
 export function usePortLayout(panel: PanelMeta) {
-  const state = useAppState();
-  return useMemo(() => portLayout(panel, Object.values(state.links)), [panel, state.links]); // eslint-disable-line react-hooks/exhaustive-deps
+  // only the links: a whole-store subscription re-rendered every app on the board at each press, drag frame and keystroke
+  const links = useSyncExternalStore(subscribe, () => getState().links);
+  return useMemo(() => portLayout(panel, Object.values(links)), [panel, links]); // eslint-disable-line react-hooks/exhaustive-deps
 }

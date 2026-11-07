@@ -27,6 +27,8 @@ export default defineConfig({
     deviceScaleFactor: 1,
     colorScheme: "dark",
     actionTimeout: 10_000,
+    // a machine whose Chromium isn't the one this Playwright downloads (a cloud box, CI) names its own
+    ...(process.env.PW_CHROMIUM ? { launchOptions: { executablePath: process.env.PW_CHROMIUM } } : {}),
   },
   webServer: [
     {
