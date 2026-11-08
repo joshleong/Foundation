@@ -144,7 +144,12 @@ export function claudeCommand(cli: string, rt: Runtime): Command | Refused {
   const named = p.extname(cli) ? [cli] : exts.map((e) => cli + e);
   const candidates = /[\\/]/.test(cli) ? named : pathDirs(rt).flatMap((d) => named.map((n) => p.join(d, n)));
   const found = candidates.find((f) => rt.exists(f));
-  if (!found) return refuse(`Claude Code (${cli}) isn't on this computer's PATH. Install it (claude.exe), or set FOUNDATION_CLAUDE_CLI to where it is, then start Foundation's server again.`);
+  if (!found)
+    return refuse(
+      /[\\/]/.test(cli)
+        ? `Claude Code isn't at ${cli} (FOUNDATION_CLAUDE_CLI). Point it at claude.exe, then start Foundation's server again.`
+        : `Claude Code (${cli}) isn't on this computer's PATH. Install it (claude.exe), or set FOUNDATION_CLAUDE_CLI to where it is, then start Foundation's server again.`,
+    );
   if (/\.(cmd|bat)$/i.test(found)) {
     const script = shimScript(found, rt);
     if (script) return { ok: true, cmd: rt.execPath, pre: [script] };
