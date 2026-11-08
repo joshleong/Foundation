@@ -475,7 +475,7 @@ Every integration is off until its key exists; the server always starts. Copy `.
 - **The mic level opens the microphone a second time** (getUserMedia beside Web Speech). In the desktop app and some browsers that's a second permission prompt. Without it the bars breathe instead.
 - **The flowform importer's fixture rooms were never committed** (`apps/server/test/fixtures/flowform/data/rooms`): the root `.gitignore`'s `data/` caught them, so on a fresh clone `flowform-import.test.ts` crashed and `npm test` was red on `main`. Its six tests now skip and say why, and the rule is `/data/`. Whoever has the rooms should commit them. `main` also didn't typecheck: `index.ts` used `requireBoard`/`hiddenBoards`/`canSeeBoard` without importing them from `members.ts` (fixed).
 - **The e2e client port :1450 sits in a block Windows reserves on this machine** (1437–1536). `E2E_CLIENT_PORT` moves it (`E2E_CLIENT_PORT=15450 npm run e2e -w @foundation/client`).
-- **Cards at rest have no title** (by design); a connector shown as a card (not hosted) reads by its body only. Hosted apps and pipeline stages name themselves.
+- **Cards at rest have no title** (by design); hosted apps and pipeline stages name themselves, and since 2026-11-07 so does a connector shown as a card (14/600 above its status pill). Other panel cards (links, files) still read by their body.
 
 ---
 

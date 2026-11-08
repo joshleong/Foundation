@@ -1667,6 +1667,15 @@ body.is-connecting .port-in.is-snap {
   gap: var(--space-4);
   container-type: inline-size;
 }
+/* a connector shown as a card (not filling its section) names itself, as pipeline stages do */
+.connector-name {
+  margin-bottom: var(--space-2);
+  color: var(--color-frost);
+  font: 600 var(--text-14) / 1.2 var(--font-sans);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .connector-head {
   display: flex;
   align-items: center;

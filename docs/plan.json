@@ -767,7 +767,7 @@
       "kind": "bug",
       "milestone": "polish",
       "area": "panels",
-      "status": "backlog",
+      "status": "done",
       "body": "Cards have no title at rest by design; hosted apps and pipeline stages name themselves, but a connector card reads by its body only."
     },
     {

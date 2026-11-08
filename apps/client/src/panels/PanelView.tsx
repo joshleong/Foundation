@@ -13,7 +13,7 @@
 import { CadPreview } from "../cad/CadPreview";
 import { MODEL_EXT } from "../cad/model";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { MINI_HEADER, emitPort, getState, inputValue, movePanel, removePanel, resizePanel, sectionBodyRect, updatePanel, type PanelMeta } from "../state/store";
+import { isHosted, MINI_HEADER, emitPort, getState, inputValue, movePanel, removePanel, resizePanel, sectionBodyRect, updatePanel, type PanelMeta } from "../state/store";
 import { ObjectFrame } from "../components/ObjectFrame";
 import { beginConnect, beginDetach, usePortLayout } from "../shell/AgentLayer";
 import { describeValue, landingsOf, toneOf } from "../shell/ports";
@@ -453,6 +453,8 @@ function ConnectorBody({ panel }: { panel: PanelMeta }) {
   const reason = st?.summary.replace(/^offline — /, "") ?? "";
   return (
     <div ref={host} className={`connector-body${offline ? " is-offline" : ""}`}>
+      {/* a hosted connector's section header names it; as a card at rest it names itself */}
+      {!isHosted(panel) && <div className="connector-name">{panel.name}</div>}
       <div className="connector-head">
         <span className={`connector-status ${!st ? "is-checking" : st.ok ? "is-live" : "is-off"}`}>
           <span className={`f-dot ${!st ? "is-live" : st.ok ? "is-ok is-live" : "is-warn"}`} />
