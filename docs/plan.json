@@ -101,7 +101,7 @@
       "kind": "bug",
       "milestone": "huddles",
       "area": "huddles",
-      "status": "next",
+      "status": "doing",
       "body": "Huddle state lives on the panel object; a move at the same moment overwrites it until the next join or leave. Keep it in its own map."
     },
     {
@@ -371,7 +371,7 @@
       "kind": "plan",
       "milestone": "crew",
       "area": "crew",
-      "status": "backlog",
+      "status": "doing",
       "body": "A laser on a table cell or a port, not just a card, so an agent can show what it means."
     },
     {
@@ -425,8 +425,8 @@
       "kind": "plan",
       "milestone": "company",
       "area": "company",
-      "status": "backlog",
-      "body": "Once a day, a note on the company board that says what changed in BomForm, FactoryForm and the board's own activity."
+      "status": "doing",
+      "body": "Once a day, a note on the company board that says what changed in BomForm, FactoryForm and the board's own activity. Built deterministically from the activity log and connector snapshots (no model, so nothing is spent); an agent can be asked to expand on it."
     },
     {
       "id": "bomform-diff",
