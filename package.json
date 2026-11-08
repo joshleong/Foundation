@@ -1,7 +1,7 @@
 {
   "name": "foundation",
   "private": true,
-  "description": "Foundation \u2014 the company brain of Form Industries. One grid where people, apps and agents work together.",
+  "description": "Foundation — the company brain of Form Industries. One grid where people, apps and agents work together.",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -15,7 +15,11 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm test --workspaces --if-present",
     "tauri": "npm run tauri -w @foundation/client --",
-    "services": "node scripts/sibling.mjs all"
+    "services": "node scripts/sibling.mjs all",
+    "plan:push": "node scripts/plan.mjs push",
+    "plan:pull": "node scripts/plan.mjs pull",
+    "plan:project": "node scripts/plan.mjs project",
+    "plan:check": "node scripts/plan.mjs check"
   },
   "engines": {
     "node": ">=22.16"

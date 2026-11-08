@@ -2,18 +2,19 @@
 
 > The company brain of Form Industries: one shared grid where people, the apps we build, and the agents that work with us meet. This document is the plan every session (human or agent) builds from. **DESIGN.md** is its visual contract. Status is honest: _done_ means it ran and was checked; _partial_ and _stub_ say what's missing.
 
-Last updated 2026-11-07 · branch `main` · evidence in `docs/evidence/` (latest: `2026-11-07_crew/`)
+Last updated 2026-11-07 · branch `main` · evidence in `docs/evidence/` (latest: `2026-11-07_plan-board/`) · **the plan is a kanban board**: `docs/plan.json`, GitHub issues, and Settings → Plan in the app (§8)
 
 ---
 
-## Open to-dos (kept by Josh, 2026-11-02)
+## Waiting on a person (from the plan board's **Needs you** column)
 
-- [ ] **Repo visibility** — `joshleong/Foundation` is public; decide private / move to the Form Industries org (§6.1)
-- [x] **Phase 1 · Solid ground** (§8): Y.Text notes, per-table cells, viewer role, offline, the two-browser Playwright test and the perf trace — done 2026-11-03
-- [ ] **Keys and setup** — Slack, BomForm + CA, API credits, `npx rea-agents setup` (§6)
-- [ ] **Slack app** — create it from `docs/slack-app-manifest.yml`, set `SLACK_BOT_TOKEN`, then open a real channel card: huddles and Slack cards were verified against a stand-in Slack only (§3, §6.7)
-- [x] **Vision loop** (Phase 2, 2026-11-03): briefs start Supervised Vision Code threads (a person presses Run); exports come back as cards; reviewers asked; CAD cards show the part. Remove the scratch "Foundation hand-offs" project left in Vision Code by the check run
-- [ ] **Release → BomForm** — write BOM lines from the Release stage once BomForm's write tools are keyed
+The plan moved to a kanban board on 2026-11-07 (§8). What only a person can do, at the top of it:
+
+- **Sign Claude Code back in** on the Windows machine: no real model has driven the crew yet (§6 #4)
+- **Put the plan on GitHub**: issues are off on `joshleong/Foundation` (a fork), and publishing to a public repo was left to you. Turn them on (`gh repo edit joshleong/Foundation --enable-issues`), then `npm run plan:push`: one issue per card, with `status:` / `kind:` / `area:` labels and a milestone each. For a GitHub Projects board too, `gh auth refresh -s project` and `npm run plan:project`
+- **Repo visibility**: `joshleong/Foundation` is public (§6 #1), and the issues will be too
+- **Keys**: Slack app (§6 #7), BomForm and the Data Room's stopped sync (§6 #5), API credits, `npx rea-agents setup`
+- **Installs and checks**: Kiri, a real voice in a huddle and to the crew's sheet, an approved export from a real Vision Code thread
 
 ## 0. How this brief was framed
 
@@ -260,7 +261,8 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | **Presentation** | P: chrome fades, camera glides section to section, infinite looping filmstrip with drag/wheel inertia | done | |
 | **Login** | The ASCII wind with no card and no frame: it knows each element on the page, parts around it and traces its outline in faintly lit glyphs (text by its words, controls by their rounded boxes), and the one under the pointer or holding focus lights up. A grey eyebrow, the title, and a light **Connect with Google** pill on springs, with the email sign-in folded behind "Use your email". Always day colours. The outlines come up top to bottom on arrival; typing, presses and errors stir the wind; signing in dissolves outward into the board once it has loaded behind the page (also on arrival back from flowform, `?arrive`). The wind runs at the display's rate (60 fps measured, 2026-11-07, §5) | done (`docs/evidence/2026-11-03_sign-in-frame/`; per-element outlines `docs/evidence/2026-11-07_sign-in-shapes/`; pacing `docs/evidence/2026-11-07_frames/`) | The Details original ("ASCII Cursor 2.0", WebGL2) plus Foundation hooks (`root.asciiWind`: tap, stir, shapes, dissolve, drawNow, state; and the `quiet` option). `#/design/sign-in` previews it while signed in. Without WebGL2, or under reduced motion / high contrast, it's the same form on plain paper with a mask-only dissolve |
 | **Design** | `#/design` living page; DESIGN.md | done | |
-| **Release & plan** (2026-11-03) | A side-pane group: **App floorplan** opens a map of Foundation's own code (`/floorplan.html`: every part, all 126 code files and the links between them, named and described in plain words, with a Start-here tour and three flows: two people editing, an agent turn, a part from brief to release), and **The plan** opens §8. Made with the floorplan plugin and exported without the Ask bar, machine paths or the health list (the repo is public) | done | Opened from the side pane in a real browser, day and night (`docs/evidence/2026-11-03_floorplan/`). A snapshot: refresh it after a release (`docs/floorplan.md`) |
+| **Plan board** (2026-11-07) | The plan as a kanban: `docs/plan.json` (71 cards: bugs and plans from §7 and the old §8 phases, hookups from §6), `scripts/plan.mjs` keeps it in step with GitHub issues (push, pull, a Projects board), and **Settings** (`#/settings`, new) shows it: six columns, filters, search, cards that open in place; admins drag cards between columns (`POST /api/plan/cards/:id`, a person's session only), which writes the file and marks the card until it's pushed. Settings also has **Services** (what this server is connected to). The side pane's "The plan" opens it | partial: the board and moves done; **not yet on GitHub** | Browser at 1440 and 400 px, day and night: 71 cards, a card moved Next → Doing by an admin, the file written, the card marked (`docs/evidence/2026-11-07_plan-board/`). `test/plan.test.ts` (server 3, client 3). Pushing to GitHub was held back: issues are off on the public fork, and publishing there is Josh's call (top of this file) |
+| **Release & plan** (2026-11-03) | A side-pane group: **App floorplan** opens a map of Foundation's own code (`/floorplan.html`: every part, all 126 code files and the links between them, named and described in plain words, with a Start-here tour and three flows: two people editing, an agent turn, a part from brief to release), and **The plan** opens the plan board (Settings → Plan; it opened §8 on GitHub until 2026-11-07). Made with the floorplan plugin and exported without the Ask bar, machine paths or the health list (the repo is public) | done | Opened from the side pane in a real browser, day and night (`docs/evidence/2026-11-03_floorplan/`). A snapshot: refresh it after a release (`docs/floorplan.md`) |
 | **Desktop** | `npm run desktop` (dev: the window shows Vite on :1430). Packaged (`npm run tauri build`): the app serves its own page from http://localhost:31440 (`tauri-plugin-localhost`), so a server on http://localhost:4410 is the same site and its cookie, sync socket and SSE work unchanged; one copy at a time (a second launch shows the open window); a plain message if the port is taken. `.env.desktop` sets the server | partial | **Windows, 2026-11-07** (Windows 11, WebView2 157): dev window signed in and live; packaged build makes an NSIS `setup.exe` (6.2 MB) and an `.msi` (7.4 MB), and its exe, from a cleared profile, signed in through the form, synced live, reopened the board from the device's copy with the server down and reconnected by itself when it came back (`docs/evidence/2026-11-07_desktop-windows/`, driven over WebView2's DevTools port by `scripts/desktop-probe.mjs`). The installers weren't run, and nothing is signed. Linux (WebKitGTK under Xvfb, 2026-11-07): dev window (`docs/evidence/2026-11-07_desktop-linux/`). The macOS build wasn't rebuilt. The packaged app needs a local server: a hosted one is cross-site (§7) |
 | **Grid feel** (2026-11-02) | ~~Magnetic snapping~~ (replaced by keyboard-only framing, see Chrome on call). Safe-area framing clear of the side pane and search pill. Sections frame their cards (sparse sections at ~105% instead of ~55%). Trackpad pinch 1:1, two-finger pan everywhere. Keys 0 / ⇧1 / F / ⇧2 / 1 / + / −, Space-drag. Live zoom % in the HUD. Cards lift and lean when dragged | done | `docs/evidence/2026-11-02_grid-feel/`. Not yet measured on a real trackpad (headless only) |
 | **Flow wires** (2026-11-02) | Vision's flow-diagram rules on app and pipeline wires: 45° roads with straight leads, back-routes through the gap, parallel lanes, stable over/under tunnels, typed tones, port pill intakes with a landing per wire, hover tooltips with live values, select + ⌫, magnetic drag with compatible-port highlighting, grab-to-re-route | done | `docs/evidence/2026-11-02_flow-wires/`, `apps/client/test/wires.test.ts`. Table→map and formula wires follow the same rules, and over/under is decided across both layers (shell/routeRegistry.ts). Wires route round every card in their way (routeAvoiding) — measured: 0 of 12 company-board wires cross a card |
@@ -411,7 +413,6 @@ Every integration is off until its key exists; the server always starts. Copy `.
 - **Linking accounts is a command, not a screen.** One person can end up with two Foundation users: a dev-login address, and the address flowform signs them in with (flowform keeps the sign-up address, josh@normallab.co, for the Google identity josh@formindustries.co). `npm run link-accounts -w apps/server -- <keep> <other>` folds one into the other: sessions, files, runs and asks move, and the flowform link moves, so Google signs in as the kept user. Josh's accounts were linked on 2026-11-02 (kept josh.leong@gmail.com). There's no admin UI for this yet.
 - **The REA job runner and the Vision brief are unexercised end to end.**
 - **The app floorplan is a snapshot** (`apps/client/public/floorplan.html`, 2.3 MB). It doesn't update itself; refresh it after a release (`docs/floorplan.md`). The map's sources (`floorplan/`) stay out of git, so a fresh clone redraws them.
-- **`npm test` used to reach a real Vision Code.** `vision.ts` and `t3.ts` read `T3_URL` at import, before `vision.test.ts` pointed it at its stand-in, so the Run test talked to whatever was on :3783 (on Josh's machine, Vision Code itself; likely where the scratch "Foundation hand-offs" project came from) and failed where nothing was. Fixed 2026-11-03: the URL is read when used.
 - **The ASCII wind shows nothing under reduced motion**, on machines without WebGL2, or on software renderers — the Details original's choice; the sign-in page is plain paper there. It also fades out while the window is unfocused.
 - **Hidden windows pause `requestAnimationFrame`.** Overlays catch up when shown. `?rafshim` (dev) drives frames from a timer for headless capture.
 - **Panel iframes use `sandbox` with `allow-same-origin`**, so a hostile app on the same origin could escape. Only add apps you trust; serve third-party apps from their own origins.
@@ -476,22 +477,32 @@ Every integration is off until its key exists; the server always starts. Copy `.
 
 ## 8. Plan
 
-| Phase | Scope |
+**The plan is a kanban board** (2026-11-07, Josh: "the plan forward should be a kanban board that we move through issues").
+
+- **`docs/plan.json`** is the plan: every bug, plan and hookup as a card with a column, a milestone, an area and (once pushed) its GitHub issue.
+- **GitHub issues** are where the team moves cards: `npm run plan:push` makes or updates one issue per card (labels `plan`, `kind: …`, `status: …`, `area: …`; a milestone each; Done closes it), and `npm run plan:pull` reads columns, titles and bodies back, and brings in any issue labelled `plan` that was opened on GitHub. `npm run plan:project` also lays them out as a GitHub Projects board (needs `gh auth refresh -s project`). `npm run plan:check` validates the file (also in `npm test`).
+- **Settings → Plan** in the app shows the board: the copy bundled with the build, refreshed from the server's file. An admin can drag a card to another column; the move writes the file and the card says *moved here* until it's pushed.
+
+Columns: **Needs you** (a key, an install, a decision) · **Next** (in order) · **Doing** · **Review** (built; waiting to merge or for a person to check) · **Backlog** · **Done**.
+
+Milestones (what the old phases became; finished phases 1 and 2 are gone from the plan):
+
+| Milestone | What it covers |
 |---|---|
-| **1 · Solid ground (done 2026-11-03)** | ~~`Y.Text` notes~~, ~~per-table cell maps~~, ~~viewer role~~, ~~offline~~, ~~Playwright two-browser test~~, ~~perf trace~~. Viewer role. `y-indexeddb` offline. Measured perf trace. Playwright two-browser convergence test. Prune legacy CSS. Get `check-design` going (ratchet raw colours like the Data Room) |
-| **2 · Vision loop (done 2026-11-03)** | Foundation starts Vision Code (T3) threads for a brief (`orchestration.dispatchCommand` `thread.turn.start`, see Vision `apps/vision/src/code/handoff.ts`). Vision's exports land back as file panels. A CAD 3D preview via Vision's OpenCascade. Reviews return as asks |
-| **3 · Company brain** | BomForm snapshot cached and diffed. FactoryForm SSE (`/api/events`) pushed into the connector live. A daily "what changed" digest note by the agent. Voice: Vision's `@pacific/voice` realtime session for spoken conversations about the company |
-| **4 · Search depth** | flowform's semantic search (e5 text vectors, SigLIP images, RRF k=60). Slack per-user OAuth with visibility that fails closed. Google Drive and Figma connectors |
-| **The crew next** | One real model turn (sign Claude Code back in). Agents that point (a laser on a cell or a port, not just a card). Follow an agent (your view rides along with it until you move). A crew-wide stop. Spatial voice: ask the agent nearest your pointer. A local transcriber so the voice stays in-house |
-| **5 · Apps as first-class** (machines landed 2026-11-07) | An app registry UI. `foundation.json` adoption across our vibe-coded apps. Wires that call MCP tools on input. ~~Docker launch from a card~~ (Machines, 2026-11-07: Kiri or Docker). Next for machines: run it on Kiri; agents that run commands in a machine a person started (approved per command); `docker compose` stacks as sections; noVNC/ttyd presets for desktops |
-| **Huddles next** | Real-voice transcription check, then a local transcriber. Per-person recording opt-out. Slack Socket Mode (live messages), threads, and posting a summary when a session ends (person-approved). Screen share into the portal. Spatial audio (voices fade with distance from the portal while you roam). SFU past six people |
-| **6 · Ship** | Tauri desktop builds in CI, a hosted server (S3 media, Postgres or libsql), Data Room / Creation / Vision panels sharing `@foundation/ui` (or Vision's `@pacific/ui` directly) |
+| Polish | Bugs and rough edges in what ships (most of §7) |
+| Vision loop | Hand-offs on Windows, an export seen from a real thread, Release → BomForm, a pairing link for a hosted server |
+| The crew | A real model turn, crew-wide stop, follow and point, spatial voice |
+| Company brain | BomForm diffed, the daily digest, spoken conversations |
+| Search depth | Semantic search, Slack per person, Drive and Figma |
+| Apps first-class | The registry, foundation.json, wires that call MCP, machines next |
+| Huddles | A local transcriber, recording opt-out, live Slack, screen share, an SFU |
+| Ship | CI on three systems, signed installers, a hosted server, a header-capable sync transport |
 
 ### Session routine (for every human or agent picking this up)
 
 1. Read SPEC.md (this), DESIGN.md, and the last entries in `docs/evidence/`.
 2. `npm install && npm test && npm run typecheck`. If red, fixing that is the session.
-3. Take the top unchecked item of the current phase, or a §7 issue if it's worse.
+3. Take the top card in **Next** (Settings → Plan, or the issues labelled `status: next`), or a §7 issue if it's worse. Move it to Doing in `docs/plan.json`.
 4. UI lands on `#/design` first, on tokens only. Check light and night, and 260/400/560-wide panels.
 5. Capture evidence (screenshots and numbers) in `docs/evidence/<date>_<slice>/`.
-6. Update §3 status and §7 issues honestly. Commit with a message that says what changed and how it was checked.
+6. Update §3 status and §7 issues honestly, and move the card (Review or Done). Commit with a message that says what changed and how it was checked; `npm run plan:push` when you have GitHub access.

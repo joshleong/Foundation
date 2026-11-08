@@ -1,0 +1,729 @@
+{
+  "about": "Foundation's plan as a kanban. GitHub issues are where the team moves cards; this file is the local copy the app shows in Settings → Plan. `npm run plan:push` writes it to GitHub, `npm run plan:pull` reads the issues back. Columns: needs-you (waits on a person: a key, an install, a decision), backlog, next, doing, review (built, waiting to merge or to be checked by a person), done.",
+  "repo": "joshleong/Foundation",
+  "syncedAt": null,
+  "columns": [
+    {
+      "id": "needs-you",
+      "name": "Needs you",
+      "hint": "Waits on a person: a key, an install, a decision"
+    },
+    {
+      "id": "next",
+      "name": "Next",
+      "hint": "Picked up in this order"
+    },
+    {
+      "id": "doing",
+      "name": "Doing",
+      "hint": "Someone (or an agent) is on it"
+    },
+    {
+      "id": "review",
+      "name": "Review",
+      "hint": "Built; waiting to merge or for a person to check"
+    },
+    {
+      "id": "backlog",
+      "name": "Backlog",
+      "hint": "Planned, not yet ordered"
+    },
+    {
+      "id": "done",
+      "name": "Done",
+      "hint": "Ran and was checked"
+    }
+  ],
+  "milestones": [
+    {
+      "id": "polish",
+      "name": "Polish",
+      "about": "Bugs and rough edges in what already ships"
+    },
+    {
+      "id": "vision",
+      "name": "Vision loop",
+      "about": "Briefs to Vision Code and back; Release to BomForm"
+    },
+    {
+      "id": "crew",
+      "name": "The crew",
+      "about": "Agents you can see, driven by a real model"
+    },
+    {
+      "id": "company",
+      "name": "Company brain",
+      "about": "BomForm, FactoryForm and the daily picture"
+    },
+    {
+      "id": "search",
+      "name": "Search depth",
+      "about": "Semantic search, Slack per person, Drive and Figma"
+    },
+    {
+      "id": "apps",
+      "name": "Apps first-class",
+      "about": "The registry, foundation.json, machines next"
+    },
+    {
+      "id": "huddles",
+      "name": "Huddles",
+      "about": "Voice in-house, recording consent, live Slack"
+    },
+    {
+      "id": "ship",
+      "name": "Ship",
+      "about": "CI, signed desktop builds, a hosted server"
+    }
+  ],
+  "cards": [
+    {
+      "id": "claude-sign-in",
+      "title": "Sign Claude Code back in on the Windows machine",
+      "kind": "hookup",
+      "milestone": "crew",
+      "area": "agent",
+      "status": "needs-you",
+      "body": "Claude Code's OAuth session on Josh's Windows machine has expired, so every subscription-runtime turn fails. Run `claude` once and sign in. Then hold Space on the board and ask the crew for something: no real model has driven the crew yet (SPEC §6 #4, §7)."
+    },
+    {
+      "id": "repo-visibility",
+      "title": "Decide the repo's visibility (public fork today)",
+      "kind": "hookup",
+      "milestone": "ship",
+      "area": "repo",
+      "status": "needs-you",
+      "body": "`joshleong/Foundation` is public and holds company plans and connector names (and now these issues). Make it private, or move it to the Form Industries org (SPEC §6 #1)."
+    },
+    {
+      "id": "slack-app",
+      "title": "Create the Slack app and set SLACK_BOT_TOKEN",
+      "kind": "hookup",
+      "milestone": "huddles",
+      "area": "slack",
+      "status": "needs-you",
+      "body": "Create the app from `docs/slack-app-manifest.yml`, install it, set `SLACK_BOT_TOKEN` (and `SLACK_USER_TOKEN` for ⌘K search). Channel cards, links, huddle invites, Hermes DMs and `lay_out` from Slack have only run against a stand-in Slack (SPEC §6 #7)."
+    },
+    {
+      "id": "keys-setup",
+      "title": "Keys: BomForm + CA, API credits, rea-agents setup",
+      "kind": "hookup",
+      "milestone": "company",
+      "area": "connectors",
+      "status": "needs-you",
+      "body": "`BOMFORM_MCP_URL` + `BOMFORM_API_KEY` + `NODE_EXTRA_CA_CERTS`, or the Data Room read token; `ANTHROPIC_API_KEY` for the API runtime (untested); `npx rea-agents setup` before a reverse-engineering card's Run (SPEC §6)."
+    },
+    {
+      "id": "dataroom-sync-stopped",
+      "title": "The Data Room's daily BomForm sync stopped on 2026-09-05",
+      "kind": "bug",
+      "milestone": "company",
+      "area": "connectors",
+      "status": "needs-you",
+      "body": "BomForm reads the Data Room's copy, labelled \"copy · 58d old\". Check `BOMFORM_API_KEY` / `CRON_SECRET` on Vercel, merge `foundation-bomform-read` and point `DATAROOM_BOMFORM_URL` at airformdata.com (SPEC §6 #5)."
+    },
+    {
+      "id": "install-kiri",
+      "title": "Install Kiri and run the machines smoke test on it",
+      "kind": "hookup",
+      "milestone": "apps",
+      "area": "machines",
+      "status": "needs-you",
+      "body": "Machines were checked on Docker Desktop and against Kiri's source only. Install Kiri (runkiri.com) and run `npm run machines:smoke -w @foundation/server -- kiri`. Note Kiri drops per-container memory/CPU caps (SPEC §7)."
+    },
+    {
+      "id": "github-issues",
+      "title": "Turn on issues and push the plan to GitHub",
+      "kind": "hookup",
+      "milestone": "ship",
+      "area": "repo",
+      "status": "needs-you",
+      "body": "Issues are off on `joshleong/Foundation` (it's a fork), and publishing the plan to a public repo was left for a person to decide. Turn them on (`gh repo edit joshleong/Foundation --enable-issues`), then `npm run plan:push`: one issue per card, labelled `plan`, `kind:`, `status:` and `area:`, with a milestone each. `npm run plan:pull` brings moves made on GitHub back."
+    },
+    {
+      "id": "github-project-scope",
+      "title": "Give gh the project scope so the kanban can live in GitHub Projects",
+      "kind": "hookup",
+      "milestone": "ship",
+      "area": "repo",
+      "status": "needs-you",
+      "body": "Issues carry the board today (status labels + milestones). For a GitHub Projects board, run `gh auth refresh -s project,read:project` and then `npm run plan:project`, which makes the project and adds every open issue with its column."
+    },
+    {
+      "id": "vision-scratch-project",
+      "title": "Remove the scratch \"Foundation hand-offs\" project from Vision Code",
+      "kind": "hookup",
+      "milestone": "vision",
+      "area": "vision",
+      "status": "needs-you",
+      "body": "Left behind when `npm test` used to reach the real Vision Code (fixed 2026-11-03). Delete it in Vision Code."
+    },
+    {
+      "id": "vision-export-seen",
+      "title": "See an export come back from a real Vision Code thread",
+      "kind": "plan",
+      "milestone": "vision",
+      "area": "vision",
+      "status": "needs-you",
+      "body": "One real hand-off started a Supervised thread that read the brief and waited on approval. Approve its file writes in Vision Code and check the export lands beside the brief as a card, then that reviewers are asked (SPEC §3 Vision loop)."
+    },
+    {
+      "id": "vision-windows",
+      "title": "Vision Code hand-offs on Windows",
+      "kind": "bug",
+      "milestone": "vision",
+      "area": "vision",
+      "status": "next",
+      "body": "T3's CLI and data are looked for under macOS paths (`~/Development/Vision/.tools/code-server/t3`, T3CODE_HOME under ~/Library). Find them on Windows too (and say which it looked for when it can't), so Run on a hand-off card works here (SPEC §7 Windows runs)."
+    },
+    {
+      "id": "release-bomform",
+      "title": "Release stage writes BOM lines to BomForm",
+      "kind": "plan",
+      "milestone": "vision",
+      "area": "pipeline",
+      "status": "backlog",
+      "body": "Release completes the stage but writes nothing. Once BomForm's write tools are keyed, write the chosen CAD's BOM lines, person-approved, and show what was written on the stage (SPEC §3 Design pipelines)."
+    },
+    {
+      "id": "vision-pairing",
+      "title": "A hosted Foundation reaches Vision Code by a pairing link",
+      "kind": "plan",
+      "milestone": "vision",
+      "area": "vision",
+      "status": "backlog",
+      "body": "Hand-offs use T3's CLI on the same machine. A hosted server needs a T3 pairing link and a stored client credential: a decision for Josh on where that credential lives (SPEC §7)."
+    },
+    {
+      "id": "vision-review-verdict",
+      "title": "Reviews come back as Vision's own verdict, not only asks",
+      "kind": "plan",
+      "milestone": "vision",
+      "area": "vision",
+      "status": "backlog",
+      "body": "Review asks each reviewer through Hermes. Vision has its own review tools; bring their verdict back onto the Review stage beside the people's answers."
+    },
+    {
+      "id": "table-into-app-section",
+      "title": "A table added (⌘K) into an app section hides behind the app",
+      "kind": "bug",
+      "milestone": "polish",
+      "area": "sections",
+      "status": "next",
+      "body": "Cards added to a section that hosts an app go behind it, where nobody sees them. Put them in the nearest section that isn't an app (SPEC §7)."
+    },
+    {
+      "id": "add-section-gap-dblclick",
+      "title": "The + add-section buttons in the gaps catch double-clicks",
+      "kind": "bug",
+      "milestone": "polish",
+      "area": "sections",
+      "status": "next",
+      "body": "The + buttons sit in the 40 px gaps between sections, so a double-click aimed at the gap adds a section. Make adding a single, deliberate press that a double-click can't trigger (SPEC §7)."
+    },
+    {
+      "id": "expanded-dim-wires",
+      "title": "Wires between other sections stay bright over an expanded section's dimmed neighbours",
+      "kind": "bug",
+      "milestone": "polish",
+      "area": "wires",
+      "status": "next",
+      "body": "When a section is expanded its neighbours fade to 12 %, but the wires between them draw at full strength. Dim them with their sections (SPEC §7)."
+    },
+    {
+      "id": "legacy-css",
+      "title": "Prune the legacy toolbar CSS and the last raw colours",
+      "kind": "bug",
+      "milestone": "polish",
+      "area": "design",
+      "status": "next",
+      "body": "`.app-bar` is still in App.css; a few `rgba()` and hex colours and hover transitions on `background` remain and lag the night fade. Prune them and add a `check-design` test that ratchets raw colours down (Phase 1 leftover, DESIGN §2)."
+    },
+    {
+      "id": "webm-duration",
+      "title": "Huddle recordings can't seek: Chrome's WebM has no duration",
+      "kind": "bug",
+      "milestone": "huddles",
+      "area": "huddles",
+      "status": "next",
+      "body": "MediaRecorder's WebM carries no duration, so the archive's player can't seek until it has played through. Write the duration into the file before it uploads (SPEC §7)."
+    },
+    {
+      "id": "crew-stop-all",
+      "title": "A crew-wide stop",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "crew",
+      "status": "next",
+      "body": "Each agent can be stopped from the sheet; there's no way to stop all of yours at once. Add Stop all to the roster (and a key), server-side so helpers stop too (SPEC §8 The crew next)."
+    },
+    {
+      "id": "crew-follow",
+      "title": "Follow an agent",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "crew",
+      "status": "backlog",
+      "body": "Your view rides along with an agent's cursor until you move. From the roster or by clicking its name pill."
+    },
+    {
+      "id": "crew-point",
+      "title": "Agents that point at a cell or a port",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "crew",
+      "status": "backlog",
+      "body": "A laser on a table cell or a port, not just a card, so an agent can show what it means."
+    },
+    {
+      "id": "crew-spatial-voice",
+      "title": "Spatial voice: ask the agent nearest your pointer",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "crew",
+      "status": "backlog",
+      "body": "Holding Space near a working agent's cursor talks to that agent instead of starting a new one."
+    },
+    {
+      "id": "local-transcriber",
+      "title": "A local transcriber so voice stays in-house",
+      "kind": "plan",
+      "milestone": "huddles",
+      "area": "voice",
+      "status": "backlog",
+      "body": "Web Speech sends mic audio to the browser maker's service. Whisper on the server or Vision's `@pacific/voice` would keep it in-house, for the crew's sheet and huddle transcripts alike."
+    },
+    {
+      "id": "mic-twice",
+      "title": "The voice sheet opens the microphone twice",
+      "kind": "bug",
+      "milestone": "crew",
+      "area": "voice",
+      "status": "backlog",
+      "body": "The level meter's getUserMedia runs beside Web Speech: in the desktop app and some browsers that's a second permission prompt (SPEC §7)."
+    },
+    {
+      "id": "sheet-asks-vanish",
+      "title": "A finished ask from the sheet leaves the roster with nowhere to find it",
+      "kind": "bug",
+      "milestone": "crew",
+      "area": "crew",
+      "status": "backlog",
+      "body": "Agents asked from the sheet run without a tab; their sessions are in the side pane, but nothing points there once the roster lets them go 2.4 s after they finish (SPEC §7)."
+    },
+    {
+      "id": "space-two-things",
+      "title": "Measure Space's three jobs on a real trackpad",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "voice",
+      "status": "backlog",
+      "body": "Held still it listens after 240 ms, tapped it types, held with a drag it pans. Someone who holds Space and waits before dragging sees the sheet flash. Check with real people."
+    },
+    {
+      "id": "daily-digest",
+      "title": "A daily \"what changed\" digest note by the agent",
+      "kind": "plan",
+      "milestone": "company",
+      "area": "company",
+      "status": "backlog",
+      "body": "Once a day, a note on the company board that says what changed in BomForm, FactoryForm and the board's own activity."
+    },
+    {
+      "id": "bomform-diff",
+      "title": "BomForm snapshot cached and diffed",
+      "kind": "plan",
+      "milestone": "company",
+      "area": "connectors",
+      "status": "backlog",
+      "body": "Keep each day's BomForm snapshot and show what changed since the last one on the connector."
+    },
+    {
+      "id": "company-voice",
+      "title": "Spoken conversations about the company (@pacific/voice)",
+      "kind": "plan",
+      "milestone": "company",
+      "area": "voice",
+      "status": "backlog",
+      "body": "Vision's realtime voice session, pointed at the company board's tools."
+    },
+    {
+      "id": "semantic-search",
+      "title": "Semantic search: e5 text, SigLIP images, RRF k=60",
+      "kind": "plan",
+      "milestone": "search",
+      "area": "search",
+      "status": "backlog",
+      "body": "Port flowform's semantic search beside FTS5, fused by reciprocal rank. It would also let find_images see inside pictures (SPEC §7)."
+    },
+    {
+      "id": "slack-per-user",
+      "title": "Slack per-person OAuth, with visibility that fails closed",
+      "kind": "plan",
+      "milestone": "search",
+      "area": "slack",
+      "status": "backlog",
+      "body": "Today ⌘K searches Slack with one user token. flowform's per-person OAuth and mirrored visibility are the target."
+    },
+    {
+      "id": "drive-figma",
+      "title": "Google Drive and Figma connectors",
+      "kind": "plan",
+      "milestone": "search",
+      "area": "connectors",
+      "status": "backlog",
+      "body": "Search and cards for Drive files and Figma frames."
+    },
+    {
+      "id": "app-registry",
+      "title": "An app registry UI",
+      "kind": "plan",
+      "milestone": "apps",
+      "area": "apps",
+      "status": "backlog",
+      "body": "See and edit the company's apps (name, URL, repo, MCP, ports) instead of a list in code."
+    },
+    {
+      "id": "foundation-json",
+      "title": "foundation.json in our vibe-coded apps",
+      "kind": "plan",
+      "milestone": "apps",
+      "area": "apps",
+      "status": "backlog",
+      "body": "Publish `/.well-known/foundation.json` from each app so opening its URL gives it a name, ports, MCP and repo. Also exercises the postMessage bridge with a real app, which hasn't happened yet."
+    },
+    {
+      "id": "wires-mcp",
+      "title": "Wires that call MCP tools on input",
+      "kind": "plan",
+      "milestone": "apps",
+      "area": "wires",
+      "status": "backlog",
+      "body": "A value arriving on a port calls an app's MCP tool and sends the result on."
+    },
+    {
+      "id": "machine-agent-commands",
+      "title": "Agents run commands in a machine a person started, approved per command",
+      "kind": "plan",
+      "milestone": "apps",
+      "area": "machines",
+      "status": "backlog",
+      "body": "Agents can read a machine's last screen; let them propose a command that runs once a person approves it on the card."
+    },
+    {
+      "id": "machine-compose",
+      "title": "docker compose stacks as sections; noVNC and ttyd presets",
+      "kind": "plan",
+      "milestone": "apps",
+      "area": "machines",
+      "status": "backlog",
+      "body": "A compose file opens as a section of machines wired together; desktop presets for web desktops."
+    },
+    {
+      "id": "machine-zoom-select",
+      "title": "A machine's terminal selection lands off at zooms other than 100 %",
+      "kind": "bug",
+      "milestone": "apps",
+      "area": "machines",
+      "status": "backlog",
+      "body": "xterm measures its cells unscaled, so a mouse selection is off by the zoom factor (and now by a section's fit). Typing is fine."
+    },
+    {
+      "id": "machine-port-stale",
+      "title": "A port opened as a page shows its last load after the machine stops",
+      "kind": "bug",
+      "milestone": "apps",
+      "area": "machines",
+      "status": "backlog",
+      "body": "The page's frame isn't told the machine stopped. Show it as stopped (and reload when it starts again)."
+    },
+    {
+      "id": "recording-opt-out",
+      "title": "Per-person recording opt-out",
+      "kind": "plan",
+      "milestone": "huddles",
+      "area": "huddles",
+      "status": "backlog",
+      "body": "Anyone can start recording and everyone sees REC, but nobody can stay out except by leaving."
+    },
+    {
+      "id": "slack-live",
+      "title": "Slack live (Socket Mode), threads, and a summary at the end of a session",
+      "kind": "plan",
+      "milestone": "huddles",
+      "area": "slack",
+      "status": "backlog",
+      "body": "Cards poll every 5 s; threads show a count but can't be opened; a session's summary could post when it ends, person-approved."
+    },
+    {
+      "id": "huddle-screen-share",
+      "title": "Screen share into the portal; spatial audio while roaming",
+      "kind": "plan",
+      "milestone": "huddles",
+      "area": "huddles",
+      "status": "backlog",
+      "body": "Share a screen as a tile; voices fade with distance from the portal while you roam the board."
+    },
+    {
+      "id": "huddle-sfu",
+      "title": "An SFU past six people; TURN by default",
+      "kind": "plan",
+      "milestone": "huddles",
+      "area": "huddles",
+      "status": "backlog",
+      "body": "The mesh strains past about six. LiveKit self-hosted is the step up. Only STUN by default, so strict NATs need `FOUNDATION_ICE_SERVERS`."
+    },
+    {
+      "id": "huddle-state-race",
+      "title": "Moving a huddle card while someone joins can drop who's in it",
+      "kind": "bug",
+      "milestone": "huddles",
+      "area": "huddles",
+      "status": "backlog",
+      "body": "Huddle state lives on the panel object; a move at the same moment overwrites it until the next join or leave. Keep it in its own map."
+    },
+    {
+      "id": "huddle-invite-wait",
+      "title": "Inviting a channel to a new huddle waits 400 ms for the card to sync",
+      "kind": "bug",
+      "milestone": "huddles",
+      "area": "slack",
+      "status": "backlog",
+      "body": "A server-side create-and-invite would remove the wait."
+    },
+    {
+      "id": "real-voice-check",
+      "title": "Check speech transcription with a real voice",
+      "kind": "plan",
+      "milestone": "huddles",
+      "area": "voice",
+      "status": "needs-you",
+      "body": "Huddle transcripts and the crew's sheet were checked with typed lines and a stand-in recogniser. Talk in a huddle and to the sheet on a real machine."
+    },
+    {
+      "id": "codemirror-notes",
+      "title": "Notes in CodeMirror with y-codemirror",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "notes",
+      "status": "backlog",
+      "body": "Two people editing the very same word can interleave letters (each edit rebases as one change). A CodeMirror binding fixes that and brings syntax-aware editing; undo would last across reloads."
+    },
+    {
+      "id": "narrow-store-subscribers",
+      "title": "Narrow the whole-store subscribers (GridViewport, WireLayer, MapView)",
+      "kind": "bug",
+      "milestone": "polish",
+      "area": "perf",
+      "status": "backlog",
+      "body": "They render on every change on a big board. Narrow them the way `useSection` did."
+    },
+    {
+      "id": "pane-beside-session",
+      "title": "Opening the side pane beside a session on a narrow window leaves a sliver",
+      "kind": "bug",
+      "milestone": "polish",
+      "area": "floor",
+      "status": "backlog",
+      "body": "The floor only gives way on its own. Narrow the session instead when the pane is opened by hand."
+    },
+    {
+      "id": "frame-section-tools",
+      "title": "Framing a section can put its tools off screen; an empty section's welcome reads small",
+      "kind": "bug",
+      "milestone": "polish",
+      "area": "grid",
+      "status": "backlog",
+      "body": "Framing zooms to a section's cards (about 0.55 at 1440×900). Frame tighter when it holds one card or none, and keep its top-right tools in view."
+    },
+    {
+      "id": "wire-first-column",
+      "title": "Backward wires into a pipeline's first column hook tightly",
+      "kind": "bug",
+      "milestone": "polish",
+      "area": "wires",
+      "status": "backlog",
+      "body": "The input sits 28 px from the section's wall, leaving about 14 px for the U-turn. A wider left pad on pipeline sections gives it room."
+    },
+    {
+      "id": "wire-landing-far-end",
+      "title": "Wire landings collide at the far end of an edge",
+      "kind": "bug",
+      "milestone": "polish",
+      "area": "wires",
+      "status": "backlog",
+      "body": "Landings push apart along an edge but not at the far end, so two apps crowding one edge can tilt one wire. Also: a wire from a split app section can run tight along a neighbour's edge."
+    },
+    {
+      "id": "expanded-snap",
+      "title": "An expanded section's size snaps while its card eases",
+      "kind": "bug",
+      "milestone": "polish",
+      "area": "sections",
+      "status": "backlog",
+      "body": "Wires jump to the new rects at once. Animate the store's rect so they travel together. Floating cards also stay where they were, which can make the open section wide."
+    },
+    {
+      "id": "trackpad-tune",
+      "title": "Tune throw momentum, MIN_FIT and pinch on a real trackpad",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "grid",
+      "status": "needs-you",
+      "body": "Throws carry velocity × 125 ms; fitted cards stop shrinking at 40 %. Both are judgement calls made headless; tune with a person on a real display."
+    },
+    {
+      "id": "perf-real-gpu",
+      "title": "Re-run the perf trace on a real GPU and decide on live frames during camera moves",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "perf",
+      "status": "backlog",
+      "body": "About 5 % of frames drop to 30 fps with live apps on screen in headless Chromium. Measure on the Mac and Windows GPUs, then choose: a still in their place while the camera moves, or live."
+    },
+    {
+      "id": "touched-rings",
+      "title": "Cards a tool changed without naming them go unringed",
+      "kind": "bug",
+      "milestone": "crew",
+      "area": "agent",
+      "status": "backlog",
+      "body": "Rings come from ids in tool inputs and results. Ring from the activity a run wrote instead."
+    },
+    {
+      "id": "launcher-orphans",
+      "title": "Stopping the launcher from outside leaves its children running (Windows)",
+      "kind": "bug",
+      "milestone": "ship",
+      "area": "desktop",
+      "status": "next",
+      "body": "A hard kill of `scripts/dev.mjs` (an IDE stop button, Task Manager) never reaches its `taskkill /T`, so the server, Vite and the window keep their ports. Tie the children to the launcher."
+    },
+    {
+      "id": "shortcut-labels",
+      "title": "Keys say ⌘ on Windows",
+      "kind": "bug",
+      "milestone": "polish",
+      "area": "desktop",
+      "status": "review",
+      "body": "42 labels in 12 files say ⌘ where Windows takes Ctrl. Fixed on branch `fix/shortcut-labels` (\"Keys: ⌘ on a Mac, Ctrl on Windows and Linux\"); waiting to merge."
+    },
+    {
+      "id": "rea-windows",
+      "title": "The REA job on Windows",
+      "kind": "bug",
+      "milestone": "ship",
+      "area": "rea",
+      "status": "backlog",
+      "body": "It spawns `npx` without a shell; Windows needs `npx.cmd` resolved safely (its arguments include a target). The REA runner and the Vision brief are also unexercised end to end."
+    },
+    {
+      "id": "ws-ticket",
+      "title": "A header-capable sync transport (ticket exchange)",
+      "kind": "plan",
+      "milestone": "ship",
+      "area": "auth",
+      "status": "backlog",
+      "body": "WebSocket auth uses the cookie, so a packaged app can't use a hosted server (cross-site). A short-lived ticket, like T3's `websocket-ticket`, fixes it."
+    },
+    {
+      "id": "ci",
+      "title": "CI: tests, typecheck and Tauri builds on Windows, macOS and Linux",
+      "kind": "plan",
+      "milestone": "ship",
+      "area": "ship",
+      "status": "backlog",
+      "body": "`npm test`, typecheck and `cargo build` on every push, on windows-latest too. Then signed installers."
+    },
+    {
+      "id": "hosted-server",
+      "title": "A hosted server: S3 media, Postgres or libsql",
+      "kind": "plan",
+      "milestone": "ship",
+      "area": "ship",
+      "status": "backlog",
+      "body": "And what a hosted server means for machines (they'd run on the host) and Vision hand-offs (a pairing link)."
+    },
+    {
+      "id": "shared-ui",
+      "title": "One UI package across Data Room, Creation, Vision and Foundation",
+      "kind": "plan",
+      "milestone": "ship",
+      "area": "design",
+      "status": "backlog",
+      "body": "Panels from the Data Room, Creation and Vision sharing `@foundation/ui` (or Vision's `@pacific/ui` directly)."
+    },
+    {
+      "id": "installers",
+      "title": "Run and sign the desktop installers; rebuild macOS",
+      "kind": "plan",
+      "milestone": "ship",
+      "area": "desktop",
+      "status": "backlog",
+      "body": "The Windows NSIS and MSI builds were made but never run, and nothing is signed. The macOS build wasn't rebuilt since the Windows work."
+    },
+    {
+      "id": "link-accounts-ui",
+      "title": "Linking accounts and other admin as a screen",
+      "kind": "plan",
+      "milestone": "ship",
+      "area": "auth",
+      "status": "backlog",
+      "body": "Linking two users is `npm run link-accounts`. Admin (users, audit) has no UI yet."
+    },
+    {
+      "id": "signin-memory",
+      "title": "Flowform sign-in attempts are lost on a server restart",
+      "kind": "bug",
+      "milestone": "ship",
+      "area": "auth",
+      "status": "backlog",
+      "body": "Attempts live in server memory for 10 minutes, so a `tsx watch` restart mid-sign-in makes the person click again. Keep them in SQLite."
+    },
+    {
+      "id": "iframe-sandbox",
+      "title": "Panel iframes are sandboxed with allow-same-origin",
+      "kind": "bug",
+      "milestone": "ship",
+      "area": "security",
+      "status": "backlog",
+      "body": "A hostile app on the same origin could escape. Serve third-party apps from their own origins and drop allow-same-origin where we can."
+    },
+    {
+      "id": "flowform-fixtures",
+      "title": "Commit the flowform importer's fixture rooms",
+      "kind": "bug",
+      "milestone": "polish",
+      "area": "tests",
+      "status": "needs-you",
+      "body": "`flowform-import.test.ts`'s six tests skip because the rooms were never committed (the old `data/` ignore caught them). Whoever has them should commit them."
+    },
+    {
+      "id": "floorplan-refresh",
+      "title": "Refresh the app floorplan after this release",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "docs",
+      "status": "backlog",
+      "body": "`public/floorplan.html` is a snapshot from 2026-11-03; machines, the crew, section fit and the plan board came since (docs/floorplan.md)."
+    },
+    {
+      "id": "connector-card-title",
+      "title": "A connector shown as a card (not hosted) has no name at rest",
+      "kind": "bug",
+      "milestone": "polish",
+      "area": "panels",
+      "status": "backlog",
+      "body": "Cards have no title at rest by design; hosted apps and pipeline stages name themselves, but a connector card reads by its body only."
+    },
+    {
+      "id": "plan-board",
+      "title": "The plan as a kanban: GitHub issues and Settings → Plan",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "docs",
+      "status": "review",
+      "body": "`docs/plan.json` is the plan; `npm run plan:push` / `plan:pull` keep it and GitHub issues in step; Settings → Plan shows it as a board, and admins move cards there. SPEC §8 points here instead of a phase table. Built and checked in the browser; waiting on the first push to GitHub (see \"Turn on issues and push the plan to GitHub\")."
+    }
+  ]
+}

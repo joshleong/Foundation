@@ -5,12 +5,14 @@ import "@foundation/ui/tokens.css";
 import { Login } from "./login/Login";
 import { Shell } from "./shell/Shell";
 import { DesignPage } from "./design/DesignPage";
+import { SettingsPage } from "./settings/SettingsPage";
 import { Tip } from "./shell/Tip";
 import { rememberMe, whoAmI } from "./lib/api";
 import "./App.css";
 import "./shell/shell.css";
 import "./panels/live.css";
 import "./shell/crew.css";
+import "./settings/settings.css";
 
 initNight();
 
@@ -26,7 +28,8 @@ function useHashRoute() {
 
 /**
  * Sign-in gate → the shell. #/design is the living design language page;
- * #/design/sign-in shows the sign-in page even when signed in.
+ * #/design/sign-in shows the sign-in page even when signed in. #/settings
+ * (signed in) holds the plan board and what the server is connected to.
  *
  * The sign-in page stays over the shell until its dissolve has run, so
  * signing in turns into the board rather than cutting to it. Back from
@@ -54,6 +57,14 @@ function App() {
     );
   }
   if (user === undefined && !preview) return <div className="boot" />;
+  if (user && route.startsWith("#/settings")) {
+    return (
+      <>
+        <SettingsPage route={route} />
+        <Tip />
+      </>
+    );
+  }
   return (
     <>
       {user && <Shell user={user} />}

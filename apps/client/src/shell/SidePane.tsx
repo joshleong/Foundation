@@ -5,7 +5,7 @@
  *
  * Top to bottom: Sessions — this board's agent sessions and Vision Code's
  * threads, each opening a tab — then Boards, Activity, Release & plan (the
- * app's floorplan and the plan), Tools, and you.
+ * app's floorplan and the plan board in Settings), Tools, and you.
  */
 
 import { useEffect, useState } from "react";
@@ -80,7 +80,7 @@ export function SidePane({ user, boards, current, onSwitch, onNew, onUpload }: P
             <section className="pane-group">
               <div className="pane-eyebrow">Release & plan</div>
               <PaneRow glyph="⌗" label="App floorplan" onClick={openFloorplan} />
-              <PaneRow glyph="◇" label="The plan (SPEC §8)" onClick={() => window.open(PLAN_URL, "_blank", "noopener")} />
+              <PaneRow glyph="◇" label="The plan" onClick={() => (window.location.hash = "#/settings/plan")} />
             </section>
 
             <section className="pane-group">
@@ -90,6 +90,7 @@ export function SidePane({ user, boards, current, onSwitch, onNew, onUpload }: P
               <PaneRow glyph="⊡" label="Fit the board" kbd="0" onClick={() => requestSnap({ kind: "all" })} />
               <PaneRow glyph="⌁" label="Connect Claude Code" onClick={() => void copyMcpCommand()} />
               <PaneRow glyph="◐" label="Design language" onClick={() => (window.location.hash = "#/design")} />
+              <PaneRow glyph="⚙" label="Settings" onClick={() => (window.location.hash = "#/settings")} />
             </section>
           </div>
 
@@ -237,7 +238,6 @@ function People({ board, me }: { board: string; me: string }) {
  * Rebuild it after a release: see docs/floorplan.md.
  */
 export const FLOORPLAN_URL = "/floorplan.html";
-const PLAN_URL = "https://github.com/joshleong/Foundation/blob/main/SPEC.md#8-plan";
 
 function openFloorplan() {
   window.open(FLOORPLAN_URL, "_blank", "noopener");

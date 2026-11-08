@@ -12,6 +12,8 @@ import { Mark } from "../login/Login";
 import { NightOrb } from "../shell/NightOrb";
 import { pipeCrossings, polyline, route, routeSides, sideToward, type Side } from "../shell/wireGeometry";
 import { tunnelGeometry } from "../shell/wireGeometry";
+import { PlanBoard } from "../settings/SettingsPage";
+import type { Plan } from "../settings/plan";
 
 const SURFACES = ["void", "abyss", "panel", "raise"];
 const INKS = ["frost", "mist", "dim"];
@@ -717,6 +719,10 @@ export function DesignPage() {
         </div>
       </Section>
 
+      <Section title="Plan board" note="Settings → Plan: Foundation's own kanban, the local copy of the issues on GitHub. Columns sit on the panel well; cards are raised paper with the title in 13/600 and a meta line in dim 11: a kind dot (red bug, blue plan, amber when it waits on a person), the milestone, the area in code type and the issue number. Needs you reads amber, Done green. An admin drags a card to another column (the column rings blue) or picks Move to… on the opened card; a moved card keeps an amber hairline and says who moved it until it's pushed. Cards travel on the camera spring. Under 720 px the columns stack.">
+        <PlanBoardDemo />
+      </Section>
+
       <Section title="Panels that adapt" note="Design for the narrowest width first; container queries, never the window. Check 260, 400 and 560 px.">
         <div className="adapt-row">
           {[260, 400, 560].map((w) => (
@@ -962,5 +968,35 @@ function AppSectionsDemo() {
         </g>
       ))}
     </svg>
+  );
+}
+
+/** The plan board with a small sample plan, moving locally. */
+function PlanBoardDemo() {
+  const [plan, setPlan] = useState<Plan>(() => ({
+    about: "",
+    repo: "joshleong/Foundation",
+    syncedAt: "2026-11-07T22:00:00.000Z",
+    columns: [
+      { id: "needs-you", name: "Needs you", hint: "Waits on a person" },
+      { id: "next", name: "Next", hint: "Picked up in this order" },
+      { id: "doing", name: "Doing", hint: "Someone is on it" },
+      { id: "done", name: "Done", hint: "Ran and was checked" },
+    ],
+    milestones: [
+      { id: "crew", name: "The crew", about: "" },
+      { id: "polish", name: "Polish", about: "" },
+    ],
+    cards: [
+      { id: "sign-in", title: "Sign Claude Code back in", kind: "hookup", milestone: "crew", area: "agent", status: "needs-you", body: "Run `claude` once and sign in.", issue: 12 },
+      { id: "gap", title: "The + buttons in the gaps catch double-clicks", kind: "bug", milestone: "polish", area: "sections", status: "next", body: "Make adding a deliberate press.", issue: 31 },
+      { id: "stop", title: "A crew-wide stop", kind: "plan", milestone: "crew", area: "crew", status: "doing", body: "Stop all of yours at once.", issue: 27, moved: { by: "Ada", at: 0, from: "next" } },
+      { id: "fit", title: "Sections fit instead of scrolling", kind: "plan", milestone: "polish", area: "sections", status: "done", body: "Expand opens one as its own grid.", issue: 4 },
+    ],
+  }));
+  return (
+    <div className="kb-demo">
+      <PlanBoard plan={plan} source="server" canMove height={400} onMove={(id, status) => setPlan((p) => ({ ...p, cards: p.cards.map((c) => (c.id === id ? { ...c, status } : c)) }))} />
+    </div>
   );
 }

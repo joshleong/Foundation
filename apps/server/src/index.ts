@@ -36,6 +36,7 @@ import { migrateAllBoards } from "./migrate.ts";
 import * as flowform from "./flowform.ts";
 import { canSeeBoard, hiddenBoards, requireBoard } from "./members.ts";
 import { requirePerson } from "./auth.ts";
+import { movePlanCard, readPlan } from "./plan.ts";
 import { attachTerminal, engineImages, engineStatus, loadImage, reconcileMachine, removeMachine, restartMachine, startMachine, stopMachine } from "./machines.ts";
 
 const r = new Router();
@@ -94,6 +95,19 @@ r.get("/api/boards/:id/people", (req) => {
   requireUser(req);
   return { people: boardPeople(req.params.id) };
 });
+// ---------- the plan board (docs/plan.json; Settings → Plan) ----------
+
+r.get("/api/plan", (req) => {
+  const u = requireUser(req);
+  return { plan: readPlan(), canMove: u.role === "admin" };
+});
+r.post("/api/plan/cards/:id", async (req) => {
+  const u = requirePerson(req, "Moving a card on the plan");
+  const { status } = await readJson<{ status?: string }>(req);
+  if (!status) throw new HttpError(400, "status (a column id) required");
+  return { card: movePlanCard(u, req.params.id, status) };
+});
+
 r.post("/api/boards/:id/people", async (req) => {
   const u = requireUser(req);
   const { userId, role } = await readJson<{ userId?: string; role?: "member" | "viewer" | null }>(req);
