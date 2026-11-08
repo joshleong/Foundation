@@ -66,6 +66,9 @@ export interface BoardTool<S extends z.ZodTypeAny = z.ZodTypeAny> {
   run: (ctx: ToolCtx, input: z.infer<S>) => Promise<unknown> | unknown;
 }
 
+/** the crew agent making a card, when one is (people's cards leave createdBy unset) */
+const madeBy = (ctx: ToolCtx) => (ctx.crew && crewMember(ctx.crew) ? ctx.actor : undefined);
+
 const seenRequests = new Map<string, unknown>();
 /** Vision briefs land in the pipeline's fourth column, level with the stage that wrote them */
 const BRIEF_X = 1560;
@@ -281,7 +284,7 @@ export const TOOLS: BoardTool[] = [
     run: (ctx, { section, title, markdown }) => {
       const note = editBoard(ctx.boardId, "agent", (doc) => {
         const sec = cardSection(doc, section);
-        const n: NoteDoc & { text: string } = { id: uid("note"), kind: "note", sectionId: sec.id, name: title, x: 0, y: 0, float: false, bornAt: Date.now(), w: 420, h: 300, text: markdown };
+        const n: NoteDoc & { text: string } = { id: uid("note"), kind: "note", sectionId: sec.id, name: title, x: 0, y: 0, float: false, bornAt: Date.now(), w: 420, h: 300, text: markdown, ...(madeBy(ctx) ? { createdBy: madeBy(ctx) } : {}) };
         putNote(doc, n);
         return n;
       });
@@ -783,7 +786,7 @@ export const TOOLS: BoardTool[] = [
       const table = editBoard(ctx.boardId, "agent", (doc) => {
         const sec = cardSection(doc, section);
         const cols = Math.max(columns.length, ...rows.map((r) => r.length), 3);
-        const t: TableDoc = { id: uid("tbl"), kind: "table", sectionId: sec.id, name, x: 0, y: 0, float: false, bornAt: Date.now(), cols, rows: Math.max(rows.length + 1, 6) };
+        const t: TableDoc = { id: uid("tbl"), kind: "table", sectionId: sec.id, name, x: 0, y: 0, float: false, bornAt: Date.now(), cols, rows: Math.max(rows.length + 1, 6), ...(madeBy(ctx) ? { createdBy: madeBy(ctx) } : {}) };
         const raw: Record<string, string> = {};
         columns.forEach((c, i) => c && (raw[`${i},0`] = c));
         rows.forEach((r, ri) => r.forEach((v, ci) => v !== null && v !== "" && (raw[`${ci},${ri + 1}`] = String(v))));

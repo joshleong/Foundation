@@ -119,6 +119,11 @@ export const NoteView = memo(function NoteView({ note, pos, isActive, getScale }
       bodyClass="note-body"
     >
       <div style={{ height: note.h }} className="note-inner">
+        {note.createdBy && !editing && (
+          <span className="card-maker" data-tip={`Written by ${note.createdBy}, an agent`}>
+            ✦ {note.createdBy}
+          </span>
+        )}
         {editing && carets.length > 0 && <CaretMirror ref={mirror} text={note.text} carets={carets} scrollTop={editor.current?.scrollTop ?? 0} />}
         {!editing && carets.length > 0 && (
           <div className="note-writers" aria-label="Writing here now">
