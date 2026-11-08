@@ -15,14 +15,23 @@ import type { z } from "zod";
 import { TOOLS, runTool } from "./tools.ts";
 import { readBody, type Req } from "./http.ts";
 import type { UserInfo } from "@foundation/protocol";
+import { crewMember } from "./crew.ts";
 
-function buildServer(boardId: string, user: UserInfo) {
+/** a Foundation run's MCP calls name their crew member; it only counts for its own person and board */
+export function crewFor(crewId: string | undefined, user: UserInfo, boardId: string) {
+  const member = crewMember(crewId);
+  return member && member.userId === user.id && member.boardId === boardId ? member : undefined;
+}
+
+function buildServer(boardId: string, user: UserInfo, crewId?: string) {
+  const crew = crewFor(crewId, user, boardId);
   const server = new McpServer({ name: "foundation", version: "0.1.0" });
   for (const t of TOOLS) {
     const shape = (t.schema as z.ZodObject<z.ZodRawShape>).shape;
     server.registerTool(t.name, { description: t.description, inputSchema: shape }, async (args: unknown) => {
       try {
-        const out = await runTool({ boardId, actor: user.id === "agent" ? "Agent (MCP)" : `${user.name}'s agent`, userId: user.id }, t.name, args);
+        const actor = crew ? crew.name : user.id === "agent" ? "Agent (MCP)" : `${user.name}'s agent`;
+        const out = await runTool({ boardId, actor, userId: user.id, crew: crew?.id }, t.name, args);
         return { content: [{ type: "text" as const, text: typeof out === "string" ? out : JSON.stringify(out, null, 2) }] };
       } catch (e) {
         return { isError: true, content: [{ type: "text" as const, text: (e as Error).message }] };
@@ -34,7 +43,7 @@ function buildServer(boardId: string, user: UserInfo) {
 
 export async function handleMcp(req: Req, res: ServerResponse, user: UserInfo) {
   const boardId = req.query.get("board") || "company";
-  const server = buildServer(boardId, user);
+  const server = buildServer(boardId, user, req.query.get("crew") ?? undefined);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   res.on("close", () => {
     void transport.close();

@@ -1,0 +1,182 @@
+/**
+ * The crew: every agent turn is a visible, named presence of its own.
+ * - Two runs at once are two agents: different names, different awareness
+ *   clients on the board, each with who asked and what it's doing.
+ * - An agent aims at what it's about to change, then the change lands, and
+ *   the board's activity and the card say which agent did it.
+ * - bring_view guides only the person who asked.
+ * - Helpers: only inside an ask, at most two, never a helper's helper.
+ * - A viewer's agent can't write. MCP's crew id counts only for its own person.
+ * - When a run ends its presence leaves the board: no ghost cursors.
+ */
+
+import { after, test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+process.env.FOUNDATION_DATA_DIR = mkdtempSync(join(tmpdir(), "foundation-test-"));
+process.env.FOUNDATION_ADMIN_EMAILS = "boss@formindustries.com";
+process.env.FOUNDATION_AGENT_SCRIPT = "1";
+process.env.FOUNDATION_SCRIPT_STEP_MS = "0";
+process.env.FOUNDATION_CREW_TRAVEL_MS = "40";
+
+const { run } = await import("../src/db.ts");
+const { upsertUser } = await import("../src/auth.ts");
+const { runTool } = await import("../src/tools.ts");
+const { startRun, followRun } = await import("../src/agent.ts");
+const { joinCrew, leaveCrew, crewOn, MAX_HELPERS, _resetCrew } = await import("../src/crew.ts");
+const { getBoard, closeBoards } = await import("../src/boards.ts");
+const { crewFor } = await import("../src/mcp.ts");
+const { boardMaps, tableCellsOf } = await import("@foundation/protocol");
+
+after(() => {
+  _resetCrew();
+  closeBoards();
+});
+
+const ada = upsertUser("ada@formindustries.com", "Ada Lovelace");
+const kai = upsertUser("kai@formindustries.com", "Kai");
+const vic = upsertUser("vic@formindustries.com", "Vic");
+run("update users set role = 'viewer' where id = ?", vic.id);
+
+type CrewAw = { user: { name: string; agent: boolean }; crew: { id: string; asker: string; doing: string; target: { id: string; kind: string } | null; guide: { to: string; target: { id: string } } | null; status: string; lead?: string } };
+function crewStates(boardId: string) {
+  return [...getBoard(boardId).awareness.getStates().entries()]
+    .filter(([, s]) => (s as CrewAw | null)?.crew)
+    .map(([clientId, s]) => ({ clientId, ...(s as CrewAw) }));
+}
+
+/** run to the end; resolves with every event */
+function finish(r: ReturnType<typeof startRun>, userId: string) {
+  return new Promise<Array<{ type: string; [k: string]: unknown }>>((resolve) => {
+    const seen: Array<{ type: string; [k: string]: unknown }> = [];
+    followRun(r.id, userId, (e) => seen.push(e as never), () => resolve(seen));
+  });
+}
+
+test("two agents at once are two named presences, each with who asked", () => {
+  const a = joinCrew({ boardId: "c1", userId: ada.id, userName: ada.name, runId: "run_a", task: "one" });
+  const b = joinCrew({ boardId: "c1", userId: kai.id, userName: kai.name, runId: "run_b", task: "two" });
+  assert.notEqual(a.name, b.name);
+  assert.notEqual(a.clientId, b.clientId);
+  const states = crewStates("c1");
+  assert.equal(states.length, 2);
+  assert.deepEqual(new Set(states.map((s) => s.user.name)), new Set([a.name, b.name]));
+  assert.ok(states.every((s) => s.user.agent));
+  assert.equal(states.find((s) => s.crew.id === a.id)?.crew.asker, ada.id);
+  leaveCrew(a, "done", 0);
+  leaveCrew(b, "done", 0);
+  assert.equal(crewStates("c1").length, 0, "left the board's awareness");
+});
+
+test("an agent aims before it writes, and its writes carry its name", async () => {
+  const m = joinCrew({ boardId: "c2", userId: ada.id, userName: ada.name, runId: "run_c", task: "notes" });
+  const ctx = { boardId: "c2", actor: m.name, userId: ada.id, crew: m.id };
+  const sec = (await runTool(ctx, "add_section", { name: "Supply" })) as { id: string };
+  // the next write aims at the section first: during the trip the card doesn't exist yet
+  const pending = runTool(ctx, "add_table", { section: "Supply", name: "Parts", columns: ["Part", "Qty"], rows: [["Vane", 12], ["Hub", 2]] });
+  await new Promise((r) => setTimeout(r, 10));
+  const mid = crewStates("c2")[0];
+  assert.equal(mid.crew.target?.id, sec.id, "aimed at the section");
+  assert.match(mid.crew.doing, /making table “Parts”/);
+  assert.equal([...boardMaps(getBoard("c2").doc).objects.values()].length, 0, "not there yet");
+  const t = (await pending) as { id: string };
+  const after = crewStates("c2")[0];
+  assert.equal(after.crew.target?.id, t.id, "then on the new table");
+  assert.deepEqual(tableCellsOf(getBoard("c2").doc, t.id), { "0,0": "Part", "1,0": "Qty", "0,1": "Vane", "1,1": "12", "0,2": "Hub", "1,2": "2" });
+  const acts = boardMaps(getBoard("c2").doc).activity.toArray();
+  assert.ok(acts.some((x) => x.who === m.name && /made table “Parts”/.test(x.text)), "activity says which agent");
+  leaveCrew(m, "done", 0);
+});
+
+test("bring_view guides only the person who asked", async () => {
+  const m = joinCrew({ boardId: "c3", userId: ada.id, userName: ada.name, runId: "run_d", task: "show" });
+  const ctx = { boardId: "c3", actor: m.name, userId: ada.id, crew: m.id };
+  const sec = (await runTool(ctx, "add_section", { name: "Look here" })) as { id: string };
+  await runTool(ctx, "bring_view", { target: "Look here", note: "ready" });
+  const s = crewStates("c3")[0];
+  assert.equal(s.crew.guide?.to, ada.id);
+  assert.equal(s.crew.guide?.target.id, sec.id);
+  // an outside MCP agent (no crew) can't move anyone's view
+  const out = await runTool({ boardId: "c3", actor: "Agent (MCP)", userId: ada.id }, "bring_view", { target: "Look here" });
+  assert.match(String(out), /only Foundation's own agents/);
+  leaveCrew(m, "done", 0);
+});
+
+test("a run is a crew member from start to finish, and a helper is its own agent", async () => {
+  const r = startRun({ boardId: "c4", user: ada, prompt: "Make a section called “Supply” with the parts, hook up FactoryForm, and get help" });
+  const lead = r.events.find((e) => e.type === "crew") as { name: string } | undefined;
+  assert.ok(lead, "a crew event first");
+  assert.equal(crewStates("c4").length, 1);
+  const events = await finish(r, ada.id);
+  const helper = events.find((e) => e.type === "helper") as { name: string; runId: string } | undefined;
+  assert.ok(helper, "the lead called in a helper");
+  assert.notEqual(helper.name, lead.name);
+  // let the helper finish too
+  await new Promise((res) => setTimeout(res, 400));
+  const doc = getBoard("c4").doc;
+  const m = boardMaps(doc);
+  const cards = [...m.objects.values()];
+  assert.ok(cards.some((c) => c.kind === "table" && c.name === "Parts"));
+  assert.ok(cards.some((c) => c.kind === "panel" && c.panel === "connector" && c.createdBy === lead.name), "the connector names its agent");
+  const who = new Set(m.activity.toArray().filter((a) => a.role === "agent").map((a) => a.who));
+  assert.ok(who.has(lead.name) && who.has(helper.name), `both agents signed their work: ${[...who]}`);
+  const guide = events.find((e) => e.type === "tool" && e.name === "bring_view");
+  assert.ok(guide, "brought the person there");
+  // done, then gone (after the linger)
+  const lingering = crewStates("c4");
+  assert.ok(lingering.every((s) => s.crew.status === "done"));
+  await new Promise((res) => setTimeout(res, 2600));
+  assert.equal(crewStates("c4").length, 0, "no ghost cursors");
+  assert.equal(crewOn("c4").length, 0);
+});
+
+test("helpers: only within an ask, at most two, never a helper's helper", async () => {
+  const m = joinCrew({ boardId: "c5", userId: ada.id, userName: ada.name, runId: "run_e", task: "lead" });
+  const ctx = { boardId: "c5", actor: m.name, userId: ada.id, crew: m.id };
+  // outside a Foundation run, nobody to call
+  assert.match(String(await runTool({ boardId: "c5", actor: "Agent (MCP)", userId: ada.id }, "call_in_help", { task: "write a note somewhere" })), /only be called in/);
+  m.helpers = MAX_HELPERS;
+  await assert.rejects(() => runTool(ctx, "call_in_help", { task: "write a third note" }), /at most 2 helpers/);
+  const h = joinCrew({ boardId: "c5", userId: ada.id, userName: ada.name, runId: "run_f", task: "helper", lead: m });
+  await assert.rejects(() => runTool({ ...ctx, actor: h.name, crew: h.id }, "call_in_help", { task: "write a nested note" }), /helper can't call in helpers/);
+  leaveCrew(h, "done", 0);
+  leaveCrew(m, "done", 0);
+});
+
+test("a viewer's agent reads but can't write, and can't call in help", async () => {
+  const m = joinCrew({ boardId: "c6", userId: vic.id, userName: vic.name, runId: "run_g", task: "look" });
+  const ctx = { boardId: "c6", actor: m.name, userId: vic.id, crew: m.id };
+  await runTool(ctx, "read_board", {});
+  await assert.rejects(() => runTool(ctx, "add_table", { name: "x", columns: ["a"] }), /View only/);
+  await assert.rejects(() => runTool(ctx, "call_in_help", { task: "do it for me instead" }), /View only/);
+  leaveCrew(m, "done", 0);
+});
+
+test("organizing: arrange orders a section's flow without new times; rename_section renames", async () => {
+  const m = joinCrew({ boardId: "c7", userId: ada.id, userName: ada.name, runId: "run_h", task: "tidy" });
+  const ctx = { boardId: "c7", actor: m.name, userId: ada.id, crew: m.id };
+  await runTool(ctx, "add_section", { name: "Messy" });
+  const a = (await runTool(ctx, "add_note", { section: "Messy", title: "A", markdown: "a" })) as { id: string };
+  await new Promise((r) => setTimeout(r, 5));
+  const b = (await runTool(ctx, "add_note", { section: "Messy", title: "B", markdown: "b" })) as { id: string };
+  const objs = () => boardMaps(getBoard("c7").doc).objects;
+  const before = new Set([objs().get(a.id)!.bornAt, objs().get(b.id)!.bornAt]);
+  await runTool(ctx, "arrange_section", { section: "Messy", order: [b.id, a.id] });
+  assert.ok(objs().get(b.id)!.bornAt < objs().get(a.id)!.bornAt, "B now flows first");
+  assert.deepEqual(new Set([objs().get(a.id)!.bornAt, objs().get(b.id)!.bornAt]), before, "the same times, handed out again");
+  await runTool(ctx, "rename_section", { section: "Messy", name: "Tidy" });
+  assert.ok([...boardMaps(getBoard("c7").doc).sections.values()].some((s) => s.name === "Tidy"));
+  leaveCrew(m, "done", 0);
+});
+
+test("MCP: a crew id counts only for the person and board it belongs to", () => {
+  const m = joinCrew({ boardId: "c8", userId: ada.id, userName: ada.name, runId: "run_i", task: "mcp" });
+  assert.equal(crewFor(m.id, ada, "c8")?.name, m.name);
+  assert.equal(crewFor(m.id, kai, "c8"), undefined, "someone else's bearer can't act as Ada's agent");
+  assert.equal(crewFor(m.id, ada, "other"), undefined, "nor on another board");
+  leaveCrew(m, "done", 0);
+  assert.equal(crewFor(m.id, ada, "c8"), undefined, "nor once it has left");
+});

@@ -1,5 +1,5 @@
 /**
- * Voice and construction. Saying something (V) sends it to an agent session;
+ * Voice and construction. Saying something (V) sends it to the crew;
  * the agent's lay_out builds pages from images it finds — here from a stand-in
  * Slack (e2e/slack-standin.mjs) — as a grid, a mood board, a document and a
  * timeline, each checked for overlapping cards and photographed.
@@ -9,6 +9,7 @@ import { test, expect, type Page, type BrowserContext } from "@playwright/test";
 import { CLIENT, frame, layoutProblems, person, settle } from "./helpers";
 
 const SHOTS = "../../docs/evidence/2026-11-03_build";
+const CREW = "../../docs/evidence/2026-11-07_crew";
 let page: Page;
 let context: BrowserContext;
 let board = "";
@@ -52,15 +53,17 @@ const tool = async (name: string, data: object) => {
   return ((await r.json()) as { result: unknown }).result;
 };
 
-test("saying it (V) sends it to an agent session", async () => {
+test("saying it (V) sends it to the crew", async () => {
   await page.keyboard.press("v");
-  await expect(page.locator(".hud-heard")).toContainText("lay out all the images");
-  await page.screenshot({ path: `${SHOTS}/00_listening.png` });
-  // when the speaker stops, a session opens with what they said as its ask
-  await expect(page.locator(".s-ask").first()).toHaveText("lay out all the images from Slack about the Airform PTHP", { timeout: 10_000 });
-  await expect(page.locator(".tab.is-current .tab-title")).toContainText("lay out all the images");
-  await page.screenshot({ path: `${SHOTS}/01_sent-to-session.png` });
-  await page.keyboard.press("Meta+1"); // back to the board
+  await expect(page.locator(".talk-heard")).toContainText("lay out all the images");
+  await page.screenshot({ path: `${CREW}/08_v-listening.png` });
+  // when the speaker stops, an agent of the crew takes it, by name, without a tab opening (2026-11-07)
+  await expect(page.locator(".crew-row.is-mine").first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator(".tab.is-agent")).toHaveCount(0);
+  await expect(page.locator(".tab.is-board.is-current")).toHaveCount(1);
+  await page.screenshot({ path: `${CREW}/09_v-sent-to-the-crew.png` });
+  // let it finish (it brings the view to what it made) before the layouts below are framed
+  await expect(page.locator(".crew-cursor")).toHaveCount(0, { timeout: 30_000 });
 });
 
 test("find_images finds the PTHP pictures in Slack, not the others", async () => {

@@ -35,6 +35,7 @@ export const READ_TOOLS = new Set([
   "slack_read",
   "set_plan", // shows the session's plan; writes nothing to the board
   "find_images",
+  "bring_view", // moves the asker's own view; changes nothing on the board
 ]);
 
 function accountRole(userId: string): BoardRole {

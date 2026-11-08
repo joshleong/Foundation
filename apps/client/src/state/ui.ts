@@ -159,6 +159,8 @@ export function toast(text: string, tone?: NonNullable<UiState["toast"]>["tone"]
 }
 
 const sid = () => `ses_${Math.random().toString(36).slice(2, 12)}`;
+/** a session id for a turn that runs without a tab (the crew: asked from the voice sheet) */
+export const newSessionId = sid;
 
 /** open a tab (or show it if it's already open) */
 export function openTab(t: SessionTab) {

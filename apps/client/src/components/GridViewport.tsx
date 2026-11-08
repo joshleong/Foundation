@@ -34,6 +34,7 @@ import { isNight, onNight } from "@foundation/ui";
 import { floorInsets, getUi, setUi, useUi } from "../state/ui";
 import { TalkButton } from "../shell/Talk";
 import { PeerCursors } from "../shell/Presence";
+import { CrewCursors, CrewGuide } from "../shell/Crew";
 import { PortWires } from "../shell/AgentLayer";
 import { openContextMenu } from "./ContextMenu";
 
@@ -310,6 +311,11 @@ export function GridViewport() {
       const st = getState();
       let rect: Rect | null = null;
       let cap = 1;
+      if (target.kind === "view") {
+        zoom.to(target.scale);
+        camera.to(target.x, target.y);
+        return true;
+      }
       if (target.kind === "all") {
         const size = gridSize(st.grid);
         rect = { x: 0, y: 0, w: size.w, h: size.h };
@@ -903,7 +909,13 @@ export function GridViewport() {
         {/* the meta layer: app port wires (shown with the agent layer) */}
         <PortWires />
         <PeerCursors />
+        <CrewCursors />
       </div>
+      </div>
+
+      {/* an agent brought you somewhere (or asks to): Back / Go */}
+      <div className="crew-guide-slot" style={{ left: insets.left, right: insets.right, top: insets.top }}>
+        <CrewGuide />
       </div>
 
       {/* the HUD: a small search pill and the zoom, bottom centre — everything else is called up */}

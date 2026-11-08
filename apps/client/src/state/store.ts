@@ -92,7 +92,9 @@ export type BoardEdge = "left" | "right" | "top" | "bottom";
 export type SnapTarget =
   | { kind: "all" }
   | { kind: "section"; id: string }
-  | { kind: "object"; id: string };
+  | { kind: "object"; id: string }
+  /** an exact camera (Back, after an agent brought you somewhere) */
+  | { kind: "view"; x: number; y: number; scale: number };
 
 export interface AppState {
   grid: GridTracks;

@@ -1,30 +1,73 @@
 /**
- * Talk to the agent from anywhere: the mic pill beside search, or V. What you
- * say shows as you say it; when you stop, it goes to the agent session on
- * screen (or a new one) and runs — "lay out all the images from Slack about
- * the Airform PTHP" builds the page while you watch. Esc drops it.
+ * Talk to the crew: **hold Space** anywhere on the board and a sheet rises
+ * from the bottom, listening. Your mic's level moves in it (so you know it
+ * hears you) and your words show as they're heard; **let go to send**. A
+ * quick **tap of Space** opens it for typing instead. Esc drops it.
+ *
+ * Space still pans: press the pointer while holding it and the sheet stands
+ * down before it has heard anything (it waits 240 ms before it listens).
+ * V and the HUD's mic pill open it too (press again to send).
+ *
+ * What you say goes to a new agent of the crew, with its own name and
+ * cursor, without opening a tab, so the board stays in view while you watch
+ * it work; several can run at once. If an agent session tab is showing, it
+ * goes there instead. The sheet lists the crew at work: what each is doing,
+ * Stop, and Open (its session).
  */
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { listen, type Listening } from "../lib/voice";
-import { sayToAgent } from "../state/sessions";
-import { toast } from "../state/ui";
+import { listen, voiceAvailable, type Listening } from "../lib/voice";
+import { askCrew, crewAsk, sayToAgent, stopSession, titleOf, useSession } from "../state/sessions";
+import { getUi, openTab, toast } from "../state/ui";
+import { crewPeers, type CrewPeer } from "./Crew";
+import { useBoardTick } from "./Presence";
 
+type Mode = "idle" | "listening" | "typing";
+let mode: Mode = "idle";
+let heard = "";
 let session: Listening | null = null;
-let heard: string | null = null; // null: not listening
 const subs = new Set<() => void>();
-const emit = () => subs.forEach((f) => f());
+let version = 0;
+const emit = () => {
+  version++;
+  subs.forEach((f) => f());
+};
 
 export function talking() {
-  return heard !== null;
+  return mode === "listening";
+}
+
+function setMode(m: Mode, words = "") {
+  mode = m;
+  heard = words;
+  emit();
+}
+
+/** where words go: the agent session on screen if one is, else a new crew agent */
+function send(text: string) {
+  const t = text.trim();
+  if (!t) return;
+  const ui = getUi();
+  if (ui.tabs.some((x) => x.id === ui.tab && x.kind === "agent")) sayToAgent(t);
+  else askCrew(t);
 }
 
 /** start listening, or (when already listening) finish and send */
 export function toggleTalk() {
   if (session) return session.stop();
-  heard = "";
-  emit();
+  startListening();
+}
+
+function startListening() {
+  if (session) return;
+  if (!voiceAvailable()) {
+    // no recogniser here: type instead, and say why
+    setMode("typing");
+    toast("Voice needs speech recognition (Chrome, Edge, Safari). Type instead.", "warn");
+    return;
+  }
+  setMode("listening");
   session = listen({
     heard: (t) => {
       heard = t;
@@ -32,72 +75,286 @@ export function toggleTalk() {
     },
     done: (t) => {
       session = null;
-      heard = null;
-      emit();
-      if (t) sayToAgent(t);
+      setMode("idle");
+      if (t) send(t);
     },
     failed: (m) => {
       session = null;
-      heard = null;
-      emit();
+      setMode("idle");
       toast(m, "warn");
     },
   });
-  if (!session) {
-    heard = null;
-    emit();
-  }
+  if (!session) setMode("idle");
 }
 
 export function cancelTalk() {
   session?.cancel();
   session = null;
-  heard = null;
-  emit();
+  setMode("idle");
 }
 
-function useHeard() {
-  return useSyncExternalStore(
+function openTyping() {
+  if (session) return;
+  setMode("typing");
+}
+
+function useTalk() {
+  useSyncExternalStore(
     (f) => {
       subs.add(f);
       return () => subs.delete(f);
     },
-    () => heard,
+    () => version,
   );
+  return { mode, heard };
+}
+
+const typingTarget = (t: EventTarget | null) => {
+  const el = t as HTMLElement | null;
+  return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+};
+
+/** hold Space to talk (release sends), tap Space to type; a pointer pressed meanwhile means it was a pan */
+function useSpaceToTalk() {
+  useEffect(() => {
+    let held = false;
+    let downAt = 0;
+    let panned = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const blocked = () => getUi().command || getUi().presenting;
+    const down = (e: KeyboardEvent) => {
+      if (e.code !== "Space" || e.repeat || e.metaKey || e.ctrlKey || e.altKey || typingTarget(e.target) || blocked()) return;
+      if (mode === "typing") return;
+      if (mode === "listening") return; // V started it: Space doesn't stop it
+      held = true;
+      panned = false;
+      downAt = performance.now();
+      timer = setTimeout(() => {
+        timer = null;
+        if (held && !panned) startListening();
+      }, 240);
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code !== "Space" || !held) return;
+      held = false;
+      if (timer) clearTimeout(timer);
+      timer = null;
+      if (panned) return;
+      if (mode === "listening" && session) session.stop(); // let go: what was heard is sent
+      else if (performance.now() - downAt < 240) openTyping();
+    };
+    const pointer = () => {
+      if (!held) return;
+      panned = true;
+      if (timer) clearTimeout(timer);
+      timer = null;
+      // it was a pan: stand down if nothing's been said yet
+      if (mode === "listening" && !heard) cancelTalk();
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    window.addEventListener("pointerdown", pointer, true);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+      window.removeEventListener("pointerdown", pointer, true);
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+}
+
+/** the mic's level, written to the bars directly (no render per frame); silent if the mic isn't ours to read */
+function useMicLevel(on: boolean, bars: React.RefObject<HTMLSpanElement | null>[]) {
+  useEffect(() => {
+    if (!on || !navigator.mediaDevices?.getUserMedia) return;
+    let stop = false;
+    let raf = 0;
+    let stream: MediaStream | null = null;
+    let ctx: AudioContext | null = null;
+    void navigator.mediaDevices
+      .getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
+      .then((s) => {
+        if (stop) return s.getTracks().forEach((t) => t.stop());
+        stream = s;
+        ctx = new AudioContext();
+        const an = ctx.createAnalyser();
+        an.fftSize = 512;
+        ctx.createMediaStreamSource(s).connect(an);
+        const data = new Uint8Array(an.fftSize);
+        let level = 0;
+        const shape = [0.55, 0.85, 1, 0.8, 0.5];
+        document.querySelector(".talk-level")?.classList.add("has-mic"); // the bars follow the mic now, not a breath
+        const tick = (t: number) => {
+          an.getByteTimeDomainData(data);
+          let sum = 0;
+          for (let i = 0; i < data.length; i++) {
+            const v = (data[i] - 128) / 128;
+            sum += v * v;
+          }
+          const rms = Math.sqrt(sum / data.length);
+          level += (Math.min(1, rms * 5) - level) * 0.35;
+          bars.forEach((b, i) => {
+            const wob = 0.82 + 0.18 * Math.sin(t / 90 + i * 1.7);
+            if (b.current) b.current.style.transform = `scaleY(${(0.18 + level * shape[i] * wob).toFixed(3)})`;
+          });
+          raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+      })
+      .catch(() => {
+        /* no mic permission: the bars breathe instead (CSS) */
+      });
+    return () => {
+      stop = true;
+      cancelAnimationFrame(raf);
+      stream?.getTracks().forEach((t) => t.stop());
+      void ctx?.close();
+      bars.forEach((b) => b.current && (b.current.style.transform = ""));
+    };
+  }, [on]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 export function TalkButton() {
-  const text = useHeard();
-  const on = text !== null;
+  const { mode: m, heard: words } = useTalk();
+  const board = useBoardTick();
+  useSpaceToTalk();
+  const open = m !== "idle";
   useEffect(() => {
-    if (!on) return;
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && (e.preventDefault(), cancelTalk());
+    if (!open) return;
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && (e.preventDefault(), e.stopPropagation(), cancelTalk());
     window.addEventListener("keydown", esc, true);
     return () => window.removeEventListener("keydown", esc, true);
-  }, [on]);
+  }, [open]);
+
+  const crew = crewPeers(board?.peers() ?? []);
+  const me = board?.user.id;
+  const mine = crew.filter((p) => p.crew.asker === me);
+  const showRoster = open || crew.length > 0;
+
   return (
     <>
-      <button className={`hud-talk f-glass${on ? " is-on" : ""}`} onClick={toggleTalk} title={on ? "Send (V) · Esc drops it" : "Talk to the agent (V)"} aria-pressed={on}>
+      <button className={`hud-talk f-glass${m === "listening" ? " is-on" : ""}`} onClick={() => (m === "typing" ? cancelTalk() : toggleTalk())} data-tip={m === "listening" ? "Send · Esc drops it" : "Talk to the crew"} data-kbd={m === "listening" ? "V" : "hold Space"} aria-pressed={m === "listening"}>
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
           <rect x="5.5" y="1.5" width="5" height="9" rx="2.5" />
           <path d="M3 7.5a5 5 0 0 0 10 0M8 12.5v2" strokeLinecap="round" />
         </svg>
-        {!on && <span className="f-kbd">V</span>}
+        {m === "idle" && <span className="f-kbd">Space</span>}
+        {mine.length > 0 && m === "idle" && <span className="hud-talk-count">{mine.length}</span>}
       </button>
       <AnimatePresence>
-        {on && (
+        {showRoster && (
           <motion.div
-            className="hud-heard f-glass"
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 8 }}
-            transition={{ type: "spring", stiffness: 380, damping: 30 }}
+            className={`talk-sheet f-glass${open ? " is-open" : " is-roster"}`}
+            initial={{ opacity: 0, y: 28, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 24, scale: 0.98 }}
+            transition={{ type: "spring", stiffness: 260, damping: 24 }}
+            data-mode={m}
           >
-            <span className="hud-heard-dot" />
-            <span className="hud-heard-text">{text || "Listening… say what to do"}</span>
+            {open && <TalkInput mode={m} words={words} />}
+            {crew.length > 0 && (
+              <ul className="crew-roster" aria-label="The crew at work">
+                {crew.map((p) => (
+                  <RosterRow key={p.clientId} peer={p} mine={p.crew.asker === me} />
+                ))}
+              </ul>
+            )}
+            {open && (
+              <div className="talk-hints">
+                {m === "listening" ? (
+                  <>
+                    <span>
+                      Let go of <span className="f-kbd">Space</span> to send
+                    </span>
+                    <span>
+                      <span className="f-kbd">Esc</span> drops it
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span>
+                      <span className="f-kbd">↵</span> sends
+                    </span>
+                    <span>
+                      Hold <span className="f-kbd">Space</span> on the board to talk
+                    </span>
+                    <span>
+                      <span className="f-kbd">Esc</span> closes
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
     </>
+  );
+}
+
+function TalkInput({ mode: m, words }: { mode: Mode; words: string }) {
+  const bars = [useRef<HTMLSpanElement>(null), useRef<HTMLSpanElement>(null), useRef<HTMLSpanElement>(null), useRef<HTMLSpanElement>(null), useRef<HTMLSpanElement>(null)];
+  useMicLevel(m === "listening", bars);
+  const field = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (m === "typing") requestAnimationFrame(() => field.current?.focus());
+  }, [m]);
+  const onSession = getUi().tabs.some((x) => x.id === getUi().tab && x.kind === "agent");
+  return (
+    <div className="talk-input">
+      <span className={`talk-level${m === "listening" ? " is-on" : ""}`} aria-hidden>
+        {bars.map((b, i) => (
+          <span key={i} ref={b} style={{ animationDelay: `${i * 90}ms` }} />
+        ))}
+      </span>
+      {m === "listening" ? (
+        <p className={`talk-heard${words ? "" : " is-empty"}`}>{words || (onSession ? "Listening… for this session" : "Listening… say what the crew should do")}</p>
+      ) : (
+        <textarea
+          ref={field}
+          className="talk-field"
+          rows={1}
+          placeholder={onSession ? "Tell this session…" : "Ask the crew: make a section for…, hook up FactoryForm…"}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              const t = e.currentTarget.value;
+              cancelTalk();
+              send(t);
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function RosterRow({ peer, mine }: { peer: CrewPeer; mine: boolean }) {
+  const c = peer.crew;
+  const ask = crewAsk(c.id);
+  const run = useSession(ask?.session ?? null);
+  const busy = run.busy && c.status === "working";
+  return (
+    <li className={`crew-row${mine ? " is-mine" : ""} is-${c.status}`} style={{ ["--crew" as string]: `var(--color-crew-${c.hue % 6})` }} data-crew-row={peer.user.name}>
+      <span className="crew-row-dot" />
+      <span className="crew-row-name">{peer.user.name}</span>
+      <span className="crew-row-doing">
+        {c.status === "working" ? c.doing : c.status === "done" ? "done" : c.status === "stopped" ? "stopped" : "hit a problem"}
+        {!mine && <span className="crew-row-for"> · for {c.askerName.split(" ")[0]}</span>}
+        {c.leadName && <span className="crew-row-for"> · with {c.leadName}</span>}
+      </span>
+      {mine && ask && (
+        <span className="crew-row-actions">
+          <button className="crew-row-btn" onClick={() => openTab({ id: ask.session, kind: "agent", title: titleOf(ask.prompt) })} data-tip="Open its session">
+            Open
+          </button>
+          {busy && (
+            <button className="crew-row-btn is-stop" onClick={() => stopSession(ask.session)} data-tip={`Stop ${peer.user.name}`}>
+              Stop
+            </button>
+          )}
+        </span>
+      )}
+    </li>
   );
 }
