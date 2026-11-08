@@ -6,7 +6,9 @@
 
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -182,6 +184,125 @@ test("an older flowform without email_verified still vouches for its Google sign
   const out = ff.poll(req("/auth/flowform/poll", { authorization: `Bearer ${begun.poll}` }), res().r) as { status: string; user: { email: string } };
   assert.equal(out.status, "ok");
   assert.equal(out.user.email, "older@formindustries.com");
+});
+
+const nonceOf = (url: string) => new URL(new URL(url).searchParams.get("cb")!).pathname.split("/").pop()!;
+const sha = (s: string) => createHash("sha256").update(s).digest("hex");
+/** a fresh copy of the module, as a restarted server (tsx watch) would load it: nothing carried in memory */
+let restarts = 0;
+const restart = async () => {
+  await load();
+  return (await import(`../src/flowform.ts?restart=${++restarts}`)) as typeof import("../src/flowform.ts");
+};
+
+test("a sign-in in flight survives a server restart, finishes once, and keeps no secret on disk", async () => {
+  people["c".repeat(32)] = { user_id: "ff-6", display_name: "Rae", email: "rae@formindustries.com", email_verified: true, role: "user" };
+  people["7".repeat(32)] = { user_id: "ff-7", display_name: "Kit", email: "kit@formindustries.com", email_verified: true, role: "user" };
+  const first = await load();
+
+  // web, with a return path; desktop, with its poll secret
+  const start = res();
+  first.startWeb(req("/auth/flowform/start?return=/b/plan"), start.r);
+  const webNonce = nonceOf(start.out.headers.location as string);
+  const browserCookie = cookiesOf(start.out.headers["set-cookie"])[0].split(";")[0];
+  const begun = first.beginDesktop(req("/auth/flowform/begin"));
+  const deskNonce = nonceOf(begun.url);
+
+  // on disk, seen from another connection: both attempts, only hashes of their secrets
+  const disk = new DatabaseSync(join(process.env.FOUNDATION_DATA_DIR!, "foundation.db"));
+  const rows = disk.prepare("select * from flowform_attempts").all() as Array<Record<string, unknown>>;
+  disk.close();
+  const web = rows.find((r) => r.nonce_hash === sha(webNonce));
+  const desk = rows.find((r) => r.nonce_hash === sha(deskNonce));
+  assert.equal(web?.mode, "web");
+  assert.equal(web?.browser_hash, sha(browserCookie.split("=")[1]));
+  assert.equal(desk?.mode, "desktop");
+  assert.equal(desk?.poll_hash, sha(begun.poll));
+  const dump = JSON.stringify(rows);
+  for (const s of [webNonce, deskNonce, browserCookie.split("=")[1], begun.poll]) assert.ok(!dump.includes(s), "a secret was stored in the clear");
+
+  // the server restarts mid-sign-in; flowform comes back to the new process
+  const second = await restart();
+  assert.notEqual(second, first);
+  const fin = res();
+  await second.done(req(`/auth/flowform/done/${webNonce}?session_token=${"c".repeat(32)}`, { cookie: browserCookie }, { nonce: webNonce }), fin.r);
+  assert.equal(fin.out.status, 302);
+  assert.equal(fin.out.headers.location, "/b/plan");
+  assert.ok(cookiesOf(fin.out.headers["set-cookie"]).some((c) => c.startsWith("foundation_session=")));
+  // a replayed callback, even from the same browser, finds it spent
+  const replay = res();
+  await second.done(req(`/auth/flowform/done/${webNonce}?session_token=${"c".repeat(32)}`, { cookie: browserCookie }, { nonce: webNonce }), replay.r);
+  assert.equal(replay.out.status, 400);
+  assert.match(replay.out.body, /expired/);
+
+  // desktop: the browser finishes on one process, the window collects on the next
+  const page = res();
+  await second.done(req(`/auth/flowform/done/${deskNonce}?session_token=${"7".repeat(32)}`, {}, { nonce: deskNonce }), page.r);
+  assert.equal(page.out.status, 200);
+  const again = await restart();
+  const deskReplay = res();
+  await again.done(req(`/auth/flowform/done/${deskNonce}?session_token=${"7".repeat(32)}`, {}, { nonce: deskNonce }), deskReplay.r);
+  assert.equal(deskReplay.out.status, 400); // still a replay after the restart
+  const got = res();
+  const out = again.poll(req("/auth/flowform/poll", { authorization: `Bearer ${begun.poll}` }), got.r) as { status: string; user: { email: string } };
+  assert.equal(out.status, "ok");
+  assert.equal(out.user.email, "kit@formindustries.com");
+  assert.ok(cookiesOf(got.out.headers["set-cookie"]).some((c) => c.startsWith("foundation_session=")));
+  assert.throws(() => again.poll(req("/auth/flowform/poll", { authorization: `Bearer ${begun.poll}` }), res().r), /no such sign-in/);
+  // nothing of either attempt is left
+  const { one } = await import("../src/db.ts");
+  assert.equal(one("select 1 from flowform_attempts where nonce_hash in (?, ?)", sha(webNonce), sha(deskNonce)), undefined);
+});
+
+test("an attempt older than 10 minutes is refused and swept", async () => {
+  people["6".repeat(32)] = { user_id: "ff-8", display_name: "Lou", email: "lou@formindustries.com", email_verified: true, role: "user" };
+  const ff = await restart();
+  const { one } = await import("../src/db.ts");
+  const t0 = Date.now();
+  try {
+    ff.attemptClock.now = () => t0;
+    const begun = ff.beginDesktop(req("/auth/flowform/begin"));
+    const deskNonce = nonceOf(begun.url);
+    const start = res();
+    ff.startWeb(req("/auth/flowform/start"), start.r);
+    const webNonce = nonceOf(start.out.headers.location as string);
+    const browserCookie = cookiesOf(start.out.headers["set-cookie"])[0].split(";")[0];
+    const late = ff.beginDesktop(req("/auth/flowform/begin")); // finished just inside the window
+    const lateNonce = nonceOf(late.url);
+
+    ff.attemptClock.now = () => t0 + 10 * 60_000 - 1;
+    await ff.done(req(`/auth/flowform/done/${lateNonce}?session_token=${"6".repeat(32)}`, {}, { nonce: lateNonce }), res().r);
+    assert.equal((ff.poll(req("/auth/flowform/poll", { authorization: `Bearer ${late.poll}` }), res().r) as { status: string }).status, "ok");
+
+    ff.attemptClock.now = () => t0 + 10 * 60_000 + 1;
+    assert.throws(() => ff.poll(req("/auth/flowform/poll", { authorization: `Bearer ${begun.poll}` }), res().r), /no such sign-in/);
+    const desk = res();
+    await ff.done(req(`/auth/flowform/done/${deskNonce}?session_token=${"6".repeat(32)}`, {}, { nonce: deskNonce }), desk.r);
+    assert.equal(desk.out.status, 400);
+    assert.match(desk.out.body, /expired/);
+    const web = res();
+    await ff.done(req(`/auth/flowform/done/${webNonce}?session_token=${"6".repeat(32)}`, { cookie: browserCookie }, { nonce: webNonce }), web.r);
+    assert.equal(web.out.status, 400);
+    assert.match(web.out.body, /expired/);
+    // swept from the table, not just refused
+    assert.equal(one("select 1 from flowform_attempts where nonce_hash in (?, ?)", sha(deskNonce), sha(webNonce)), undefined);
+    assert.equal(one<{ n: number }>("select count(*) as n from flowform_attempts where expires_at <= ?", t0 + 10 * 60_000 + 1)?.n, 0);
+
+    // the server stopped while /done was asking flowform: the attempt is spent with no answer, and the window hears so within a minute
+    const t1 = t0 + 20 * 60_000;
+    ff.attemptClock.now = () => t1;
+    const cut = ff.beginDesktop(req("/auth/flowform/begin"));
+    const { run } = await import("../src/db.ts");
+    run("update flowform_attempts set used_at = ? where nonce_hash = ?", t1, sha(nonceOf(cut.url)));
+    const ask = () => ff.poll(req("/auth/flowform/poll", { authorization: `Bearer ${cut.poll}` }), res().r) as { status: string; error?: string };
+    ff.attemptClock.now = () => t1 + 30_000;
+    assert.equal(ask().status, "pending");
+    ff.attemptClock.now = () => t1 + 61_000;
+    assert.deepEqual(ask(), { status: "error", error: "Sign-in was interrupted. Try again." });
+    assert.throws(ask, /no such sign-in/);
+  } finally {
+    ff.attemptClock.now = () => Date.now();
+  }
 });
 
 test("linking folds a flowform user into an existing one, and flowform then signs in as it", async () => {
