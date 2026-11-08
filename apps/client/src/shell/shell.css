@@ -1555,6 +1555,52 @@ body.is-connecting .port-in.is-snap {
   background-size: 200% 100%;
   animation: shimmer 1.2s linear infinite;
 }
+/* a page from a machine's port while the machine isn't running: the poster dims to a hatched well, the state stands on it */
+.frame-poster.is-held {
+  background:
+    repeating-linear-gradient(-45deg, transparent 0 8px, color-mix(in srgb, var(--color-frost) 2.5%, transparent) 8px 9px),
+    var(--color-abyss);
+}
+.frame-poster.is-held > :not(.machine-hold) {
+  opacity: 0.4;
+}
+.machine-hold {
+  width: min(420px, 100%);
+  margin-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-line);
+  background: var(--color-raise);
+  box-shadow: var(--shadow-sheet);
+  text-align: left;
+}
+.machine-hold-title {
+  font: 600 var(--text-14) / 1.3 var(--font-sans);
+  color: var(--color-frost);
+}
+.machine-hold-reason {
+  color: var(--color-mist);
+  font: 400 var(--text-12) / 1.45 var(--font-code);
+  word-break: break-word;
+}
+.machine-hold-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.machine-hold-note {
+  color: var(--color-warn);
+  font: 500 var(--text-11) / 1.3 var(--font-sans);
+}
+.machine-hold.is-gone .machine-hold-title,
+.machine-hold.is-removed .machine-hold-title {
+  color: var(--color-mist);
+}
 @keyframes shimmer {
   from {
     background-position: 200% 0;

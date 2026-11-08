@@ -559,7 +559,7 @@ export function DesignPage() {
         </div>
       </Section>
 
-      <Section title="Machines" note="A Linux machine or container in a section, on this computer's engine: Kiri or Docker (one wire, the Docker Engine API). The state pill leads: Running (green, breathing), Pulling and Starting (amber, with the engine's own progress), Stopped and Not started (grey), Error (red, in the engine's words), No engine (amber, a hatched well that says why). Kiri installed but asleep is not No engine: the tag says Kiri · asleep and Start wakes it first; a machine whose disk is on a sleeping Kiri is Out of reach (amber), never removed. Then the engine and its version, the image in code type, and published ports as pills that open the port as a page in the section. Start is the one blue action, and only a person presses it: an agent's proposal says so in violet. Running, the shared terminal fills the card (paper, ink, the tokens as its colours); viewers watch it under an amber View only tag. Remove asks twice. Shown at 560, 400 and 260 px.">
+      <Section title="Machines" note="A Linux machine or container in a section, on this computer's engine: Kiri or Docker (one wire, the Docker Engine API). The state pill leads: Running (green, breathing), Pulling and Starting (amber, with the engine's own progress), Stopped and Not started (grey), Error (red, in the engine's words), No engine (amber, a hatched well that says why). Kiri installed but asleep is not No engine: the tag says Kiri · asleep and Start wakes it first; a machine whose disk is on a sleeping Kiri is Out of reach (amber), never removed. Then the engine and its version, the image in code type, and published ports as pills that open the port as a page in the section. Start is the one blue action, and only a person presses it: an agent's proposal says so in violet. Running, the shared terminal fills the card (paper, ink, the tokens as its colours); viewers watch it under an amber View only tag. Remove asks twice. A page opened from a port follows its machine: while the machine isn't running the page's poster dims and the machine's state stands over it (the card's own pill, what happened in its words, Start it for a person and Show the machine), and it reloads by itself when the machine runs again; a removed machine, or a card taken off the board, says it's gone. Shown at 560, 400 and 260 px.">
         <div className="adapt-row">
           <div className="frame-card live-specimen" style={{ width: 560, height: 320 }}>
             <div className="machine-body is-running">
@@ -725,6 +725,15 @@ export function DesignPage() {
               </div>
             </div>
           </div>
+        </div>
+        <div className="adapt-row">
+          <HeldPageDemo width={400} word="Stopped" tone="idle" title="Machine stopped — web-box isn't running" reason="Stopped by Ada. Its disk is kept: Start runs it again." start show />
+          <HeldPageDemo width={400} word="Running" tone="ok" live title="web-box is running" reason="Waiting for :80 to answer…" />
+        </div>
+        <div className="adapt-row">
+          <HeldPageDemo width={400} word="Stopped" tone="idle" title="Machine stopped — web-box isn't running" reason="Its disk is kept: Start runs it again." show viewer />
+          <HeldPageDemo width={260} word="Not started" tone="idle" kind="removed" title="Machine gone — web-box was removed" reason="Removed by Ada, with its disk. Start makes a fresh one." show />
+          <HeldPageDemo width={260} word="Gone" tone="idle" kind="gone" title="Machine gone — web-box isn't on the board any more" reason="This page was port 80 of it. There's nothing left to load." />
         </div>
       </Section>
 
@@ -1052,6 +1061,36 @@ function PlanBoardDemo() {
   return (
     <div className="kb-demo">
       <PlanBoard plan={plan} source="server" canMove height={400} onMove={(id, status) => setPlan((p) => ({ ...p, cards: p.cards.map((c) => (c.id === id ? { ...c, status } : c)) }))} />
+    </div>
+  );
+}
+
+/** a page opened from a machine's port while the machine isn't running (the specimen of LiveFrame's MachineHold) */
+function HeldPageDemo(p: { width: number; word: string; tone: "ok" | "warn" | "bad" | "idle"; live?: boolean; kind?: string; title: string; reason: string; start?: boolean; show?: boolean; viewer?: boolean }) {
+  return (
+    <div className="frame-card live-specimen" style={{ width: p.width, height: 320 }}>
+      <div className="live-frame">
+        <div className="frame-poster is-held">
+          <div className="frame-poster-name">web-box:80</div>
+          <div className="frame-poster-domain">127.0.0.1:49731</div>
+          <div className="frame-poster-text">Port 80 of the machine web-box</div>
+          <div className={`machine-hold is-${p.kind ?? "stopped"}`}>
+            <span className={`machine-state is-${p.tone}`}>
+              <span className={`f-dot${p.tone === "idle" ? "" : ` is-${p.tone}`}${p.live ? " is-live" : ""}`} />
+              {p.word}
+            </span>
+            <div className="machine-hold-title">{p.title}</div>
+            <div className="machine-hold-reason">{p.reason}</div>
+            {(p.start || p.show) && (
+              <div className="machine-hold-actions">
+                {p.start && <span className="f-pill is-accent">Start it</span>}
+                {p.show && <span className="f-pill">Show the machine</span>}
+              </div>
+            )}
+            {p.viewer && <div className="machine-hold-note">View only: someone who can edit this board starts it.</div>}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

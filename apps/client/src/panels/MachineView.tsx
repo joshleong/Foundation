@@ -26,6 +26,7 @@ import { api, wsUrl } from "../lib/api";
 import { activeBoard } from "../sync/board";
 import { askAgent, toast, useUi } from "../state/ui";
 import { useOnScreen } from "./PanelView";
+import { MACHINE_STATE_WORD, machineTone, portUrl } from "./machinePage";
 
 interface EngineStatus {
   id: "kiri" | "docker";
@@ -39,6 +40,15 @@ interface EngineStatus {
 }
 
 const board = () => activeBoard()?.boardId ?? "company";
+
+/**
+ * A person's action on a machine card (start, stop, restart, remove). The
+ * server takes it only from a person's browser session on a board they can
+ * edit; the card and a page opened from its port both ask through here.
+ */
+export function machineAction(panelId: string, verb: "start" | "stop" | "restart" | "remove", json: Record<string, unknown> = {}) {
+  return api<{ machine: MachineState }>(`/api/boards/${encodeURIComponent(board())}/machines/${panelId}/${verb}`, { method: "POST", json });
+}
 
 export function MachineBody({ panel }: { panel: PanelMeta }) {
   const host = useRef<HTMLDivElement>(null);
@@ -106,15 +116,6 @@ export function MachineBody({ panel }: { panel: PanelMeta }) {
   );
 }
 
-const STATE_WORD: Record<MachineState["state"], string> = {
-  absent: "Not started",
-  pulling: "Pulling",
-  starting: "Starting",
-  running: "Running",
-  stopped: "Stopped",
-  error: "Error",
-};
-
 function StatePill({ m, noEngine, away }: { m: MachineState; noEngine: boolean; away?: boolean }) {
   if (away)
     return (
@@ -123,11 +124,11 @@ function StatePill({ m, noEngine, away }: { m: MachineState; noEngine: boolean; 
         Out of reach
       </span>
     );
-  const tone = noEngine ? "warn" : m.state === "running" ? "ok" : m.state === "error" ? "bad" : m.state === "pulling" || m.state === "starting" ? "warn" : "idle";
+  const tone = noEngine ? "warn" : machineTone(m.state);
   return (
     <span className={`machine-state is-${tone}`}>
       <span className={`f-dot${tone === "idle" ? "" : ` is-${tone}`}${m.state === "running" || m.state === "pulling" || m.state === "starting" ? " is-live" : ""}`} />
-      {noEngine ? "No engine" : STATE_WORD[m.state]}
+      {noEngine ? "No engine" : MACHINE_STATE_WORD[m.state]}
     </span>
   );
 }
@@ -138,7 +139,7 @@ function Ports({ panel, m }: { panel: PanelMeta; m: MachineState }) {
   return (
     <span className="machine-ports">
       {m.ports.map((p) => {
-        const url = `http://127.0.0.1:${p.host}`;
+        const url = portUrl(p.host);
         return (
           <button
             key={p.port}
@@ -148,7 +149,8 @@ function Ports({ panel, m }: { panel: PanelMeta; m: MachineState }) {
               // a machine that fills its section gets a section beside it for the page (a card behind it would be hidden)
               const hosted = getState().sections[panel.sectionId]?.host === panel.id;
               const where = hosted ? addSectionAdjacent(panel.sectionId, "right") : panel.sectionId;
-              if (where) addPanel(where, { panel: "link", name: `${m.name}:${p.port}`, url, text: `Port ${p.port} of the machine ${m.name}` });
+              // the page knows where it came from, so it follows the machine (stopped, removed, running again)
+              if (where) addPanel(where, { panel: "link", name: `${m.name}:${p.port}`, url, text: `Port ${p.port} of the machine ${m.name}`, fromMachine: { panel: panel.id, port: p.port, name: m.name } });
             }}
           >
             :{p.port} ↗
@@ -318,7 +320,7 @@ function Controls({ panel, m, viewer, engine }: { panel: PanelMeta; m: MachineSt
     setBusy(verb);
     setArm(false);
     try {
-      await api(`/api/boards/${encodeURIComponent(board())}/machines/${panel.id}/${verb}`, { method: "POST", json: verb === "remove" ? { confirm: true } : {} });
+      await machineAction(panel.id, verb, verb === "remove" ? { confirm: true } : {});
     } catch (e) {
       toast((e as Error).message, "bad");
     } finally {
