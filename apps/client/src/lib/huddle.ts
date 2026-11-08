@@ -25,6 +25,7 @@
 import { useSyncExternalStore } from "react";
 import type { HuddleLine, HuddleWire } from "@foundation/protocol";
 import { api, uploadFile, wsUrl } from "./api";
+import { withWebmDuration } from "../utils/webmDuration";
 
 export interface PeerView {
   id: string;
@@ -89,7 +90,7 @@ export class HuddleRoom {
   private speechRec: SpeechRec | null = null;
   private captionTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private lastCaption = 0;
-  private recorder: { rec: MediaRecorder; chunks: Blob[]; startedAt: number } | null = null;
+  private recorder: { rec: MediaRecorder; chunks: Blob[]; startedAt: number; t0: number } | null = null;
   private stopFake: (() => void) | null = null;
   private closed = false;
 
@@ -415,9 +416,12 @@ export class HuddleRoom {
     if (this.recorder || !local || typeof MediaRecorder === "undefined") return;
     const mimeType = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"].find((t) => MediaRecorder.isTypeSupported(t));
     const rec = new MediaRecorder(local, { mimeType, videoBitsPerSecond: 700_000 });
-    const r = { rec, chunks: [] as Blob[], startedAt: Date.now() };
+    // t0 is the monotonic clock at start; start to stop is the recording's length
+    // (it's never paused), written into the WebM so the archive's player can seek.
+    const r = { rec, chunks: [] as Blob[], startedAt: Date.now(), t0: performance.now() };
+    rec.onstart = () => (r.t0 = performance.now());
     rec.ondataavailable = (e) => e.data.size && r.chunks.push(e.data);
-    rec.onstop = () => void this.upload(r.chunks, rec.mimeType || "video/webm", r.startedAt);
+    rec.onstop = () => void this.upload(r.chunks, rec.mimeType || "video/webm", r.startedAt, performance.now() - r.t0);
     rec.start(5000);
     this.recorder = r;
     this.emit({ recordingSelf: true });
@@ -430,14 +434,18 @@ export class HuddleRoom {
     if (this.view.recordingSelf) this.emit({ recordingSelf: false });
   }
 
-  private async upload(chunks: Blob[], mime: string, startedAt: number) {
+  private async upload(chunks: Blob[], mime: string, startedAt: number, durationMs: number) {
     if (!chunks.length) return;
     const endedAt = Date.now();
     const ext = mime.includes("mp4") ? "mp4" : "webm";
+    const type = mime.split(";")[0];
     const stamp = new Date(startedAt).toISOString().slice(0, 16).replace(/[:T]/g, "-");
-    const file = new File(chunks, `huddle-${this.me.name.replace(/\W+/g, "-").toLowerCase()}-${stamp}.${ext}`, { type: mime.split(";")[0] });
+    const name = `huddle-${this.me.name.replace(/\W+/g, "-").toLowerCase()}-${stamp}.${ext}`;
     this.emit({ uploads: this.view.uploads + 1 });
     try {
+      // Chrome's WebM has no Duration; write one in. On any failure this is the original bytes.
+      const raw = new Blob(chunks, { type });
+      const file = new File([ext === "webm" ? await withWebmDuration(raw, durationMs) : raw], name, { type });
       const up = await uploadFile(file, this.board);
       await api(`/api/huddles/${this.huddleId}/recordings`, { method: "POST", json: { board: this.board, fileId: up.id, startedAt, endedAt } });
     } catch (e) {
