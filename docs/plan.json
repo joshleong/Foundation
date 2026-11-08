@@ -407,7 +407,7 @@
       "kind": "bug",
       "milestone": "crew",
       "area": "voice",
-      "status": "backlog",
+      "status": "done",
       "body": "The level meter's getUserMedia runs beside Web Speech: in the desktop app and some browsers that's a second permission prompt (SPEC §7)."
     },
     {

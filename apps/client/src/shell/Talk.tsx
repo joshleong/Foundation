@@ -199,6 +199,16 @@ function useSpaceToTalk() {
 }
 
 /** the mic's level, written to the bars directly (no render per frame); silent if the mic isn't ours to read */
+/** the microphone is already allowed here (no prompt would show); unknown counts as no */
+async function micAllowed(): Promise<boolean> {
+  try {
+    const p = await navigator.permissions?.query({ name: "microphone" as PermissionName });
+    return p?.state === "granted";
+  } catch {
+    return false;
+  }
+}
+
 function useMicLevel(on: boolean, bars: React.RefObject<HTMLSpanElement | null>[]) {
   useEffect(() => {
     if (!on || !navigator.mediaDevices?.getUserMedia) return;
@@ -206,8 +216,10 @@ function useMicLevel(on: boolean, bars: React.RefObject<HTMLSpanElement | null>[
     let raf = 0;
     let stream: MediaStream | null = null;
     let ctx: AudioContext | null = null;
-    void navigator.mediaDevices
-      .getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
+    // the level meter opens the mic a second time (Web Speech can't share its stream). Only once the
+    // microphone is already allowed, so it never asks a second time; until then the bars breathe.
+    void micAllowed()
+      .then((ok) => (ok && !stop ? navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }) : Promise.reject(new Error("not yet allowed"))))
       .then((s) => {
         if (stop) return s.getTracks().forEach((t) => t.stop());
         stream = s;
