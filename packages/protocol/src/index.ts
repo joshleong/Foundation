@@ -169,6 +169,13 @@ export interface PanelDoc extends ObjectBaseDoc {
   // ---- machines on a container engine (panel === "machine" without a url) ----
   /** a Linux machine or container this card runs on Kiri or Docker, kept by the server (machines.ts) */
   machine?: MachineState;
+  /**
+   * A page opened from a machine card's port pill: which card and which
+   * container port (and the machine's name then, for when the card is gone).
+   * The page follows that machine: live while it runs, an honest stopped
+   * state otherwise, reloaded when it runs again. Optional, so no migration.
+   */
+  fromMachine?: { panel: string; port: number; name: string };
 }
 
 // ---------- machines: Linux machines and containers on a local engine ----------

@@ -627,6 +627,11 @@ export function useAppState(): AppState {
   return useSyncExternalStore(subscribe, getState);
 }
 
+/** one panel by id (or nothing): for a page that follows the machine card it came from */
+export function usePanel(id: string | undefined): PanelMeta | undefined {
+  return useSyncExternalStore(subscribe, () => (id ? state.panels[id] : undefined));
+}
+
 /** what one section draws from the store: its cards, its app, and which of them is active */
 export interface SectionSnap {
   /** the cards in the section's flow (not its hosted app) */

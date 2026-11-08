@@ -13,7 +13,7 @@
 import { CadPreview } from "../cad/CadPreview";
 import { MODEL_EXT } from "../cad/model";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { isHosted, MINI_HEADER, emitPort, getState, inputValue, movePanel, removePanel, resizePanel, sectionBodyRect, updatePanel, type PanelMeta } from "../state/store";
+import { isHosted, MINI_HEADER, emitPort, getState, inputValue, movePanel, removePanel, requestSnap, resizePanel, sectionBodyRect, updatePanel, usePanel, type PanelMeta } from "../state/store";
 import { ObjectFrame } from "../components/ObjectFrame";
 import { beginConnect, beginDetach, usePortLayout } from "../shell/AgentLayer";
 import { describeValue, landingsOf, toneOf } from "../shell/ports";
@@ -25,7 +25,8 @@ import { StageBody } from "./StageView";
 import { onConnectorChange } from "../lib/connectorEvents";
 import { HuddleBody } from "./HuddleView";
 import { SlackBody } from "./SlackView";
-import { MachineBody } from "./MachineView";
+import { MachineBody, machineAction } from "./MachineView";
+import { machinePage, type FromMachine, type MachinePage } from "./machinePage";
 
 interface Props {
   panel: PanelMeta;
@@ -254,6 +255,25 @@ function LiveFrame({ panel }: { panel: PanelMeta }) {
     if (live) setEverLive(true);
   }, [live]);
 
+  // a page opened from a machine's port follows that machine: live while it runs, honest when it doesn't
+  const from = panel.fromMachine;
+  const card = usePanel(from?.panel);
+  const viewer = ui.role === "viewer";
+  const page = from ? machinePage(from, card, viewer) : null;
+  const url = page ? (page.kind === "live" ? page.url : undefined) : panel.url;
+  const held = page !== null && page.kind !== "live";
+  const waiting = useMachineReturn(from, url, held);
+  useMachineWatch(from, live && Boolean(card?.machine));
+  // the engine may publish the port on a new host port when the machine runs again: the page keeps the address it's at
+  const liveUrl = page?.kind === "live" ? page.url : null;
+  useEffect(() => {
+    if (liveUrl && liveUrl !== panel.url && !viewer) updatePanel(panel.id, { url: liveUrl });
+  }, [liveUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a held page drops what it showed; running again, the frame loads afresh
+  useEffect(() => {
+    if (held || waiting) setLoaded(false);
+  }, [held, waiting]);
+
   // Foundation bridge: apps talk to the grid with postMessage
   //   app → grid  { type: "foundation:output", port, value }
   //   grid → app  { type: "foundation:input", port, value } and { type: "foundation:hello", panel, ports }
@@ -291,23 +311,31 @@ function LiveFrame({ panel }: { panel: PanelMeta }) {
     for (const [p, v] of inputs) if (v !== undefined) w.postMessage({ type: "foundation:input", port: p.name, value: v }, "*");
   }, [inputKey, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const shown = url ?? panel.url ?? "";
   const [domain, favicon] = useMemo(() => {
     try {
-      const u = new URL(panel.url ?? "");
+      const u = new URL(shown);
       // the site's own icon — never a third-party favicon service (internal URLs stay internal)
       return [u.host, `${u.origin}/favicon.ico`];
     } catch {
-      return [panel.url ?? "", ""];
+      return [shown, ""];
     }
-  }, [panel.url]);
+  }, [shown]);
 
-  const mount = Boolean(panel.url) && (live || (everLive && loaded));
+  const mount = Boolean(url) && !held && !waiting && (live || (everLive && loaded));
+  const hold: Exclude<MachinePage, { kind: "live" }> | null =
+    page && page.kind !== "live"
+      ? page
+      : waiting && card?.machine && from
+        ? { kind: "starting", word: "Running", tone: "ok", breathing: true, title: `${card.machine.name} is running`, reason: `Waiting for :${from.port} to answer…`, canStart: false, canShow: false }
+        : null;
   return (
     <div ref={host} className={`live-frame${engaged ? " is-engaged" : ""}`}>
       {mount && (
         <iframe
+          key={url}
           ref={frame}
-          src={panel.url}
+          src={url}
           title={panel.name}
           loading="lazy"
           onLoad={() => setLoaded(true)}
@@ -316,12 +344,13 @@ function LiveFrame({ panel }: { panel: PanelMeta }) {
         />
       )}
       {(!mount || !loaded) && (
-        <div className="frame-poster">
-          {favicon && <img className="frame-favicon" alt="" src={favicon} onError={(e) => (e.currentTarget.style.visibility = "hidden")} />}
+        <div className={`frame-poster${hold ? " is-held" : ""}`}>
+          {favicon && !hold && <img className="frame-favicon" alt="" src={favicon} onError={(e) => (e.currentTarget.style.visibility = "hidden")} />}
           <div className="frame-poster-name">{panel.name}</div>
           <div className="frame-poster-domain">{domain || "no address yet"}</div>
           {panel.text && <div className="frame-poster-text">{panel.text}</div>}
           {mount && !loaded && <div className="frame-poster-loading" />}
+          {hold && from && <MachineHold page={hold} from={from} viewer={viewer} />}
         </div>
       )}
       {!engaged && mount && (
@@ -329,6 +358,104 @@ function LiveFrame({ panel }: { panel: PanelMeta }) {
           <span className="f-pill">Use {panel.panel === "machine" ? "machine" : "app"}</span>
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * While a machine's page is on screen, ask the server to read the engine back
+ * (as the card does while it's on screen), so a machine stopped or removed
+ * outside Foundation reaches the page even with its card out of view.
+ */
+function useMachineWatch(from: FromMachine | undefined, on: boolean) {
+  const card = from?.panel;
+  useEffect(() => {
+    if (!card || !on) return;
+    const boardId = activeBoard()?.boardId ?? "company";
+    const read = () => api(`/api/boards/${encodeURIComponent(boardId)}/machines/${card}`).catch(() => {});
+    const t = setInterval(read, 5000);
+    return () => clearInterval(t);
+  }, [card, on]);
+}
+
+/**
+ * Running again after being held: the engine says running a moment before the
+ * server inside answers, so wait (up to 20 s) for the port to answer before
+ * the frame loads, rather than load the browser's own "refused" page.
+ */
+function useMachineReturn(from: FromMachine | undefined, url: string | undefined, held: boolean) {
+  const [waiting, setWaiting] = useState(false);
+  const wasHeld = useRef(held);
+  useEffect(() => {
+    const back = wasHeld.current && !held;
+    wasHeld.current = held;
+    if (!from || !back || !url) return;
+    let stop = false;
+    setWaiting(true);
+    const until = Date.now() + 20_000;
+    void (async () => {
+      while (!stop && Date.now() < until) {
+        // an opaque answer is enough: something is listening (a refused port rejects)
+        const ok = await fetch(url, { mode: "no-cors", cache: "no-store" }).then(
+          () => true,
+          () => false,
+        );
+        if (ok || stop) break;
+        await new Promise((r) => setTimeout(r, 600));
+      }
+      if (!stop) setWaiting(false);
+    })();
+    return () => {
+      stop = true;
+      setWaiting(false);
+    };
+  }, [held, url]); // eslint-disable-line react-hooks/exhaustive-deps
+  return waiting;
+}
+
+/** the page of a machine that isn't running: its state pill, what happened, and what a person can do */
+function MachineHold({ page, from, viewer }: { page: Exclude<MachinePage, { kind: "live" }>; from: FromMachine; viewer: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const start = async () => {
+    setBusy(true);
+    try {
+      // the card's own Start: a person's browser session on a board they can edit, checked by the server
+      await machineAction(from.panel, "start");
+    } catch (e) {
+      toast((e as Error).message, "bad");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const show = () => {
+    const card = getState().panels[from.panel];
+    if (!card) return;
+    const hosted = getState().sections[card.sectionId]?.host === card.id;
+    requestSnap(hosted ? { kind: "section", id: card.sectionId } : { kind: "object", id: card.id });
+  };
+  return (
+    <div className={`machine-hold is-${page.kind}`} role="status">
+      <span className={`machine-state is-${page.tone}`}>
+        <span className={`f-dot${page.tone === "idle" ? "" : ` is-${page.tone}`}${page.breathing ? " is-live" : ""}`} />
+        {page.word}
+      </span>
+      <div className="machine-hold-title">{page.title}</div>
+      <div className="machine-hold-reason">{page.reason}</div>
+      {(page.canStart || page.canShow) && (
+        <div className="machine-hold-actions">
+          {page.canStart && (
+            <button className="f-pill is-accent" disabled={busy} onClick={() => void start()} data-tip="Start the machine again (its disk is kept). This page reloads when it runs.">
+              {busy ? "Starting…" : "Start it"}
+            </button>
+          )}
+          {page.canShow && (
+            <button className="f-pill" onClick={show} data-tip="Go to the machine's card">
+              Show the machine
+            </button>
+          )}
+        </div>
+      )}
+      {viewer && (page.kind === "stopped" || page.kind === "error") && <div className="machine-hold-note">View only: someone who can edit this board starts it.</div>}
     </div>
   );
 }
