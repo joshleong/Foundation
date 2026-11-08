@@ -39,16 +39,16 @@ function open(): DatabaseSync | null {
   }
 }
 
-let envId: { id: string | null; at: number } = { id: null, at: 0 };
-/** T3's environment id, for links into Vision Code (cached a minute) */
-async function environmentId(): Promise<string | null> {
-  if (Date.now() - envId.at < 60_000) return envId.id;
+let envId: { base: string; id: string | null; at: number } = { base: "", id: null, at: 0 };
+/** T3's environment id at this address, for links into Vision Code (cached a minute per address) */
+async function environmentId(base: string): Promise<string | null> {
+  if (envId.base === base && Date.now() - envId.at < 60_000) return envId.id;
   try {
-    const r = await fetch(`${t3Url()}/.well-known/t3/environment`, { signal: AbortSignal.timeout(1200) });
+    const r = await fetch(`${base}/.well-known/t3/environment`, { signal: AbortSignal.timeout(1200) });
     const j = (await r.json()) as { environmentId?: string };
-    envId = { id: j.environmentId ?? null, at: Date.now() };
+    envId = { base, id: j.environmentId ?? null, at: Date.now() };
   } catch {
-    envId = { id: null, at: Date.now() };
+    envId = { base, id: null, at: Date.now() };
   }
   return envId.id;
 }
@@ -74,7 +74,8 @@ function statusOf(session: string | null, pending: number, error: string | null)
 export async function t3Threads(limit = 24): Promise<{ available: boolean; threads: T3Thread[]; missing?: string }> {
   const d = open();
   if (!d) return { available: false, threads: [], missing: missing ?? undefined };
-  const env = await environmentId();
+  const base = t3Url();
+  const env = await environmentId(base);
   try {
     const rows = d
       .prepare(
@@ -97,7 +98,7 @@ export async function t3Threads(limit = 24): Promise<{ available: boolean; threa
         status: statusOf(r.status, r.pending, r.last_error),
         pending: r.pending,
         updatedAt: Date.parse(r.updated_at) || 0,
-        url: env ? `${t3Url()}/${env}/${r.thread_id}` : null,
+        url: env ? `${base}/${env}/${r.thread_id}` : null,
       })),
     };
   } catch (e) {

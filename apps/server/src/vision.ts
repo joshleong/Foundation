@@ -29,7 +29,7 @@ import { all, one, run } from "./db.ts";
 import { editBoard } from "./boards.ts";
 import { storeFile, isCad } from "./files.ts";
 import { t3Thread } from "./t3.ts";
-import { findT3Cli, findT3Home, notFoundMessage, t3Command, t3Url } from "./t3paths.ts";
+import { addressSaid, findT3Cli, findT3Home, notFoundMessage, t3Command, t3Url } from "./t3paths.ts";
 import { imageSize } from "./construct.ts";
 
 const HANDOFFS = () => join(config.dataDir, "handoffs");
@@ -94,13 +94,15 @@ class Rpc {
     });
   }
 
-  static open(token: string): Promise<Rpc> {
-    const url = `${t3Url().replace(/^http/, "ws")}/ws?orchestrationProtocol=1&clientSurface=desktop`;
+  /** `base` is the address in use, so a failure names it (and where it came from) */
+  static open(token: string, base: string): Promise<Rpc> {
+    const url = `${base.replace(/^http/, "ws")}/ws?orchestrationProtocol=1&clientSurface=desktop`;
+    const where = () => `Vision Code at ${addressSaid()}`;
     return new Promise((ok, fail) => {
       const ws = new WebSocket(url, { headers: { authorization: `Bearer ${token}` } });
-      const t = setTimeout(() => (ws.terminate(), fail(new Error("Vision Code didn't answer"))), 8000);
+      const t = setTimeout(() => (ws.terminate(), fail(new Error(`${where()} didn't answer. If it's somewhere else, set T3_URL for Foundation's server.`))), 8000);
       ws.on("open", () => (clearTimeout(t), ok(new Rpc(ws))));
-      ws.on("error", (e) => (clearTimeout(t), fail(new Error(`Vision Code refused the connection: ${e.message}`))));
+      ws.on("error", (e) => (clearTimeout(t), fail(new Error(`${where()} refused the connection (${e.message}). If it's somewhere else, set T3_URL for Foundation's server.`))));
     });
   }
 
@@ -190,9 +192,9 @@ export function turnStart(threadId: string, projectId: string, title: string, te
   };
 }
 
-async function environmentId(): Promise<string | null> {
+async function environmentId(base: string): Promise<string | null> {
   try {
-    const r = await fetch(`${t3Url()}/.well-known/t3/environment`, { signal: AbortSignal.timeout(2000) });
+    const r = await fetch(`${base}/.well-known/t3/environment`, { signal: AbortSignal.timeout(2000) });
     return ((await r.json()) as { environmentId?: string }).environmentId ?? null;
   } catch {
     return null;
@@ -203,7 +205,8 @@ async function environmentId(): Promise<string | null> {
 export async function startThread(folder: string, title: string, text: string): Promise<{ threadId: string; url: string | null }> {
   const root = HANDOFFS();
   return withSession(async (token) => {
-    const rpc = await Rpc.open(token);
+    const base = t3Url(); // one address for the whole hand-off
+    const rpc = await Rpc.open(token, base);
     try {
       let projectId: string | null = null;
       await rpc
@@ -218,9 +221,9 @@ export async function startThread(folder: string, title: string, text: string): 
       }
       const threadId = randomUUID();
       await rpc.call("orchestration.dispatchCommand", turnStart(threadId, projectId, title, text));
-      const env = await environmentId();
+      const env = await environmentId(base);
       void folder;
-      return { threadId, url: env ? `${t3Url()}/${env}/${threadId}` : null };
+      return { threadId, url: env ? `${base}/${env}/${threadId}` : null };
     } finally {
       rpc.close();
     }

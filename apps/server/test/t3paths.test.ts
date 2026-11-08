@@ -8,10 +8,10 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findT3Cli, findT3Home, notFoundMessage, t3CliCandidates, t3Command, t3HomeCandidates, t3Url, ON_PATH, type Where } from "../src/t3paths.ts";
+import { findT3Cli, findT3Home, notFoundMessage, runtimeOrigin, t3Address, t3CliCandidates, t3Command, t3HomeCandidates, t3Url, DEFAULT_T3_URL, ON_PATH, type Where } from "../src/t3paths.ts";
 
 const mac: Where = { platform: "darwin", arch: "arm64", env: {}, home: "/Users/ada" };
 const win: Where = {
@@ -82,8 +82,7 @@ test("T3_CLI, T3CODE_HOME and T3_URL win, and are taken as given", () => {
   // even where nothing exists: the override is what's used (and what fails, loudly)
   assert.equal(findT3Cli(set, nothing).found, "D:\\tools\\t3.exe");
   assert.equal(findT3Home(set, nothing).found, "D:\\t3home");
-  assert.equal(t3Url({}), "http://localhost:3783");
-  assert.equal(t3Url({ T3_URL: "http://127.0.0.1:4999/" }), "http://127.0.0.1:4999");
+  assert.equal(t3Url({ ...win, env: { T3_URL: "http://127.0.0.1:4999/" } }), "http://127.0.0.1:4999");
 });
 
 test("the CLI starts without a shell: scripts under Node, npm's .cmd through the script it wraps", () => {
@@ -125,5 +124,70 @@ test("the side pane's list says where it looked when the threads can't be read",
   } finally {
     for (const [k, v] of Object.entries(keep)) v === undefined ? delete process.env[k] : (process.env[k] = v);
     rmSync(empty, { recursive: true, force: true });
+  }
+});
+
+// ---------- the address: T3_URL, else T3's server-runtime.json, else :3783 ----------
+
+const winHome = "C:\\Users\\Ada\\AppData\\Roaming\\co.normallab.vision\\code";
+const winStore = `${winHome}\\userdata\\state.sqlite`;
+const winRuntime = `${winHome}\\userdata\\server-runtime.json`;
+/** a Windows machine with Vision's store, and server-runtime.json saying `body` (or missing) */
+const fsWith = (body: string | null) => ({
+  exists: (f: string) => f === winStore,
+  read: (f: string) => {
+    if (f !== winRuntime || body === null) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    return body;
+  },
+});
+const address = (w: Where, body: string | null) => {
+  const f = fsWith(body);
+  return t3Address(w, f.exists, f.read);
+};
+
+test("the address comes from what Vision Code wrote when it started (it takes the next port when :3783 is taken)", () => {
+  // the file as T3 0.0.44 writes it (this machine's, 2026-11-07)
+  const real = '{"version":1,"pid":45496,"host":"127.0.0.1","port":3783,"origin":"http://127.0.0.1:3783","startedAt":"2026-10-04T03:08:28.715Z"}\n';
+  assert.deepEqual(address(win, real), { url: "http://127.0.0.1:3783", from: winRuntime });
+  const moved = '{"version":1,"pid":7,"host":"127.0.0.1","port":3784,"origin":"http://127.0.0.1:3784","startedAt":"2026-11-07T00:00:00.000Z"}';
+  assert.equal(address(win, moved).url, "http://127.0.0.1:3784");
+  // no origin it can use: host and port stand in; a wildcard host is this computer
+  assert.equal(address(win, '{"version":1,"port":3790,"host":"0.0.0.0","origin":"nope"}').url, "http://127.0.0.1:3790");
+  assert.equal(address(win, '{"version":1,"port":3791,"origin":"ftp://127.0.0.1:3791"}').url, "http://127.0.0.1:3791");
+  // T3_URL wins over the file
+  assert.deepEqual(address({ ...win, env: { ...win.env, T3_URL: "http://127.0.0.1:5000/" } }, moved), { url: "http://127.0.0.1:5000", from: "T3_URL" });
+  // T3CODE_HOME says whose file
+  const pinned: Where = { ...linux, env: { T3CODE_HOME: "/t3home" } };
+  assert.equal(t3Address(pinned, () => false, (f) => (f === "/t3home/userdata/server-runtime.json" ? moved : "")).url, "http://127.0.0.1:3784");
+});
+
+test("no usable file: http://127.0.0.1:3783", () => {
+  for (const body of [null, "", "not json", "null", "[]", "{}", '{"origin":""}', '{"port":"3784"}', '{"port":0}', '{"port":70000}', '{"port":3784.5}']) {
+    assert.deepEqual(address(win, body), { url: DEFAULT_T3_URL, from: "the default" }, String(body));
+  }
+  // no Vision home at all: nothing is read
+  let read = 0;
+  assert.equal(t3Address(win, () => false, () => (read++, "{}")).url, DEFAULT_T3_URL);
+  assert.equal(read, 0);
+  assert.equal(runtimeOrigin("/nowhere", linux, () => { throw new Error("EACCES"); }), null, "unreadable");
+});
+
+test("messages name the address actually used, and where it came from", () => {
+  const home = mkdtempSync(join(tmpdir(), "t3-runtime-"));
+  mkdirSync(join(home, "userdata"));
+  // a port nothing serves, outside the range Vision picks from (3783–3983): never a real Vision Code
+  writeFileSync(join(home, "userdata", "server-runtime.json"), JSON.stringify({ version: 1, pid: 1, port: 9, origin: "http://127.0.0.1:9", startedAt: "" }));
+  const keep = { T3CODE_HOME: process.env.T3CODE_HOME, T3_URL: process.env.T3_URL };
+  process.env.T3CODE_HOME = home;
+  delete process.env.T3_URL;
+  try {
+    assert.equal(t3Url(), "http://127.0.0.1:9");
+    const msg = notFoundMessage({ found: null, tried: ["x"] }, null);
+    assert.ok(msg.includes(`T3_URL to its address (now http://127.0.0.1:9, from ${join(home, "userdata", "server-runtime.json")})`), msg);
+    process.env.T3_URL = "http://127.0.0.1:9/";
+    assert.match(notFoundMessage({ found: null, tried: ["x"] }, null), /now http:\/\/127\.0\.0\.1:9, from T3_URL/);
+  } finally {
+    for (const [k, v] of Object.entries(keep)) v === undefined ? delete process.env[k] : (process.env[k] = v);
+    rmSync(home, { recursive: true, force: true });
   }
 });

@@ -196,3 +196,27 @@ test("no Vision Code on this computer: Run's card lists where it looked and the 
     for (const [k, v] of Object.entries(keep)) v === undefined ? delete process.env[k] : (process.env[k] = v);
   }
 });
+
+test("no T3_URL: the hand-off goes where Vision Code's server-runtime.json says, and links there", async () => {
+  // T3CODE_HOME stays pinned to this test's folder, so only this file is read, never the real one
+  const standIn = process.env.T3_URL!;
+  const runtime = join(process.env.T3CODE_HOME!, "userdata", "server-runtime.json");
+  (await import("node:fs")).mkdirSync(join(process.env.T3CODE_HOME!, "userdata"), { recursive: true });
+  writeFileSync(runtime, JSON.stringify({ version: 1, pid: 1, host: "127.0.0.1", port: Number(new URL(standIn).port), origin: standIn, startedAt: new Date().toISOString() }));
+  delete process.env.T3_URL;
+  try {
+    const doc = getBoard("vis").doc;
+    const out = (await runTool(ctx, "vision_brief", { title: "Moved port", goal: "g", reviewers: [], section: "Design" })) as { handoff: string };
+    const jobId = (boardMaps(doc).objects.get(out.handoff) as { sessionId: string }).sessionId;
+    const before = commands.length;
+    startJob(jobId, "vis", "Ada");
+    await until(() => !!getHandoff(jobId)?.thread_id || getJob(jobId)?.status === "error");
+    assert.equal(getJob(jobId)!.status, "running", getJob(jobId)!.output ?? "");
+    assert.equal(commands.at(-1)!.type, "thread.turn.start");
+    assert.ok(commands.length > before, "the stand-in named by the file got the thread");
+    assert.equal(getHandoff(jobId)!.thread_url, `${standIn}/env-1/${getHandoff(jobId)!.thread_id}`);
+  } finally {
+    process.env.T3_URL = standIn;
+    (await import("node:fs")).rmSync(runtime, { force: true });
+  }
+});
