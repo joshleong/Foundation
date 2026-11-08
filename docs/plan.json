@@ -92,7 +92,7 @@
       "kind": "plan",
       "milestone": "polish",
       "area": "design",
-      "status": "next",
+      "status": "done",
       "body": "Most of the 19 raw colours left in components (`design.test.ts`'s allowlist) are white text on a solid state or person colour and the port bead's white gloss. A `--color-on-fill` and a highlight token in `tokens.css` would clear them; lower the test's ceiling as they go."
     },
     {

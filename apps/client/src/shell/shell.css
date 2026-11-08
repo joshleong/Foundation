@@ -1026,7 +1026,7 @@ body.is-dragging-hit * {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--color-on-fill);
   font: 700 10px / 1 var(--font-sans);
   border: 2px solid var(--color-abyss);
   flex-shrink: 0;
@@ -1120,7 +1120,7 @@ body.is-presenting .empty-cell {
   padding: 3px 8px;
   border-radius: var(--radius-pill);
   background: var(--peer);
-  color: #fff;
+  color: var(--color-on-fill);
   font: 600 var(--text-11) / 1 var(--font-sans);
   white-space: nowrap;
 }
@@ -1375,10 +1375,10 @@ body.is-presenting .empty-cell {
   border-radius: var(--radius-pill);
   border: 1px solid color-mix(in srgb, var(--wire-tone) 45%, var(--color-raise));
   background:
-    linear-gradient(100deg, color-mix(in srgb, white 55%, transparent), transparent 60%),
+    linear-gradient(100deg, color-mix(in srgb, var(--color-highlight) 90%, transparent), transparent 60%),
     color-mix(in srgb, var(--wire-tone) 14%, var(--color-raise));
   box-shadow:
-    inset 0 1px 1px rgb(255 255 255 / 0.6),
+    inset 0 1px 1px var(--color-highlight),
     0 1px 3px color-mix(in srgb, var(--color-frost) 14%, transparent);
   pointer-events: auto;
   opacity: 0.7;
@@ -3004,7 +3004,7 @@ body.is-connecting .port-in.is-snap {
   border-radius: var(--radius-paper);
   border: 1.5px solid var(--color-line-strong);
   font-size: 10px;
-  color: #fff;
+  color: var(--color-on-fill);
 }
 .is-done .tick {
   background: var(--color-ok);
@@ -3328,7 +3328,7 @@ body.is-viewer .port {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--color-on-fill);
   font: 600 9px / 1 var(--font-sans);
 }
 .person-role {

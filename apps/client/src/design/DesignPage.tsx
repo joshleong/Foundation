@@ -17,7 +17,7 @@ import type { Plan } from "../settings/plan";
 
 const SURFACES = ["void", "abyss", "panel", "raise"];
 const INKS = ["frost", "mist", "dim"];
-const ACCENTS = ["pulse", "volt", "moss", "agent", "ok", "warn", "bad"];
+const ACCENTS = ["pulse", "volt", "moss", "agent", "ok", "warn", "bad", "on-fill", "highlight"];
 const TYPE = [
   { size: 32, weight: 600, label: "Display 32", font: "var(--font-display)", sample: "Foundation" },
   { size: 24, weight: 600, label: "Title 24", font: "var(--font-sans)", sample: "Airform Max program" },

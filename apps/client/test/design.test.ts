@@ -25,20 +25,13 @@ const SKIP = new Set(["login/asciiWind2.js"]);
  * that no longer matches anything fails the test: take it out (the ratchet).
  */
 const ALLOWED: Array<{ file: string; selector?: string; prop?: string; text?: string; why: string }> = [
-  { file: "App.css", selector: ".menu-item.danger:hover", prop: "color", why: "white text on a solid --color-bad fill (as .f-pill.is-accent in tokens.css); no on-fill token yet" },
-  { file: "App.css", selector: ".confirm-btn.danger", prop: "color", why: "white text on a solid --color-bad fill; no on-fill token yet" },
   { file: "App.css", selector: ".link-chip.drive .link-ico", prop: "color", why: "Google Drive's own brand green on its glyph, not a state colour" },
   { file: "shell/shell.css", selector: ".search-tile-name", prop: "background", why: "dark scrim over a photo thumbnail: the photo doesn't change with night, so neither does its scrim" },
   { file: "shell/shell.css", selector: ".search-tile-name", prop: "color", why: "white caption on that fixed dark scrim" },
-  { file: "shell/shell.css", selector: ".presence-avatar, .me-avatar", prop: "color", why: "white initials on the person's own colour (from the server)" },
-  { file: "shell/shell.css", selector: ".peer-name", prop: "color", why: "white name on the person's own colour (from the server)" },
-  { file: "shell/shell.css", selector: ".person-dot", prop: "color", why: "white initials on the person's own colour (from the server)" },
-  { file: "shell/shell.css", selector: ".tick", prop: "color", why: "white check on a solid --color-ok fill; no on-fill token yet" },
   { file: "shell/shell.css", selector: ".orb-sun", prop: "background", why: "the night orb's sun is artwork, the same in any room" },
   { file: "shell/shell.css", selector: ".orb-sun", prop: "box-shadow", why: "the sun's glow (artwork)" },
   { file: "shell/shell.css", selector: ".orb-moon", prop: "background", why: "the night orb's moon is artwork" },
   { file: "shell/shell.css", selector: ".orb-moon", prop: "box-shadow", why: "the moon's crescent shade (artwork)" },
-  { file: "shell/shell.css", selector: ".port", prop: "box-shadow", why: "the port bead's gloss stays white at night, like the inset highlight in --shadow-lift/--shadow-glass; --color-raise would put it out at night. Wants a highlight token" },
   { file: "shell/shell.css", selector: ".live-frame iframe", prop: "background", why: "an embedded web page's canvas is white by the web's default, whatever our room" },
   { file: "cad/model.ts", text: "new THREE.Color(\"#c9cdd3\")", why: "three.js material default for a model with no colour; WebGL can't read a CSS token" },
   { file: "components/MapView.tsx", text: "\"background-color\": \"#e9e5dd\"", why: "MapLibre paint under the OSM tiles; MapLibre can't read a CSS token" },
@@ -47,7 +40,7 @@ const ALLOWED: Array<{ file: string; selector?: string; prop?: string; text?: st
 ];
 
 /** every raw colour left in the client; may only go down */
-const CEILING = 19;
+const CEILING = 12;
 
 const HEX = /(?<!url\()(?<![\w&])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])/g;
 const FN = /(?<![\w-])(?:rgba?|hsla?)\(/g;
