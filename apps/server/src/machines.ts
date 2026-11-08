@@ -260,6 +260,20 @@ export function kiriApp(env = process.env, platform = process.platform): { exe: 
   return null;
 }
 
+/**
+ * Start a program outside this server's process tree, so stopping Foundation
+ * (npm run dev stops its children with `taskkill /T`) leaves Kiri running.
+ * On Windows `start` launches it and exits, which cuts the parent link.
+ */
+function launchApart(exe: string, args: string[]) {
+  if (process.platform === "win32") {
+    const q = (s: string) => `"${s.replace(/"/g, "")}"`;
+    spawn("cmd.exe", ["/d", "/s", "/c", `start "" /b ${[exe, ...args].map(q).join(" ")}`], { detached: true, stdio: "ignore", windowsHide: true, windowsVerbatimArguments: true }).unref();
+  } else {
+    spawn(exe, args, { detached: true, stdio: "ignore" }).unref();
+  }
+}
+
 let waking: Promise<boolean> | null = null;
 
 /** Start Kiri's app (no window) and wait for its engine; one wake at a time. Only a person's Start calls this. */
@@ -269,7 +283,7 @@ export function wakeKiri(timeoutMs = 60_000): Promise<boolean> {
   if (!app) return Promise.resolve(false);
   waking = (async () => {
     try {
-      spawn(app.exe, app.args, { detached: true, stdio: "ignore", windowsHide: true }).unref();
+      launchApart(app.exe, app.args);
       const until = Date.now() + timeoutMs;
       while (Date.now() < until) {
         if ((await engineStatus(true)).some((s) => s.id === "kiri" && s.up)) return true;

@@ -139,8 +139,10 @@ export async function startKiri({ waitMs = 60_000, log = console.log } = {}) {
   if (win) {
     if (!here.distro) return "not-installed";
     // Kiri's tray app: serves \\.\pipe\kiri and starts the engine in WSL (--background: no window).
-    const p = spawn(here.exe, ["--background", "--distro", DISTRO], { cwd: kiriDir(), detached: true, stdio: "ignore", windowsHide: true });
-    p.unref();
+    // Through `start`, so it isn't in our process tree: stopping npm run dev (taskkill /T) leaves it running.
+    const q = (s) => `"${s.replace(/"/g, "")}"`;
+    const line = `start "" /b ${[here.exe, "--background", "--distro", DISTRO].map(q).join(" ")}`;
+    spawn("cmd.exe", ["/d", "/s", "/c", line], { cwd: kiriDir(), detached: true, stdio: "ignore", windowsHide: true, windowsVerbatimArguments: true }).unref();
   } else if (process.platform === "darwin") {
     spawn("open", ["-g", "-a", "Kiri"], { detached: true, stdio: "ignore" }).unref();
   } else {
