@@ -83,7 +83,7 @@
       "kind": "bug",
       "milestone": "apps",
       "area": "machines",
-      "status": "doing",
+      "status": "done",
       "body": "The page's frame isn't told the machine stopped. Show it as stopped (and reload when it starts again)."
     },
     {
@@ -101,7 +101,7 @@
       "kind": "bug",
       "milestone": "huddles",
       "area": "huddles",
-      "status": "doing",
+      "status": "done",
       "body": "Huddle state lives on the panel object; a move at the same moment overwrites it until the next join or leave. Keep it in its own map."
     },
     {
@@ -580,6 +580,24 @@
       "area": "voice",
       "status": "needs-you",
       "body": "Huddle transcripts and the crew's sheet were checked with typed lines and a stand-in recogniser. Talk in a huddle and to the sheet on a real machine."
+    },
+    {
+      "id": "fitted-frames-posters",
+      "title": "A live page in a heavily fitted section never mounts",
+      "kind": "bug",
+      "milestone": "polish",
+      "area": "panels",
+      "status": "backlog",
+      "body": "Frames mount only at zoom ≥ 0.3; a section fitted to about 27 % keeps its pages as posters even when the person zooms to them. Count the section's fit in the gate, or mount on Expand."
+    },
+    {
+      "id": "hover-bar-ports",
+      "title": "A card's hover bar covers its port pills",
+      "kind": "bug",
+      "milestone": "polish",
+      "area": "panels",
+      "status": "backlog",
+      "body": "Seen while checking machine pages (2026-11-07): the bar that drops in over a card's top edge on hover sits over the port pills, so they're hard to press. Keep ports clear of the bar or raise them over it."
     },
     {
       "id": "codemirror-notes",
