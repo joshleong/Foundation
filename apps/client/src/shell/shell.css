@@ -2268,10 +2268,10 @@ body.is-connecting .port-in.is-snap {
   --ascii-glow: var(--color-pulse);
 }
 
-/* Sign-in (login/Login.tsx): ordinary type and physical controls in a frame
-   drawn in the wind (a ring of its own glyphs). The wind blows on inside it and
-   clears only the cells behind the text; there is no card. Day colours always
-   (.f-day). It sits over the board (fixed) so signing in can dissolve into it. */
+/* Sign-in (login/Login.tsx): ordinary type and physical controls standing in
+   the wind, with no card and no frame: the wind parts around each element and
+   traces its outline in its own glyphs. Day colours always (.f-day). It sits
+   over the board (fixed) so signing in can dissolve into it. */
 .login {
   position: fixed;
   inset: 0;
@@ -2288,6 +2288,7 @@ body.is-connecting .port-in.is-snap {
   z-index: -2;
   background: var(--color-void);
 }
+/* where the form sits; nothing draws it */
 .login-frame {
   position: absolute;
   box-sizing: border-box;
