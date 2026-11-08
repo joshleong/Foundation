@@ -29,7 +29,7 @@ import {
 } from "../state/store";
 import { SectionView } from "./SectionView";
 import { WireLayer } from "./WireLayer";
-import { publishCamera, publishPointer } from "../state/camera";
+import { camera, publishCamera, publishPointer } from "../state/camera";
 import { isNight, onNight } from "@foundation/ui";
 import { floorInsets, getUi, setUi, useUi } from "../state/ui";
 import { TalkButton } from "../shell/Talk";
@@ -81,6 +81,10 @@ function sectionFocusRect(grid: Parameters<typeof sectionCardRect>[0], s: Parame
   let y1 = Math.max(...objs.map((r) => r.y + r.h)) + 40;
   x1 = Math.min(card.x + card.w, Math.max(x1, card.x + 640));
   y1 = Math.min(card.y + card.h, Math.max(y1, card.y + 420));
+  // the section's tools wait at its top-right corner: keep its full width in the frame unless it's far
+  // wider than what it holds (then the cards matter more, and hover finds the tools after a pan)
+  const fitsAtCap = (card.x + card.w - x0) * 1.05 <= camera.width - floorInsets().left - floorInsets().right - 2 * SAFE_GAP;
+  if (fitsAtCap || card.x + card.w - x0 <= (x1 - x0) * 1.6) x1 = card.x + card.w;
   const rect = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
   // only tighten when it actually helps
   return rect.w * rect.h < card.w * card.h * 0.7 ? rect : card;

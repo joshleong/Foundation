@@ -605,7 +605,7 @@
       "kind": "bug",
       "milestone": "polish",
       "area": "grid",
-      "status": "backlog",
+      "status": "done",
       "body": "Framing zooms to a section's cards (about 0.55 at 1440×900). Frame tighter when it holds one card or none, and keep its top-right tools in view."
     },
     {
