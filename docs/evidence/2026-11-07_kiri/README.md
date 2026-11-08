@@ -38,6 +38,17 @@ No administrator prompt. Docker Desktop stayed docker's default engine.
 
 `npm test`: client 33/33; server 65 pass, 0 fail, 6 skipped (the flowform fixtures, SPEC §7). `machines.test.ts` is 9/9, two of them new: an engine that stops answering leaves its machines Out of reach, not removed; and Kiri is found where its installer puts it (`setup.json`'s distro, else `kiri`; never when `FOUNDATION_ENGINES` names the engines). `npm run typecheck` is clean. The e2e suite wasn't rerun: it doesn't cover machines, and this change touches only the machine card.
 
+## Kiri outlives Foundation
+
+Stopping my preview server also stopped a Kiri the server had woken: `kiri-win` was in the server's process tree, and `npm run dev` stops its children with `taskkill /T`. Both launchers now go through `cmd /c start`, which cuts the parent link. Checked by quitting Kiri, starting it from a parent process, killing that parent's whole tree with `taskkill /T /F`, and looking for `kiri-win`:
+
+```
+[script] kiri: engine up on \\.\pipe\kiri: Kiri 0.1.18 (API 1.47, linux/amd64)
+[script] after taskkill /T of the launcher: kiri-win alive = True
+[server] kiriApp {"exe":"…\\Kiri\\kiri-win.exe","args":["--background","--distro","kiri"]} | woke true
+[server] after taskkill /T of the launcher: kiri-win alive = True
+```
+
 ## Found and corrected
 
 - SPEC §0.2 said Kiri drops per-container caps (from reading `hostopts.rs`). Kiri 0.1.18 applies them: see the cgroup above.
