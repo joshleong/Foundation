@@ -306,6 +306,8 @@ export function describeStep(name: string, input: Record<string, unknown>, board
       return `finding images of ${q("query")}`;
     case "lay_out":
       return "laying out a page";
+    case "write_digest":
+      return "writing the daily digest";
     default:
       return name.replace(/_/g, " ");
   }

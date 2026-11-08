@@ -179,6 +179,22 @@ create table if not exists flowform_attempts (
   result_error text
 );
 
+-- The daily digest (digest.ts): one row per board per local day. The note it
+-- wrote (null once that note was reused for a newer day), the window its
+-- activity covers, and what it saw: the board's sections and cards and every
+-- connector's reading, which the next day compares with. Only the newest
+-- row keeps its JSON; older rows are just the record of the day.
+create table if not exists digest_days (
+  board_id text not null,
+  day text not null,
+  note_id text,
+  since integer not null,
+  written_at integer not null,
+  base_json text,
+  seen_json text,
+  primary key (board_id, day)
+);
+
 create table if not exists jobs (
   id text primary key,
   kind text not null,
