@@ -83,7 +83,7 @@
       "kind": "bug",
       "milestone": "crew",
       "area": "voice",
-      "status": "next",
+      "status": "done",
       "body": "A tap of Space opens the sheet for typing, but its field takes focus on the next animation frame. Letters typed in that gap go to the board (A toggles the agent layer), seen in a headless check on 2026-11-07. Focus the field in the same frame, and hold keys typed before it's ready."
     },
     {

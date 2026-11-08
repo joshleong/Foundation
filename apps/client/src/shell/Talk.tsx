@@ -15,7 +15,7 @@
  * Stop, and Open (its session).
  */
 
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { listen, voiceAvailable, type Listening } from "../lib/voice";
 import { askCrew, crewAsk, sayToAgent, stopSession, titleOf, useSession } from "../state/sessions";
@@ -39,7 +39,41 @@ export function talking() {
   return mode === "listening";
 }
 
+/** the sheet is open for typing: the board's one-key shortcuts stand down (Shell) */
+export function talkTyping() {
+  return mode === "typing";
+}
+
+/**
+ * Keys typed in the moment between a tap of Space and the field taking focus
+ * belong to the field, not the board (an "a" there toggled the agent layer).
+ * Registered at import, so it runs before the shell's own capture listener.
+ */
+let early = "";
+function holdEarlyKeys(e: KeyboardEvent) {
+  if (mode !== "typing" || e.metaKey || e.ctrlKey || e.altKey || e.key.length !== 1) return;
+  const field = document.querySelector<HTMLTextAreaElement>(".talk-field");
+  if (field && document.activeElement === field) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  early += e.key;
+  if (field) takeEarlyKeys(field);
+}
+function takeEarlyKeys(field: HTMLTextAreaElement) {
+  field.focus();
+  if (!early) return;
+  field.value += early;
+  field.setSelectionRange(field.value.length, field.value.length);
+  early = "";
+}
+if (typeof window !== "undefined") window.addEventListener("keydown", holdEarlyKeys, true);
+
 function setMode(m: Mode, words = "") {
+  // opening for typing starts empty: a sheet reopened while it was still closing keeps its old field
+  if (m === "typing" && mode !== "typing") {
+    early = "";
+    document.querySelectorAll<HTMLTextAreaElement>(".talk-field").forEach((f) => (f.value = ""));
+  }
   mode = m;
   heard = words;
   emit();
@@ -308,8 +342,12 @@ function TalkInput({ mode: m, words }: { mode: Mode; words: string }) {
   const bars = [useRef<HTMLSpanElement>(null), useRef<HTMLSpanElement>(null), useRef<HTMLSpanElement>(null), useRef<HTMLSpanElement>(null), useRef<HTMLSpanElement>(null)];
   useMicLevel(m === "listening", bars);
   const field = useRef<HTMLTextAreaElement>(null);
+  // focus in the same commit (not a frame later), and take anything typed before it
+  useLayoutEffect(() => {
+    if (m === "typing" && field.current) takeEarlyKeys(field.current);
+  }, [m]);
   useEffect(() => {
-    if (m === "typing") requestAnimationFrame(() => field.current?.focus());
+    if (m !== "typing") early = "";
   }, [m]);
   const onSession = getUi().tabs.some((x) => x.id === getUi().tab && x.kind === "agent");
   return (
