@@ -110,7 +110,7 @@
       "kind": "bug",
       "milestone": "ship",
       "area": "agent",
-      "status": "next",
+      "status": "done",
       "body": "`agent.ts` spawns `config.claudeCli` directly. That works while Claude Code is `claude.exe`, but an npm-installed `claude.cmd` can't be spawned without a shell. Reuse `claudeCommand` from `rea.ts` (found 2026-11-07 while fixing the REA job)."
     },
     {
