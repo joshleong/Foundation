@@ -403,7 +403,7 @@ Every integration is off until its key exists; the server always starts. Copy `.
 ## 7. Known issues
 
 - **Two people editing the same cell** still resolve last-writer-wins for that cell (Yjs picks one). Different cells merge.
-- **A person adding a table (⌘K) into a section that hosts an app** puts it behind the app, where nobody sees it. The agent tools no longer do this: since 2026-11-07, a card an agent adds to a hosted section makes the app a card in the flow beside it (`cardSection` in `tools.ts`; a real crew turn hit it). The client's own add paths should do the same.
+- **A card added into a section that hosts an app** used to land behind the app. Fixed for agents (`cardSection`, tools.ts) and, since 2026-11-07, for people: every client add path makes the app a card in the flow beside the new one (`unhostFor` in store.ts, `test/hosting.test.ts`). The app stays a card until someone chooses "Let it fill the section" again.
 - **Roles are per board or per account, with no per-section or per-card permissions.** Admins are global (`FOUNDATION_ADMIN_EMAILS`, or flowform admins). A viewer can still start agent sessions (read-only) and join huddles. A viewer's presence (cursor) still shows to others.
 - **Offline is per board and per device.** Only boards opened on this device are kept. The copy isn't encrypted at rest (sign-out deletes it). Card positions and other per-card fields are last-writer-wins when two devices edited the same card offline (notes and cells merge).
 - **A build from before epochs can read but not write** until it reloads (by design, so an old open tab can't pour a stale board into a reset one).
@@ -417,12 +417,12 @@ Every integration is off until its key exists; the server always starts. Copy `.
 - **Panel iframes use `sandbox` with `allow-same-origin`**, so a hostile app on the same origin could escape. Only add apps you trust; serve third-party apps from their own origins.
 - **A section narrower than its content** now fits it (2026-11-07): Rim-drive fan v3's 1,500 px of stages in a 1,080 px column should show whole at about 70 %. Not checked on that board (it isn't in this machine's data); the pipeline itself still doesn't reflow, it's scaled.
 - **Fitted cards can be small.** At 40 % on a zoomed-out board a note's text is unreadable until you zoom in or Expand. The floor (`MIN_FIT`) is a judgement call; tune it on a real display.
-- **An expanded section lies over its neighbours, but their wires don't step back**: wires between other sections still draw at full strength over the dimmed paper (they route round the open section). Dim them with it if it reads as noise.
+- **An expanded section's wires**: wires between the sections that stepped back now fade with them (2026-11-07, `wireBackstage`); a wire with one end in the open section stays at full strength and can cross the open section's paper on its way out.
 - **An expanded section keeps its floating cards where they were**, so a card dropped far right in the fitted view makes the open section wide, and the camera frames it smaller. Docked cards reflow; floaters don't.
 - **The open section's size snaps** while its card eases to it over 0.5 s, so wires jump to the new rects at once. Animating the store's rect would make them travel together.
 - **Backward wires into the first column hook tightly**: the input sits 28 px from the section's wall, so the U-turn into it has about 14 px. A wider content pad on the left of pipeline sections would give it room.
 - **Landing collisions push apart along an edge but not at the far end**, so two different apps crowding one edge can tilt one wire into a short diagonal. Rare on the company board (none today).
-- **The "+" add-section buttons sit in the gaps between sections**, so a double-click aimed at the gap can hit one and add a section. Move them off the gap or require a single deliberate click target.
+- **The "+" add-section buttons sit in the gaps between sections.** Since 2026-11-07 a press waits out the double-click window (300 ms, armed in blue at once) and a second click cancels it, so a double-click in the gap zooms instead of adding. A slower double-click than 300 ms (Windows allows up to 500) still adds; tune on a real mouse.
 - **Throw momentum is generous** (velocity × 125 ms); tune on a real trackpad.
 - **The old toolbar CSS** (`.app-bar`) is still in `App.css`; prune it. A few small hover transitions on `background` remain in `App.css` and lag the night fade the way pills did.
 - **Snap framing to a section** at 1440×900 lands at about 0.55 zoom; an empty section's welcome card reads small. Consider a tighter section frame when it holds one card or none.
