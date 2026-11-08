@@ -592,12 +592,12 @@
     },
     {
       "id": "hover-bar-ports",
-      "title": "A card's hover bar covers its port pills",
+      "title": "A machine card's hover bar covers its port pills (a design call)",
       "kind": "bug",
       "milestone": "polish",
       "area": "panels",
-      "status": "backlog",
-      "body": "Seen while checking machine pages (2026-11-07): the bar that drops in over a card's top edge on hover sits over the port pills, so they're hard to press. Keep ports clear of the bar or raise them over it."
+      "status": "needs-you",
+      "body": "Seen while checking machine pages (2026-11-07): the bar that drops in over a card's top edge on hover sits over the machine card's head, where its published ports are pills (`:8080 ↗`), so they're hard to press. Options: move the port pills to the card's foot (as the huddle card moved its controls to the bottom for the same reason); start the head below the bar's 30 px; or let the bar skip machine cards and put its actions in the foot. DESIGN puts the pills in the head today, so this is Josh's call."
     },
     {
       "id": "codemirror-notes",
