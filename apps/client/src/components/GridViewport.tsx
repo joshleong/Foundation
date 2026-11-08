@@ -1,3 +1,4 @@
+import { keys } from "../lib/keys";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion } from "motion/react";
 import { ShaderBackground } from "../gl/background";
@@ -906,10 +907,10 @@ export function GridViewport() {
         transition={{ type: "spring", stiffness: 210, damping: 22, delay: 0.05 }}
       >
         {!ui.search && (
-          <button className="hud-search f-glass" onClick={() => setUi({ search: true })} title="Search everything and drag it onto the grid (⌘F) · ⌘K for commands">
+          <button className="hud-search f-glass" onClick={() => setUi({ search: true })} title={`Search everything and drag it onto the grid (${keys("mod+F")}) · ${keys("mod+K")} for commands`}>
             <span className="hud-glyph">⌕</span>
             <span className="hud-label">Search</span>
-            <span className="f-kbd">⌘F</span>
+            <span className="f-kbd">{keys("mod+F")}</span>
           </button>
         )}
         <TalkButton />

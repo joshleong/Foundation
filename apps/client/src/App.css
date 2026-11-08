@@ -431,6 +431,13 @@ body.is-connecting .section-tools,
     padding: var(--space-3);
   }
 }
+/* short and narrow (two columns of ~170): the key chip goes before the words wrap
+   to three lines ("Ctrl+L" is twice "⌘L"); the roll-over still names the key */
+@container (max-height: 560px) and (max-width: 480px) {
+  .section-empty .empty-action .f-kbd {
+    display: none;
+  }
+}
 /* very short or very narrow: just the four glyphs, named on hover */
 @container (max-height: 320px) or (max-width: 340px) {
   .section-empty .empty-title,
@@ -445,7 +452,10 @@ body.is-connecting .section-tools,
     grid-template-columns: repeat(4, auto);
     justify-content: center;
   }
+  /* the glyph alone: no empty tracks or gaps beside it, so four fit in a 260 section */
   .section-empty .empty-action {
+    grid-template-columns: 32px;
+    gap: 0;
     padding: var(--space-2);
   }
 }

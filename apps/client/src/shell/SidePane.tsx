@@ -8,6 +8,7 @@
  * app's floorplan and the plan), Tools, and you.
  */
 
+import { keys } from "../lib/keys";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import type { UserInfo } from "@foundation/protocol";
@@ -85,7 +86,7 @@ export function SidePane({ user, boards, current, onSwitch, onNew, onUpload }: P
 
             <section className="pane-group">
               <div className="pane-eyebrow">Tools</div>
-              <PaneRow glyph="⇪" label="Upload files" kbd="⌘U" onClick={onUpload} />
+              <PaneRow glyph="⇪" label="Upload files" kbd={keys("mod+U")} onClick={onUpload} />
               <PaneRow glyph="▥" label="New section" onClick={() => appendSectionLocal("New section")} />
               <PaneRow glyph="⊡" label="Fit the board" kbd="0" onClick={() => requestSnap({ kind: "all" })} />
               <PaneRow glyph="⌁" label="Connect Claude Code" onClick={() => void copyMcpCommand()} />
@@ -129,7 +130,7 @@ function Sessions() {
       <section className="pane-group">
         <div className="pane-eyebrow is-agent">
           Sessions
-          <button className="pane-eyebrow-act" onClick={() => newSession()} title="New agent session (⌘J)">
+          <button className="pane-eyebrow-act" onClick={() => newSession()} title={`New agent session (${keys("mod+J")})`}>
             ＋
           </button>
         </div>

@@ -12,10 +12,14 @@ import { Mark } from "../login/Login";
 import { NightOrb } from "../shell/NightOrb";
 import { pipeCrossings, polyline, route, routeSides, sideToward, type Side } from "../shell/wireGeometry";
 import { tunnelGeometry } from "../shell/wireGeometry";
+import { SectionEmpty } from "../panels/SectionEmpty";
+import { COMMANDS_GLYPH, IS_MAC, keys } from "../lib/keys";
 
 const SURFACES = ["void", "abyss", "panel", "raise"];
 const INKS = ["frost", "mist", "dim"];
 const ACCENTS = ["pulse", "volt", "moss", "agent", "ok", "warn", "bad"];
+// every combo the app prints, and the longest one (Ctrl+Shift+Z) to prove a chip never wraps
+const COMBOS = ["mod+K", "mod+F", "mod+L", "mod+U", "mod+J", "mod+\\", "mod+1", "mod+W", "mod+enter", "shift+mod+Z"];
 const TYPE = [
   { size: 32, weight: 600, label: "Display 32", font: "var(--font-display)", sample: "Foundation" },
   { size: 24, weight: 600, label: "Title 24", font: "var(--font-sans)", sample: "Airform Max program" },
@@ -110,7 +114,7 @@ export function DesignPage() {
           <button className="f-pill" disabled>
             Disabled
           </button>
-          <span className="f-kbd">⌘K</span>
+          <span className="f-kbd">{keys("mod+K")}</span>
           <span className="f-dot is-ok is-live" />
           <span className="f-dot is-warn" />
           <span className="f-dot is-bad" />
@@ -123,6 +127,47 @@ export function DesignPage() {
             <p>One backdrop-filter per region: blur 18 · saturate 1.4 · fill 72% · edge 14%.</p>
           </div>
         </div>
+      </Section>
+
+      <Section
+        title="Key labels"
+        note="Shortcuts print for the machine they're on: ⌘ on a Mac, Ctrl on Windows and Linux (lib/keys.ts — the handlers take either). A chip is one line and never shrinks; where a panel is too tight for it, the panel drops the chip, not the words around it."
+      >
+        <div className="keys-table">
+          {[
+            { label: "Mac", mac: true },
+            { label: "Windows · Linux", mac: false },
+          ].map((p) => (
+            <div key={p.label} className="keys-row">
+              <span className="keys-os">
+                {p.label}
+                {p.mac === IS_MAC && <span className="keys-here"> · this machine</span>}
+              </span>
+              {COMBOS.map((c) => (
+                <span key={c} className="f-kbd">
+                  {keys(c, p.mac)}
+                </span>
+              ))}
+              <button className="hud-search f-glass">
+                <span className="hud-glyph">⌕</span>
+                <span className="hud-label">Search</span>
+                <span className="f-kbd">{keys("mod+F", p.mac)}</span>
+              </button>
+              <div className="f-tip is-on keys-tip">
+                Ask the agent about this section <span className="f-kbd">{keys("mod+J", p.mac)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        {[680, 440].map((h) => (
+          <div key={h} className="adapt-row keys-sections">
+            {[260, 400, 560].map((w) => (
+              <div key={w} className="keys-section" style={{ width: w, height: h }}>
+                <SectionEmpty name={`Section · ${w} × ${h}`} onUpload={() => {}} onNote={() => {}} onFocus={() => {}} />
+              </div>
+            ))}
+          </div>
+        ))}
       </Section>
 
       <Section title="Motion" note="Springs move things; curves fade things. Overshoot only on arrivals (pop). Delight under 600 ms, only after a real completion.">
@@ -214,7 +259,7 @@ export function DesignPage() {
             </nav>
             <div className="top-tools">
               <span className="top-btn is-on">⌕</span>
-              <span className="top-btn">⌘</span>
+              <span className="top-btn">{COMMANDS_GLYPH}</span>
               <span className="top-btn">◇</span>
               <span className="top-btn">▶</span>
             </div>
@@ -300,7 +345,7 @@ export function DesignPage() {
               <button className="hud-search f-glass">
                 <span className="hud-glyph">⌕</span>
                 <span className="hud-label">Search</span>
-                <span className="f-kbd">⌘F</span>
+                <span className="f-kbd">{keys("mod+F")}</span>
               </button>
               <button className="hud-talk f-glass">
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
@@ -382,7 +427,7 @@ export function DesignPage() {
               </div>
             </div>
             <div className="f-tip is-on oncall-tip">
-              Ask the agent about this section <span className="f-kbd">⌘J</span>
+              Ask the agent about this section <span className="f-kbd">{keys("mod+J")}</span>
             </div>
             <div className="effect-label">Section, hovered: no bar — tools wait top-right (add · arrange · agent · remove), each names itself on roll-over</div>
           </div>
@@ -520,7 +565,7 @@ export function DesignPage() {
         </div>
       </Section>
 
-      <Section title="Writing together" note="Each person keeps their own colour. In a note you're writing in, someone else's caret is a 2 px bar in their colour, named while it moves and quiet once it rests; their selection is a 22 % tint. A note at rest names whoever is writing in it with a breathing chip at the bottom right, clear of the bar that drops in at the top. ⌘Z takes back only your own words.">
+      <Section title="Writing together" note={`Each person keeps their own colour. In a note you're writing in, someone else's caret is a 2 px bar in their colour, named while it moves and quiet once it rests; their selection is a 22 % tint. A note at rest names whoever is writing in it with a breathing chip at the bottom right, clear of the bar that drops in at the top. ${keys("mod+Z")} takes back only your own words.`}>
         <div className="adapt-row">
           <div className="frame-card" style={{ width: 400 }}>
             <div className="note-inner" style={{ height: 220 }}>
