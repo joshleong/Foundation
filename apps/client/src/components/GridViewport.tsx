@@ -34,7 +34,7 @@ import { isNight, onNight } from "@foundation/ui";
 import { floorInsets, getUi, setUi, useUi } from "../state/ui";
 import { TalkButton } from "../shell/Talk";
 import { PeerCursors } from "../shell/Presence";
-import { CrewCursors, CrewGuide } from "../shell/Crew";
+import { CrewCursors, CrewFollow, CrewGuide } from "../shell/Crew";
 import { PortWires } from "../shell/AgentLayer";
 import { openContextMenu } from "./ContextMenu";
 
@@ -919,6 +919,7 @@ export function GridViewport() {
       {/* an agent brought you somewhere (or asks to): Back / Go */}
       <div className="crew-guide-slot" style={{ left: insets.left, right: insets.right, top: insets.top }}>
         <CrewGuide />
+        <CrewFollow />
       </div>
 
       {/* the HUD: a small search pill and the zoom, bottom centre — everything else is called up */}

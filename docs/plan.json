@@ -119,8 +119,8 @@
       "kind": "plan",
       "milestone": "crew",
       "area": "crew",
-      "status": "next",
-      "body": "Your view rides along with an agent's cursor until you move. From the roster or by clicking its name pill."
+      "status": "done",
+      "body": "Done 2026-11-07: Follow on any working agent's roster row; your view glides (at your zoom) to keep its cursor in the middle of the open paper, a pill says whom you're following with Stop, and it ends when you press, drag or wheel the grid, press Esc, or the agent leaves."
     },
     {
       "id": "space-typing-race",

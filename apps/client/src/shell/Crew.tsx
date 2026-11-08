@@ -12,12 +12,17 @@
  * `CrewGuide`: when an agent brings you somewhere (bring_view), your view
  * glides there, unless you were moving around in the last moments, in which
  * case it asks first. Back always returns you to where you were.
+ *
+ * `CrewFollow`: follow an agent (the roster's Follow): your view rides along
+ * with its cursor, keeping your zoom, until you move the view yourself or the
+ * agent leaves. A pill under the top bar says whom you're following, with Stop.
  */
 
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { presets, Spring, Spring2D, type SpringConfig } from "../physics/spring";
 import { camera, onCamera, toWorld } from "../state/camera";
+import { floorInsets } from "../state/ui";
 import { getState, objectsInSection, objectWorldRect, requestSnap, sectionBodyRect, subscribe } from "../state/store";
 import type { CrewPresence, PeerState } from "../sync/board";
 import { useBoardTick } from "./Presence";
@@ -331,3 +336,128 @@ export function CrewGuide() {
     </AnimatePresence>
   );
 }
+
+// ---------- following an agent ----------
+
+let following: string | null = null;
+const followSubs = new Set<() => void>();
+const followEmit = () => followSubs.forEach((f) => f());
+
+/** ride along with this agent's cursor (its crew id); null stops */
+export function followCrew(id: string | null) {
+  following = id;
+  followEmit();
+}
+export function followingCrew() {
+  return following;
+}
+function useFollowing() {
+  const [, set] = useState(0);
+  useEffect(() => {
+    const f = () => set((n) => n + 1);
+    followSubs.add(f);
+    return () => {
+      followSubs.delete(f);
+    };
+  }, []);
+  return following;
+}
+
+/** the camera that puts world point p in the middle of the open paper, at the current zoom */
+export function viewCentredOn(p: { x: number; y: number }) {
+  const f = floorInsets();
+  const cx = f.left + (camera.width - f.left - f.right) / 2;
+  const cy = f.top + (camera.height - f.top) / 2;
+  return { x: cx - p.x * camera.scale, y: cy - p.y * camera.scale, scale: camera.scale };
+}
+
+/** is p inside the middle of the open paper (the view only moves when the cursor nears an edge) */
+function wellInView(p: { x: number; y: number }) {
+  const f = floorInsets();
+  const vx = p.x * camera.scale + camera.x;
+  const vy = p.y * camera.scale + camera.y;
+  const w = camera.width - f.left - f.right;
+  const h = camera.height - f.top;
+  return vx > f.left + w * 0.2 && vx < f.left + w * 0.8 && vy > f.top + h * 0.2 && vy < f.top + h * 0.8;
+}
+
+export function CrewFollow() {
+  const board = useBoardTick();
+  const id = useFollowing();
+  const crew = crewPeers(board?.peers() ?? []);
+  const peer = id ? crew.find((p) => p.crew.id === id) : undefined;
+  const last = useRef("");
+  const lastGlide = useRef(0);
+
+  // the agent left the board: stop (after a beat, so its "done" can be seen)
+  useEffect(() => {
+    if (!id || peer) return;
+    const t = setTimeout(() => following === id && followCrew(null), 1200);
+    return () => clearTimeout(t);
+  }, [id, peer]);
+
+  // you moved the view yourself: stop following (a press on the pill itself doesn't count)
+  useEffect(() => {
+    if (!id) return;
+    const stop = (e: Event) => {
+      if ((e.target as HTMLElement | null)?.closest?.(".crew-follow, .crew-row, .talk-sheet")) return;
+      followCrew(null);
+    };
+    const key = (e: KeyboardEvent) => e.key === "Escape" && followCrew(null);
+    const opts = { capture: true, passive: true } as const;
+    window.addEventListener("pointerdown", stop, opts);
+    window.addEventListener("wheel", stop, opts);
+    window.addEventListener("keydown", key, true);
+    return () => {
+      window.removeEventListener("pointerdown", stop, opts);
+      window.removeEventListener("wheel", stop, opts);
+      window.removeEventListener("keydown", key, true);
+    };
+  }, [id]);
+
+  // ride along: when the agent aims somewhere new that's near the edge (or off screen), glide there
+  useEffect(() => {
+    if (!peer?.crew.target) return;
+    const key = `${peer.crew.target.kind}:${peer.crew.target.id}`;
+    // one glide per new target; the same target only again once the last glide has had time to land
+    // (a snap re-renders the board, and this runs on every render)
+    const now = performance.now();
+    if (key === last.current && now - lastGlide.current < 900) return;
+    const p = aimPoint(peer.crew.target);
+    if (!p) return;
+    last.current = key;
+    if (wellInView(p)) return;
+    lastGlide.current = now;
+    requestSnap({ kind: "view", ...viewCentredOn(p) });
+  });
+  useEffect(() => {
+    last.current = "";
+  }, [id]);
+
+  return (
+    <AnimatePresence>
+      {id && peer && (
+        <motion.div
+          key={id}
+          className="crew-guide crew-follow f-glass"
+          style={{ ["--crew" as string]: `var(--color-crew-${peer.crew.hue % 6})` }}
+          initial={{ opacity: 0, y: -10, scale: 0.97 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ type: "spring", stiffness: 260, damping: 20 }}
+          role="status"
+        >
+          <span className="crew-guide-dot" />
+          <span className="crew-guide-text">
+            Following <b>{peer.user.name}</b>
+            <span className="crew-guide-note"> · {peer.crew.status === "working" ? peer.crew.doing : peer.crew.status === "done" ? "done" : peer.crew.status}</span>
+          </span>
+          <button className="f-pill crew-guide-back" onClick={() => followCrew(null)} data-tip="Stop following" data-kbd="Esc">
+            Stop
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+

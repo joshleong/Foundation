@@ -862,6 +862,14 @@ function CrewDemo() {
         <div className="effect-label">Cursors at 100 %: Wren aiming at the table it's filling, Kestrel (a helper Wren called in), Basalt done and leaving</div>
       </div>
       <div className="crew-demo-col">
+        <div className="crew-guide crew-follow f-glass" style={{ ["--crew" as string]: "var(--color-crew-1)" }}>
+          <span className="crew-guide-dot" />
+          <span className="crew-guide-text">
+            Following <b>Sirocco</b>
+            <span className="crew-guide-note"> · writing “What's here”</span>
+          </span>
+          <button className="f-pill crew-guide-back">Stop</button>
+        </div>
         <div className="crew-guide f-glass" style={{ ["--crew" as string]: "var(--color-crew-0)" }}>
           <span className="crew-guide-dot" />
           <span className="crew-guide-text">

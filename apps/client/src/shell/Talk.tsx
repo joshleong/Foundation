@@ -20,7 +20,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { listen, voiceAvailable, type Listening } from "../lib/voice";
 import { askCrew, crewAsk, sayToAgent, stopSession, titleOf, useRecentCrewAsks, useSession } from "../state/sessions";
 import { getUi, openTab, toast } from "../state/ui";
-import { crewPeers, type CrewPeer } from "./Crew";
+import { crewPeers, followCrew, followingCrew, type CrewPeer } from "./Crew";
 import { stopAllOnBoard } from "./CommandBar";
 import { useBoardTick } from "./Presence";
 
@@ -412,6 +412,17 @@ function RosterRow({ peer, mine }: { peer: CrewPeer; mine: boolean }) {
         {c.status === "working" ? c.doing : c.status === "done" ? "done" : c.status === "stopped" ? "stopped" : "hit a problem"}
         {!mine && <span className="crew-row-for"> · for {c.askerName.split(" ")[0]}</span>}
         {c.leadName && <span className="crew-row-for"> · with {c.leadName}</span>}
+      </span>
+      <span className="crew-row-actions">
+        {c.status === "working" && (
+          <button
+            className={`crew-row-btn${followingCrew() === c.id ? " is-on" : ""}`}
+            onClick={() => followCrew(followingCrew() === c.id ? null : c.id)}
+            data-tip={followingCrew() === c.id ? "Stop following" : `Follow ${peer.user.name}: your view rides along until you move`}
+          >
+            {followingCrew() === c.id ? "Following" : "Follow"}
+          </button>
+        )}
       </span>
       {mine && ask && (
         <span className="crew-row-actions">
