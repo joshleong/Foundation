@@ -48,7 +48,47 @@ export const flowformBegin = () => api<{ url: string; poll: string; expiresIn: n
 export const flowformPoll = (poll: string) =>
   api<{ status: "pending" | "ok" | "error"; user?: UserInfo; error?: string }>("/auth/flowform/poll", { method: "POST", headers: { authorization: `Bearer ${poll}` } });
 export const devLogin = (email: string, name: string) => api<{ user: UserInfo }>("/auth/dev", { method: "POST", json: { email, name } });
-export const logout = () => api("/auth/logout", { method: "POST" });
+/** sign out: this device also forgets who you are and the board copies it kept for offline */
+export async function logout() {
+  try {
+    localStorage.removeItem(ME_KEY);
+    localStorage.removeItem("foundation-boards");
+    for (const k of Object.keys(localStorage)) if (k.startsWith("foundation-pending:")) localStorage.removeItem(k);
+  } catch { /* private window */ }
+  const { forgetDevice } = await import("../sync/board");
+  await forgetDevice();
+  return api("/auth/logout", { method: "POST" });
+}
+
+const ME_KEY = "foundation-me";
+
+export function rememberMe(user: UserInfo | null) {
+  try {
+    if (user) localStorage.setItem(ME_KEY, JSON.stringify(user));
+    else localStorage.removeItem(ME_KEY);
+  } catch { /* private window */ }
+}
+
+/**
+ * Who's signed in. Remembered on this device, so that when the server can't
+ * be reached the app still opens (from the boards this device kept) instead
+ * of the sign-in page. The server still checks the session on every request.
+ */
+export async function whoAmI(): Promise<{ user: UserInfo | null; offline: boolean }> {
+  try {
+    const { user } = await me();
+    rememberMe(user);
+    return { user, offline: false };
+  } catch (e) {
+    if (e instanceof ApiError && e.status < 500) return { user: null, offline: false };
+    try {
+      const kept = localStorage.getItem(ME_KEY);
+      return { user: kept ? (JSON.parse(kept) as UserInfo) : null, offline: true };
+    } catch {
+      return { user: null, offline: true };
+    }
+  }
+}
 
 export function search(q: string, board: string, remote = true, signal?: AbortSignal) {
   return api<{ hits: SearchHit[]; sources: Record<string, number> }>(
@@ -96,19 +136,31 @@ function guessMime(name: string) {
   return map[ext] ?? "application/octet-stream";
 }
 
-/** Stream an agent turn (SSE over a POST). */
-export async function streamAgent(
-  body: { board: string; prompt: string; runtime?: string },
+/** Start an agent turn and follow it (SSE over a POST). The first event names the run. */
+export function streamAgent(
+  body: { board: string; prompt: string; runtime?: string; session?: string },
   onEvent: (e: AgentEvent) => void,
   signal: AbortSignal,
 ) {
-  const res = await fetch(serverUrl("/api/agent"), {
-    method: "POST",
-    credentials: "include",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-    signal,
-  });
+  return readEvents(
+    fetch(serverUrl("/api/agent"), {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    }),
+    onEvent,
+  );
+}
+
+/** Follow a run that's already going (a reloaded tab): everything so far, then live. */
+export function followRun(id: string, onEvent: (e: AgentEvent) => void, signal: AbortSignal) {
+  return readEvents(fetch(serverUrl(`/api/agent/runs/${encodeURIComponent(id)}/events`), { credentials: "include", signal }), onEvent);
+}
+
+async function readEvents(req: Promise<Response>, onEvent: (e: AgentEvent) => void) {
+  const res = await req;
   if (!res.ok || !res.body) {
     const t = await res.text();
     throw new ApiError(res.status, (t && JSON.parse(t).error) || "agent unavailable");

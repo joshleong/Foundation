@@ -15,7 +15,10 @@ import { join } from "node:path";
 const TOKEN = "0123456789abcdef0123456789abcdef"; // flowform's session ids are uuid-simple
 const people: Record<string, object> = {
   [TOKEN]: { user_id: "ff-1", display_name: "Noa Field", email: "noa@formindustries.com", email_verified: true, role: "admin" },
-  ["f".repeat(32)]: { user_id: "ff-2", display_name: "Unverified", email: "u@formindustries.com", email_verified: false, role: "user" },
+  // flowform's sign-up address isn't the Google identity's (josh@normallab.co vs josh@formindustries.co)
+  ["f".repeat(32)]: { user_id: "ff-2", display_name: "Moved", email: "moved@normallab.co", email_verified: false, role: "user" },
+  ["d".repeat(32)]: { user_id: "ff-2", display_name: "Moved", email: "moved@normallab.co", email_verified: false, role: "user" },
+  ["e".repeat(32)]: { user_id: "ff-5", display_name: "Claimer", email: "taken@formindustries.com", email_verified: false, role: "user" },
   // a flowform server from before email_verified existed
   ["b".repeat(32)]: { user_id: "ff-4", display_name: "Older", email: "older@formindustries.com", role: "user" },
 };
@@ -124,8 +127,15 @@ test("desktop: the window polls, the system browser finishes", async () => {
   assert.deepEqual(ff.poll(req("/auth/flowform/poll", { authorization: `Bearer ${begun.poll}` }), pending.r), { status: "pending" });
 
   const page = res();
-  await ff.done(req(`/auth/flowform/done/${nonce}?session_token=${"a".repeat(32)}`, {}, { nonce }), page.r);
+  const finishing = ff.done(req(`/auth/flowform/done/${nonce}?session_token=${"a".repeat(32)}`, {}, { nonce }), page.r);
+  // the window polls while flowform is still answering /auth/me
+  assert.deepEqual(ff.poll(req("/auth/flowform/poll", { authorization: `Bearer ${begun.poll}` }), res().r), { status: "pending" });
+  await finishing;
   assert.equal(page.out.status, 200);
+  // flowform coming back twice is a replay
+  const replay = res();
+  await ff.done(req(`/auth/flowform/done/${nonce}?session_token=${"a".repeat(32)}`, {}, { nonce }), replay.r);
+  assert.equal(replay.out.status, 400);
   assert.match(page.out.body, /signed in/);
   assert.equal(page.out.headers["set-cookie"], undefined); // the browser gets nothing
 
@@ -139,16 +149,29 @@ test("desktop: the window polls, the system browser finishes", async () => {
   assert.throws(() => ff.poll(req("/auth/flowform/poll", { authorization: `Bearer ${begun.poll}` }), res().r), /no such sign-in/);
 });
 
-test("flowform must have verified the email", async () => {
+test("an unverified flowform address names a new user but never claims an existing one", async () => {
   const ff = await load();
-  const begun = ff.beginDesktop(req("/auth/flowform/begin"));
-  const nonce = new URL(new URL(begun.url).searchParams.get("cb")!).pathname.split("/").pop()!;
-  const page = res();
-  await ff.done(req(`/auth/flowform/done/${nonce}?session_token=${"f".repeat(32)}`, {}, { nonce }), page.r);
-  assert.equal(page.out.status, 403);
-  const out = ff.poll(req("/auth/flowform/poll", { authorization: `Bearer ${begun.poll}` }), res().r) as { status: string; error: string };
-  assert.equal(out.status, "error");
-  assert.match(out.error, /isn't the one Google verified/);
+  const signIn = async (token: string) => {
+    const begun = ff.beginDesktop(req("/auth/flowform/begin"));
+    const nonce = new URL(new URL(begun.url).searchParams.get("cb")!).pathname.split("/").pop()!;
+    await ff.done(req(`/auth/flowform/done/${nonce}?session_token=${token}`, {}, { nonce }), res().r);
+    return ff.poll(req("/auth/flowform/poll", { authorization: `Bearer ${begun.poll}` }), res().r) as { status: string; user?: { id: string; email: string }; error?: string };
+  };
+
+  // nobody in Foundation has the address: the flowform account gets it
+  const first = await signIn("f".repeat(32));
+  assert.equal(first.status, "ok");
+  assert.equal(first.user?.email, "moved@normallab.co");
+  // and the same flowform account comes back to the same user
+  const again = await signIn("d".repeat(32)); // a later flowform session, same account
+  assert.equal(again.user?.id, first.user?.id);
+
+  // someone already holds the address in Foundation: refused
+  const { upsertUser } = await import("../src/auth.ts");
+  upsertUser("taken@formindustries.com", "Owner");
+  const claim = await signIn("e".repeat(32));
+  assert.equal(claim.status, "error");
+  assert.match(claim.error!, /can't confirm/);
 });
 
 test("an older flowform without email_verified still vouches for its Google sign-in", async () => {
@@ -159,4 +182,38 @@ test("an older flowform without email_verified still vouches for its Google sign
   const out = ff.poll(req("/auth/flowform/poll", { authorization: `Bearer ${begun.poll}` }), res().r) as { status: string; user: { email: string } };
   assert.equal(out.status, "ok");
   assert.equal(out.user.email, "older@formindustries.com");
+});
+
+test("linking folds a flowform user into an existing one, and flowform then signs in as it", async () => {
+  const ff = await load();
+  const { upsertUser, createSession } = await import("../src/auth.ts");
+  const { one, run } = await import("../src/db.ts");
+  const devUser = upsertUser("josh.dev@gmail.com", "Josh");
+  people["9".repeat(32)] = { user_id: "ff-josh", display_name: "Josh Leong", email: "josh@normallab.co", email_verified: false, role: "admin" };
+  people["8".repeat(32)] = { user_id: "ff-josh", display_name: "Josh Leong", email: "josh@normallab.co", email_verified: false, role: "admin" };
+  const signIn = async (token: string) => {
+    const begun = ff.beginDesktop(req("/auth/flowform/begin"));
+    const nonce = new URL(new URL(begun.url).searchParams.get("cb")!).pathname.split("/").pop()!;
+    await ff.done(req(`/auth/flowform/done/${nonce}?session_token=${token}`, {}, { nonce }), res().r);
+    return ff.poll(req("/auth/flowform/poll", { authorization: `Bearer ${begun.poll}` }), res().r) as { user: { id: string; email: string; role: string } };
+  };
+  const viaFlowform = (await signIn("9".repeat(32))).user;
+  assert.equal(viaFlowform.email, "josh@normallab.co");
+  run("insert into files (id, board_id, name, mime, size, sha256, uploaded_by, created_at) values ('f_link', 'company', 'a.step', 'model/step', 1, 'x', ?, 0)", viaFlowform.id);
+  createSession(viaFlowform.id);
+
+  const out = ff.linkAccounts("josh.dev@gmail.com", "josh@normallab.co");
+  assert.equal(out.kept, "josh.dev@gmail.com");
+  assert.equal(out.moved["files.uploaded_by"], 1);
+  assert.ok(out.moved["sessions.user_id"] >= 2);
+  assert.equal(one("select id from users where email = 'josh@normallab.co'"), undefined);
+  assert.equal(one<{ uploaded_by: string }>("select uploaded_by from files where id = 'f_link'")?.uploaded_by, devUser.id);
+
+  // the next Google sign-in through flowform is the kept user, admin from flowform
+  const after = (await signIn("8".repeat(32))).user;
+  assert.equal(after.id, devUser.id);
+  assert.equal(after.email, "josh.dev@gmail.com");
+  assert.equal(after.role, "admin");
+
+  assert.throws(() => ff.linkAccounts("josh.dev@gmail.com", "josh.dev@gmail.com"), /same user/);
 });

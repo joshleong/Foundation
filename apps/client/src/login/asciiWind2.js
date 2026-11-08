@@ -4,8 +4,10 @@
  * monospace glyphs lit by gusting curl noise, with the pointer as a wake and
  * a press as a ripple. The untouched download is
  * docs/reference/details/ascii-cursor-2.js; Foundation's changes are marked
- * "Foundation:" — the export, following the night transition, and ?rafshim
- * counting as focus.
+ * "Foundation:" — the export, following the night transition, ?rafshim
+ * counting as focus, and the page hooks on `root.asciiWind` (see the .d.ts):
+ * stir and tap the field from code, holes the glyphs keep out of, and a
+ * dissolve front.
  *
  * Mount: put `data-ascii-wind` on a positioned element (it draws a canvas
  * behind its children) and call initAsciiWind2(element). Ink comes from
@@ -14,7 +16,7 @@
  * high contrast; it pauses while unfocused or hidden and settles after 3 min.
  */
 // @ts-nocheck — vendored as JavaScript; types in asciiWind2.d.ts
-export function initAsciiWind2(scope = document, variant = 'wind') {
+export function initAsciiWind2(scope = document, variant = 'wind', options = {}) {
   const document = scope.ownerDocument || scope;
   const window = document.defaultView;
   if (!window) return () => {};
@@ -39,7 +41,8 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
     wind: { energy: 1, friction: mode.friction, flick: mode.flick, lull: 0.5, streak: 0.4, detail: 0.6, edge: 0.75, curl: 0.65, wisp: 0.5, tail: 0.35, sweep: 0.3, morph: 3, revealS: mode.revealS },
     glow: { amount: 1, headroom: mode.headroom, color: { dark: [1, 1, 1], light: [1, 1, 1] } },
     touch: { stir: 1, ripple: 1, slowPxS: 60, fastPxS: 800 },
-    composition: { card: { centerY: 0.45, calmX: mode.calmX, calmY: mode.calmY, left: mode.quiet } },
+    // Foundation: options.quiet overrides how calm the centre is (1 = not calmed)
+    composition: { card: { centerY: 0.45, calmX: mode.calmX, calmY: mode.calmY, left: options.quiet ?? mode.quiet } },
     grid: { cellCss: 6.5, minCols: 24, minRows: 8, maxDevicePixels: 21000000 },
     power: { frameMs: 40, rippleFrameMs: 10, backoffFrameMs: 83, budgetS: 180, settleS: 8, resumeS: 3, retryS: 60, retryMaxS: 480, resizeSettleMs: 150, linkDeadlineMs: 20000 },
   };
@@ -628,9 +631,18 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
   uniform float u_time, u_fill, u_flick;
   uniform int u_count;
   uniform vec4 u_cellCss;
+  // Foundation: cells the page keeps for its own characters, and a dissolve front (x, y, radius, band).
+  uniform vec4 u_holes[12];
+  uniform int u_holeCount;
+  uniform vec4 u_dissolve;
+  // Foundation: a frame drawn in the field's own glyphs: rect (x, y, w, h) and ring (depth x, depth y, light)
+  uniform vec4 u_frame;
+  uniform vec3 u_ring;
+  out float v_ring;
   out vec2 v_shift;
   out vec4 v_box;
   out vec2 v_glow;
+  out float v_flare;
 
   const ivec2 QUAD[6] = ivec2[6](
     ivec2(0, 0), ivec2(1, 0), ivec2(0, 1),
@@ -646,6 +658,8 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
     v_shift = vec2(0.0);
     v_box = vec4(0.0);
     v_glow = vec2(0.0);
+    v_flare = 0.0;
+    v_ring = 0.0;
   }
 
   void main() {
@@ -655,6 +669,35 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
     if (random01(identity) >= u_fill) {
       hideGlyph();
       return;
+    }
+
+    // Foundation: holes and the dissolve front
+    vec2 cellAt = u_cellCss.xy + vec2(cell) * u_cellCss.zw;
+    for (int index = 0; index < 12; index++) {
+      if (index >= u_holeCount) break;
+      vec4 hole = u_holes[index];
+      if (cellAt.x > hole.x && cellAt.x < hole.x + hole.z && cellAt.y > hole.y && cellAt.y < hole.y + hole.w) {
+        hideGlyph();
+        return;
+      }
+    }
+    float flare = 0.0;
+    if (u_dissolve.z > 0.0) {
+      float edge = u_dissolve.z - u_dissolve.w * random01(hash32(identity ^ 0x7Au));
+      float past = length(cellAt - u_dissolve.xy) - edge;
+      if (past < 0.0) {
+        hideGlyph();
+        return;
+      }
+      flare = 1.0 - smoothstep(0.0, 0.6 * u_dissolve.w, past);
+    }
+
+    float ring = 0.0;
+    if (u_ring.z > 0.0) {
+      vec2 outside = max(max(u_frame.xy - cellAt, cellAt - (u_frame.xy + u_frame.zw)), vec2(0.0));
+      bool near = outside.x < u_ring.x && outside.y < u_ring.y;
+      bool inside = cellAt.x > u_frame.x && cellAt.x < u_frame.x + u_frame.z && cellAt.y > u_frame.y && cellAt.y < u_frame.y + u_frame.w;
+      if (near && !inside) ring = u_ring.z * (0.55 + 0.45 * random01(hash32(identity ^ 0x2Fu)));
     }
 
     uint timing = hash32(identity);
@@ -668,7 +711,8 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
       ${glyphGlow}
     }
 
-    if (${skipInvisible ? "true" : "false"} && glow.x < 0.04 && glow.y < 0.015) {
+    sequenceStep += int(floor(9.0 * flare));
+    if (${skipInvisible ? "true" : "false"} && glow.x < 0.04 && glow.y < 0.015 && flare < 0.03 && ring < 0.03) {
       ivec2 firstSample = cell * FIELD_SAMPLES;
       ivec2 lastSample = u_grid * FIELD_SAMPLES - 1;
       float strongest = 0.0;
@@ -694,6 +738,8 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
     v_shift = vec2(atlasOrigin - cellOrigin);
     v_box = vec4(atlasOrigin, atlasOrigin + u_cell - 1);
     v_glow = glow;
+    v_flare = flare;
+    v_ring = ring;
     vec2 clipPosition = vec2(pixel) / vec2(u_buffer) * 2.0 - 1.0;
     gl_Position = vec4(clipPosition.x, -clipPosition.y, 0.0, 1.0);
   }
@@ -715,6 +761,8 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
   in vec2 v_shift;
   in vec4 v_box;
   in vec2 v_glow;
+  in float v_flare;
+  in float v_ring;
   uniform highp sampler2D u_atlas, u_wind;
   uniform vec3 u_color, u_glowColor;
   uniform ivec2 u_buffer;
@@ -750,6 +798,10 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
     float edgeLight = mix(1.0, 0.45 + 1.1 * facing, u_friction);
     float illumination = min(1.0, field.r * edgeLight) + REST_LIGHT * field.a;
     ${glyphLight}
+    // Foundation: the dissolve front burns bright whatever the wind
+    tint = max(tint, v_flare);
+    brightness = max(brightness, v_flare * GLOW_HEADROOM);
+    brightness = max(brightness, v_ring * GLOW_HEADROOM);
     float alpha = coverage * min(1.0, (brightness + afterglow) / GLOW_HEADROOM);
     vec3 color = (
       mix(u_color, u_glowColor, tint) * brightness + u_glowColor * afterglow
@@ -829,9 +881,12 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
         if (force < 0.04) return;
         wakes = [...wakes.slice(-47), { x: (x + from.x) / 2, y: (y + from.y) / 2, at, force: force * distance / (distance + 90), wayX: (x - from.x) / 2, wayY: (y - from.y) / 2 }];
       },
-      tap(x, y, at) {
-        const force = config.touch.ripple;
+      tap(x, y, at, force = config.touch.ripple) {
         taps = [...taps.slice(-5), { x, y, at, force }];
+      },
+      // Foundation: a wake from code (typing), as if the pointer had passed (x, y) moving (wayX, wayY).
+      push(x, y, wayX, wayY, force, at) {
+        wakes = [...wakes.slice(-47), { x, y, at, force, wayX, wayY }];
       },
       leave() { pointer = null; },
       busy(now) { return taps.some(tap => now - tap.at < 3.6) || wakes.some(wake => now - wake.at < 2.4); },
@@ -998,6 +1053,7 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
       mutationObserver?.disconnect();
       cleanups.reverse().forEach(cleanup => cleanup());
       canvas.remove();
+      if (root.asciiWind) delete root.asciiWind; // Foundation
       if (gl && !gl.isContextLost()) {
         if (fence) gl.deleteSync(fence);
         shaders.forEach(shader => gl.deleteShader(shader));
@@ -1096,7 +1152,7 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
       if (!framebuffer) { destroy(); return; }
       gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
       const field = Object.fromEntries(['u_seed', 'u_tail', 'u_sweep', 'u_morph', 'u_wind', 'u_gust', 'u_shape', 'u_time', 'u_reveal', 'u_sampleCss', 'u_originCss', 'u_paneCss', 'u_canvasCss', 'u_now', 'u_tapCount', 'u_taps', 'u_wakeCount', 'u_wakes', 'u_ways'].map(name => [name, gl.getUniformLocation(fieldProgram, name)]));
-      const glyph = Object.fromEntries(['u_wind', 'u_atlas', 'u_boxes', 'u_sequence', 'u_seed', 'u_fill', 'u_flick', 'u_friction', 'u_glowAmount', 'u_time', 'u_count', 'u_grid', 'u_cellCss', 'u_cell', 'u_buffer', 'u_color', 'u_glowColor', 'u_inkAlpha', 'u_now', 'u_tapCount', 'u_taps'].map(name => [name, gl.getUniformLocation(glyphProgram, name)]));
+      const glyph = Object.fromEntries(['u_wind', 'u_atlas', 'u_boxes', 'u_sequence', 'u_seed', 'u_fill', 'u_flick', 'u_friction', 'u_glowAmount', 'u_time', 'u_count', 'u_grid', 'u_cellCss', 'u_cell', 'u_buffer', 'u_color', 'u_glowColor', 'u_inkAlpha', 'u_now', 'u_tapCount', 'u_taps', 'u_holes', 'u_holeCount', 'u_dissolve', 'u_frame', 'u_ring'].map(name => [name, gl.getUniformLocation(glyphProgram, name)]));
       gl.useProgram(fieldProgram);
       gl.uniform1ui(field.u_seed, profile.seed);
       gl.uniform1f(field.u_tail, config.wind.tail);
@@ -1138,6 +1194,8 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
       let settled = false;
       let backoff = 0;
       let suspended = false;
+      // Foundation: what the page asked for (css px in the root's box)
+      const page = { holeCount: 0, holes: new Float32Array(48), dissolve: new Float32Array(4), frame: new Float32Array(4), ring: new Float32Array(3) };
       let retryDelay = power.retryS;
       let lateSamples = [];
       let slowFrames = 0;
@@ -1215,6 +1273,12 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
           gl.useProgram(glyphProgram);
           gl.uniform1f(glyph.u_time, windTime);
           sendTouch(glyph, input);
+          // Foundation: the page's holes and dissolve
+          gl.uniform1i(glyph.u_holeCount, page.holeCount);
+          if (page.holeCount) gl.uniform4fv(glyph.u_holes, page.holes);
+          gl.uniform4fv(glyph.u_dissolve, page.dissolve);
+          gl.uniform4fv(glyph.u_frame, page.frame);
+          gl.uniform3fv(glyph.u_ring, page.ring);
           gl.drawArrays(gl.TRIANGLES, 0, 6 * grid.columns * grid.rows);
           drawCount += 1;
           if (drawCount % 4 === 0) {
@@ -1446,6 +1510,28 @@ export function initAsciiWind2(scope = document, variant = 'wind') {
       listen(root, 'pointerleave', touch.leave, { passive: true });
       listen(root, 'keydown', () => { if (grid && visible && !suspended) wake(); }, { capture: true, passive: true });
       resize(measurement());
+      // Foundation: the page's hooks. Positions are css px from the root's top-left.
+      root.asciiWind = {
+        tap(x, y, force = 1) { touch.tap(x, y, now(), force); wake(); refresh(); },
+        stir(x, y, wayX, wayY, force = 0.5) { touch.push(x, y, wayX, wayY, force, now()); wake(); refresh(); },
+        holes(rects) {
+          const list = rects.slice(0, 12);
+          page.holeCount = list.length;
+          page.holes.fill(0);
+          list.forEach((r, index) => page.holes.set([r.x, r.y, r.width, r.height], index * 4));
+          draw();
+        },
+        frame(rect, depthX = 0, depthY = 0, light = 0) {
+          if (rect) page.frame.set([rect.x, rect.y, rect.width, rect.height]);
+          page.ring.set(rect ? [depthX, depthY, light] : [0, 0, 0]);
+          draw();
+        },
+        dissolve(x, y, radius, band) {
+          page.dissolve.set([x, y, radius, band]);
+          draw();
+        },
+      };
+      root.dispatchEvent(new window.CustomEvent('ascii-wind:ready'));
     }
     return { start, destroy };
   }

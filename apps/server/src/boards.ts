@@ -10,12 +10,13 @@
  */
 
 import * as Y from "yjs";
+import { randomUUID } from "node:crypto";
 import * as syncProtocol from "y-protocols/sync";
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import type { WebSocket } from "ws";
-import { boardMaps, describeBoard, type ObjectDoc } from "@foundation/protocol";
+import { boardMaps, describeBoard, noteTextOf, tableCellsOf, type ObjectDoc } from "@foundation/protocol";
 import { all, indexDoc, one, run, unindexDoc } from "./db.ts";
 
 const MSG_SYNC = 0;
@@ -94,8 +95,15 @@ export function getBoard(id: string): Board {
   });
 
   boards.set(id, board);
+  // the board's lineage: a device's offline copy only merges into the board it came from
+  if (!boardMaps(doc).meta.get("epoch")) doc.transact(() => boardMaps(doc).meta.set("epoch", `ep_${randomUUID()}`), "system");
   scheduleIndex(board);
   return board;
+}
+
+/** which board this is, across deletes and re-creations (see getBoard) */
+export function boardEpoch(id: string): string {
+  return String(boardMaps(getBoard(id).doc).meta.get("epoch"));
 }
 
 function compact(board: Board) {
@@ -123,16 +131,16 @@ function indexBoard(board: Board) {
   for (const o of m.objects.values()) {
     const ref = o.id;
     seen.add(ref);
-    indexDoc("board", ref, board.id, o.name, objectText(o, m.cells.get(o.id)) + " " + sectionName(o.sectionId));
+    indexDoc("board", ref, board.id, o.name, objectText(o, o.kind === "note" ? noteTextOf(board.doc, o) : undefined, o.kind === "table" ? tableCellsOf(board.doc, o.id) : undefined) + " " + sectionName(o.sectionId));
   }
   for (const ref of indexedRefs.get(board.id) ?? []) if (!seen.has(ref)) unindexDoc("board", ref);
   indexedRefs.set(board.id, seen);
 }
 
-function objectText(o: ObjectDoc, cells?: Record<string, string>): string {
+function objectText(o: ObjectDoc, note: string | undefined, cells?: Record<string, string>): string {
   switch (o.kind) {
     case "note":
-      return o.text;
+      return note ?? "";
     case "table":
       return Object.values(cells ?? {}).join(" ");
     case "panel":
@@ -151,8 +159,13 @@ function send(ws: WebSocket, data: Uint8Array) {
   }
 }
 
-export function attachConnection(boardId: string, ws: WebSocket) {
+/** who each sync socket belongs to, so a role change can make them reconnect */
+const socketUser = new WeakMap<WebSocket, string>();
+
+/** `readOnly`: a viewer — they get the board and send presence, but their updates are dropped */
+export function attachConnection(boardId: string, ws: WebSocket, readOnly = false, userId?: string) {
   const board = getBoard(boardId);
+  if (userId) socketUser.set(ws, userId);
   board.conns.set(ws, new Set());
   ws.binaryType = "arraybuffer";
 
@@ -163,7 +176,11 @@ export function attachConnection(boardId: string, ws: WebSocket) {
     if (type === MSG_SYNC) {
       const enc = encoding.createEncoder();
       encoding.writeVarUint(enc, MSG_SYNC);
-      syncProtocol.readSyncMessage(dec, enc, board.doc, ws);
+      if (readOnly) {
+        // a viewer may ask for the board (step 1); anything that would change it is dropped
+        if (decoding.readVarUint(dec) !== syncProtocol.messageYjsSyncStep1) return;
+        syncProtocol.readSyncStep1(dec, enc, board.doc);
+      } else syncProtocol.readSyncMessage(dec, enc, board.doc, ws);
       if (encoding.length(enc) > 1) send(ws, encoding.toUint8Array(enc));
     } else if (type === MSG_AWARENESS) {
       awarenessProtocol.applyAwarenessUpdate(board.awareness, decoding.readVarUint8Array(dec), ws);
@@ -221,4 +238,29 @@ export function closeBoards() {
     b.doc.destroy();
   }
   boards.clear();
+}
+
+/** a person's role on a board changed: close their sockets, and the client reconnects under the new role */
+export function dropConnections(boardId: string, userId: string) {
+  const board = boards.get(boardId);
+  if (!board) return 0;
+  let n = 0;
+  for (const ws of board.conns.keys()) {
+    if (socketUser.get(ws) !== userId) continue;
+    ws.close(4001, "role changed");
+    n++;
+  }
+  return n;
+}
+
+/**
+ * What a sync socket may do. `said` is the epoch the client says it holds
+ * (empty: it holds no board yet; missing: a build from before epochs).
+ * A copy of a board the server has since made again is refused, so it can't
+ * pour the old board into the new one; a client that doesn't say can read.
+ */
+export function syncAccess(said: string | null, epoch: string, writer: boolean): "refuse" | "read" | "write" {
+  if (said && said !== epoch) return "refuse";
+  if (said === null || !writer) return "read";
+  return "write";
 }

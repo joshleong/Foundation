@@ -10,8 +10,20 @@
  * drag frame touches one key. Section scroll stays local; the document holds
  * only what everyone shares. Cursors and selections ride on awareness.
  *
+ * A note's text is its own Y.Text (schema 3): a keystroke becomes the
+ * smallest insert/delete, so two people typing in one note both keep their
+ * words, and the note's card (position, size) is never rewritten by typing.
+ * A table's cells are a Y.Map per table (schema 4): an edit writes only the
+ * cells it changed, so two people editing one table both land.
+ *
  * Transport: y-protocols over WebSocket at /sync/:board, with backoff
  * reconnect; the session cookie authenticates it.
+ *
+ * Offline: every board keeps a copy on this device (IndexedDB). It opens
+ * from that copy before the server answers (or without it), edits made
+ * offline are saved there, and the reconnect handshake sends them. A copy
+ * only merges into the board it came from: if the server's board has a
+ * different epoch (deleted and made again), the copy is set aside.
  */
 
 import * as Y from "yjs";
@@ -19,10 +31,12 @@ import * as syncProtocol from "y-protocols/sync";
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
-import { boardMaps, type ObjectDoc, type SectionDoc, type UserInfo } from "@foundation/protocol";
-import { applyRemote, getState, setSyncHook, type AnyObject, type AppState, type Section } from "../state/store";
+import { IndexeddbPersistence } from "y-indexeddb";
+import { BOARD_SCHEMA, boardMaps, noteTextOf, rebaseEdit, setNoteText, setTableCells, tableCellMap, tableCellsOf, type ObjectDoc, type SectionDoc, type UserInfo } from "@foundation/protocol";
+import { applyRemote, getState, setSyncHook, updateNoteText, type AnyObject, type AppState, type Section } from "../state/store";
 import { workbook } from "../engine/workbook";
-import { wsUrl } from "../lib/api";
+import { api, wsUrl } from "../lib/api";
+import { toast } from "../state/ui";
 
 const LOCAL = Symbol("local");
 const MSG_SYNC = 0;
@@ -60,11 +74,20 @@ class BoardSync {
   status: SyncStatus = "connecting";
   private ws: WebSocket | null = null;
   private retry = 0;
-  private synced = false;
+  /** the store is wired to the doc: from this device's copy, or from the server's first answer */
+  private ready = false;
+  private idb: IndexeddbPersistence | null = null;
+  /** changes made here that the server hasn't been sent yet (offline) */
+  pending = false;
+  /** the board on screen came from this device's copy (the server hasn't answered yet, or can't) */
+  fromDevice = false;
   private closed = false;
   private applyingCells = false;
   private listeners = new Set<() => void>();
   private unsubWorkbook: (() => void) | null = null;
+  /** a viewer: the server drops our updates, so local edits are put back from the doc */
+  private readOnly = false;
+  private reverting = false;
 
   constructor(
     public boardId: string,
@@ -73,6 +96,8 @@ class BoardSync {
     this.awareness.setLocalState({ user: { name: user.name, color: user.color, email: user.email }, cursor: null, focus: null });
     this.doc.on("update", (update: Uint8Array, origin: unknown) => {
       if (origin === this) return; // came from the server
+      if (origin === this.idb) return; // this device's copy, loading: the handshake sends what the server lacks
+      if (this.status !== "live" && !this.pending) this.setPending(true);
       const enc = encoding.createEncoder();
       encoding.writeVarUint(enc, MSG_SYNC);
       syncProtocol.writeUpdate(enc, update);
@@ -94,17 +119,96 @@ class BoardSync {
     m.sections.observe((e) => e.transaction.origin !== LOCAL && this.pullSections());
     m.grid.observe((e) => e.transaction.origin !== LOCAL && this.pullGrid());
     m.links.observe((e) => e.transaction.origin !== LOCAL && this.pullLinks());
-    m.cells.observe((e) => e.transaction.origin !== LOCAL && this.pullCells([...e.keysChanged]));
+    m.cells.observeDeep((events, tx) => {
+      if (tx.origin === LOCAL) return;
+      const ids = new Set<string>();
+      for (const e of events) {
+        if (e.target === m.cells) for (const k of (e as Y.YMapEvent<unknown>).keysChanged) ids.add(k);
+        else if (typeof e.path[0] === "string") ids.add(e.path[0]);
+      }
+      this.pullCells([...ids]);
+    });
+    m.noteText.observeDeep((events, tx) => {
+      if (tx.origin === LOCAL) return;
+      const ids = new Set<string>();
+      for (const e of events) {
+        if (e.target === m.noteText) for (const k of (e as Y.YMapEvent<Y.Text>).keysChanged) ids.add(k);
+        else if (typeof e.path[0] === "string") ids.add(e.path[0]);
+      }
+      this.pullNoteText([...ids]);
+    });
     m.activity.observe(() => this.notify());
-    this.connect();
+    void this.start();
+  }
+
+  /** the server's board isn't the one we hold: forget ours (kept and offline copy) and start over from the server */
+  private async setAside() {
+    this.closed = true;
+    try {
+      await this.idb?.clearData();
+    } catch { /* already gone */ }
+    toast("This board was reset on the server, so this device's copy was set aside. Reloading…", "warn");
+    setTimeout(() => window.location.reload(), 1200);
+  }
+
+  /** changes waiting for the server, remembered across a reload */
+  private setPending(on: boolean) {
+    this.pending = on;
+    try {
+      if (on) localStorage.setItem(`foundation-pending:${this.boardId}`, "1");
+      else localStorage.removeItem(`foundation-pending:${this.boardId}`);
+    } catch { /* private window */ }
+    this.notify();
+  }
+
+  private async start() {
+    const name = `foundation-board:${this.boardId}`;
+    try {
+      this.pending = localStorage.getItem(`foundation-pending:${this.boardId}`) === "1";
+    } catch { /* private window */ }
+    try {
+      // look at this device's copy before it touches the live doc
+      const staging = new Y.Doc();
+      const peek = new IndexeddbPersistence(name, staging);
+      await peek.whenSynced;
+      const copyEpoch = boardMaps(staging).meta.get("epoch") as string | undefined;
+      const hasCopy = boardMaps(staging).sections.size > 0;
+      await peek.destroy();
+      staging.destroy();
+      const serverEpoch = await fetchEpoch(this.boardId);
+      if (this.closed) return;
+      if (hasCopy && serverEpoch && copyEpoch !== serverEpoch) {
+        // the server's board was made again since this copy: don't merge a different board into it
+        await new IndexeddbPersistence(name, new Y.Doc()).clearData();
+        toast("This board was reset on the server, so this device's older copy was set aside.", "warn");
+      }
+      this.idb = new IndexeddbPersistence(name, this.doc);
+      await this.idb.whenSynced;
+      if (this.closed) return;
+      if (boardMaps(this.doc).sections.size > 0) {
+        this.fromDevice = true;
+        this.wire(false);
+      }
+    } catch {
+      /* no IndexedDB here (a private window): online only */
+    }
+    if (!this.closed) void this.connect();
   }
 
   // ---------- transport ----------
 
-  private connect() {
+  private async connect() {
     if (this.closed) return;
     this.setStatus("connecting");
-    const ws = new WebSocket(wsUrl(`/sync/${encodeURIComponent(this.boardId)}`));
+    // a board on screen only rejoins the board it came from: if the server's was made again, set ours aside
+    const mine = boardMaps(this.doc).meta.get("epoch") as string | undefined;
+    if (this.ready) {
+      const theirs = await fetchEpoch(this.boardId);
+      if (this.closed) return;
+      if (theirs && theirs !== mine) return this.setAside();
+    }
+    // say which board we hold (empty: none yet); the server refuses a copy of a board it has since made again
+    const ws = new WebSocket(wsUrl(`/sync/${encodeURIComponent(this.boardId)}?epoch=${encodeURIComponent(mine ?? "")}`));
     ws.binaryType = "arraybuffer";
     this.ws = ws;
     ws.onopen = () => {
@@ -126,18 +230,27 @@ class BoardSync {
         encoding.writeVarUint(enc, MSG_SYNC);
         const kind = syncProtocol.readSyncMessage(dec, enc, this.doc, this);
         if (encoding.length(enc) > 1) ws.send(encoding.toUint8Array(enc));
-        if (kind === syncProtocol.messageYjsSyncStep2 && !this.synced) this.onFirstSync();
-        else if (this.synced) this.setStatus("live");
+        // our answer to the server's step 1 carried everything it lacked: offline changes included
+        if (kind === syncProtocol.messageYjsSyncStep1 && this.pending) this.setPending(false);
+        if (kind === syncProtocol.messageYjsSyncStep2) {
+          this.wire(true);
+          this.fromDevice = false;
+          this.setStatus("live");
+        } else if (this.ready && this.status !== "live") this.setStatus("live");
       } else if (type === MSG_AWARENESS) {
         awarenessProtocol.applyAwarenessUpdate(this.awareness, decoding.readVarUint8Array(dec), this);
       }
     };
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       this.ws = null;
       if (this.closed) return;
+      // an admin changed my role here: the shell reads it again, the socket comes back under it
+      if (ev.code === 4001) window.dispatchEvent(new Event("foundation:boards"));
+      // the server's board was made again since ours: don't keep offering the old one
+      if (ev.code === 4002) return void this.setAside();
       this.setStatus("offline");
       const delay = Math.min(15_000, 400 * 2 ** this.retry++) * (0.75 + Math.random() * 0.5);
-      setTimeout(() => this.connect(), delay);
+      setTimeout(() => void this.connect(), delay);
     };
   }
 
@@ -163,10 +276,12 @@ class BoardSync {
 
   // ---------- first sync: doc → store (or seed an empty board from the store) ----------
 
-  private onFirstSync() {
-    this.synced = true;
+  /** wire the store to the doc, once: `seed` an empty board from the store (the server's first answer only) */
+  private wire(seed: boolean) {
+    if (this.ready) return;
+    this.ready = true;
     const m = boardMaps(this.doc);
-    if (m.sections.size === 0) {
+    if (m.sections.size === 0 && seed) {
       this.pushAll(getState());
     } else {
       this.pullGrid();
@@ -177,9 +292,11 @@ class BoardSync {
     }
     setSyncHook((next, prev) => this.push(next, prev));
     this.unsubWorkbook = workbook.subscribeAll((tableId) => {
-      if (!this.applyingCells && tableId) this.pushCells(tableId);
+      if (!this.applyingCells && tableId) {
+        if (this.readOnly) this.revert();
+        else this.pushCells(tableId);
+      }
     });
-    this.setStatus("live");
   }
 
   // ---------- store → doc ----------
@@ -187,19 +304,54 @@ class BoardSync {
   private pushAll(st: AppState) {
     this.doc.transact(() => {
       const m = boardMaps(this.doc);
-      m.meta.set("schema", 1);
+      m.meta.set("schema", BOARD_SCHEMA);
       m.grid.set("tracks", st.grid);
       for (const s of Object.values(st.sections)) m.sections.set(s.id, toSectionDoc(s));
       for (const slice of Object.values(SLICE)) {
         for (const o of Object.values(st[slice]) as AnyObject[]) m.objects.set(o.id, toObjectDoc(o));
       }
+      for (const n of Object.values(st.notes)) setNoteText(this.doc, n.id, n.text);
+      for (const t of Object.keys(st.tables)) tableCellMap(this.doc, t);
       for (const l of Object.values(st.links)) m.links.set(l.id, l);
     }, LOCAL);
     for (const t of Object.keys(st.tables)) this.pushCells(t);
   }
 
+  setReadOnly(on: boolean) {
+    if (this.readOnly === on) return;
+    this.readOnly = on;
+    this.notify();
+  }
+  get isReadOnly() {
+    return this.readOnly;
+  }
+
+  /** a viewer changed something locally: put the board back the way the doc has it */
+  private revert() {
+    if (this.reverting) return;
+    this.reverting = true;
+    queueMicrotask(() => {
+      try {
+        this.pullGrid();
+        this.pullSections();
+        this.pullObjects(null);
+        this.pullLinks();
+        this.pullCells(null);
+      } finally {
+        this.reverting = false;
+      }
+      viewOnlyNotice();
+    });
+  }
+
   private push(next: AppState, prev: AppState) {
-    if (!this.synced) return;
+    if (!this.ready) return;
+    if (this.readOnly) {
+      // only what everyone shares snaps back; camera, focus and scroll stay local
+      const shared = next.grid !== prev.grid || next.sections !== prev.sections || next.links !== prev.links || Object.values(SLICE).some((k) => next[k] !== prev[k]);
+      if (shared) this.revert();
+      return;
+    }
     const m = boardMaps(this.doc);
     this.doc.transact(() => {
       if (next.grid !== prev.grid) m.grid.set("tracks", next.grid);
@@ -214,8 +366,26 @@ class BoardSync {
         const a = next[slice] as Record<string, AnyObject>;
         const b = prev[slice] as Record<string, AnyObject>;
         if (a === b) continue;
-        for (const [id, o] of Object.entries(a)) if (b[id] !== o) m.objects.set(id, toObjectDoc(o));
-        for (const id of Object.keys(b)) if (!a[id]) m.objects.delete(id);
+        for (const [id, o] of Object.entries(a)) {
+          const was = b[id];
+          if (was === o) continue;
+          if (slice === "notes") {
+            const n = o as AnyObject & { text: string };
+            const p = was as (AnyObject & { text: string }) | undefined;
+            // typing touches only the text; the card is rewritten only when the card changed
+            if (!p || !sameCard(p as unknown as Record<string, unknown>, n as unknown as Record<string, unknown>)) m.objects.set(id, toObjectDoc(o));
+            if (!p || p.text !== n.text) setNoteText(this.doc, id, n.text);
+          } else {
+            m.objects.set(id, toObjectDoc(o));
+            // a new table's cell map is made with it, in this same change (see tableCellMap)
+            if (slice === "tables" && !was) tableCellMap(this.doc, id);
+          }
+        }
+        for (const id of Object.keys(b)) {
+          if (a[id]) continue;
+          m.objects.delete(id);
+          if (slice === "notes") m.noteText.delete(id);
+        }
       }
       if (next.links !== prev.links) {
         for (const [id, l] of Object.entries(next.links)) if (prev.links[id] !== l) m.links.set(id, l);
@@ -233,9 +403,9 @@ class BoardSync {
     }
     const raw: Record<string, string> = {};
     for (const [k, c] of t.cells) if (c.raw) raw[k] = c.raw;
-    const cur = m.cells.get(tableId);
-    if (cur && sameRecord(cur, raw)) return;
-    this.doc.transact(() => m.cells.set(tableId, raw), LOCAL);
+    if (sameRecord(tableCellsOf(this.doc, tableId), raw)) return;
+    // only the cells that differ: someone editing another cell keeps their edit
+    this.doc.transact(() => setTableCells(this.doc, tableId, raw), LOCAL);
   }
 
   // ---------- doc → store ----------
@@ -266,12 +436,12 @@ class BoardSync {
     const slice = (k: Kind) => (slices[SLICE[k]] ??= { ...(st[SLICE[k]] as Record<string, AnyObject>) });
     if (keys === null) {
       for (const k of Object.keys(SLICE) as Kind[]) slices[SLICE[k]] = {};
-      for (const o of m.objects.values()) slice(o.kind)[o.id] = fromObjectDoc(o);
+      for (const o of m.objects.values()) slice(o.kind)[o.id] = fromObjectDoc(o, this.doc);
     } else {
       for (const id of keys) {
         const o = m.objects.get(id);
         if (o) {
-          slice(o.kind)[id] = fromObjectDoc(o);
+          slice(o.kind)[id] = fromObjectDoc(o, this.doc);
         } else {
           for (const k of Object.keys(SLICE) as Kind[]) {
             const rec = st[SLICE[k]] as Record<string, AnyObject>;
@@ -295,6 +465,22 @@ class BoardSync {
     applyRemote(slices as Partial<AppState>);
   }
 
+  private pullNoteText(ids: string[]) {
+    const st = getState();
+    const notes = { ...st.notes };
+    let changed = false;
+    for (const id of ids) {
+      const n = notes[id];
+      if (!n) continue;
+      const text = noteTextOf(this.doc, n);
+      if (text !== n.text) {
+        notes[id] = { ...n, text };
+        changed = true;
+      }
+    }
+    if (changed) applyRemote({ notes });
+  }
+
   private pullLinks() {
     applyRemote({ links: Object.fromEntries(boardMaps(this.doc).links.entries()) });
   }
@@ -306,14 +492,32 @@ class BoardSync {
     try {
       for (const tableId of ids) {
         const t = workbook.getTable(tableId);
-        const raw = m.cells.get(tableId);
-        if (!t || !raw) continue;
+        if (!t || !m.cells.has(tableId)) continue;
+        const raw = tableCellsOf(this.doc, tableId);
         for (const [k, c] of t.cells) if (c.raw && !(k in raw)) setCellKey(tableId, k, "");
         for (const [k, v] of Object.entries(raw)) if (t.cells.get(k)?.raw !== v) setCellKey(tableId, k, v);
       }
     } finally {
       this.applyingCells = false;
     }
+  }
+
+  /**
+   * A keystroke in a note: the edit that turned `base` (what the editor showed)
+   * into `next`, applied to the shared text — rebased past anything that
+   * arrived in between, so nobody's characters are lost. Returns the text now.
+   */
+  editNote(id: string, base: string, next: string): string {
+    const t = boardMaps(this.doc).noteText.get(id);
+    if (this.readOnly) return t?.toString() ?? base;
+    if (!this.ready || !t) return next;
+    const e = rebaseEdit(base, next, t.toString());
+    if (!e) return t.toString();
+    this.doc.transact(() => {
+      if (e.remove) t.delete(e.at, e.remove);
+      if (e.insert) t.insert(e.at, e.insert);
+    }, LOCAL);
+    return t.toString();
   }
 
   // ---------- presence ----------
@@ -347,6 +551,7 @@ class BoardSync {
     this.unsubWorkbook?.();
     awarenessProtocol.removeAwarenessStates(this.awareness, [this.doc.clientID], "local");
     this.ws?.close();
+    void this.idb?.destroy(); // closes the copy; it stays on the device
     this.doc.destroy();
   }
 }
@@ -369,16 +574,24 @@ function toSectionDoc(s: Section): SectionDoc {
   return doc;
 }
 
+/** a note's card, ignoring its text (which lives in its Y.Text) */
+function sameCard(a: Record<string, unknown>, b: Record<string, unknown>) {
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) if (k !== "text" && a[k] !== b[k]) return false;
+  return true;
+}
+
 function toObjectDoc(o: AnyObject): ObjectDoc {
   const doc = { ...o, kind: kindOf(o) } as Record<string, unknown>;
+  if (doc.kind === "note") delete doc.text; // in its Y.Text
   // blob: URLs only live in this tab; never share them
   if (typeof doc.src === "string" && (doc.src as string).startsWith("blob:")) doc.src = "";
   return doc as unknown as ObjectDoc;
 }
 
-function fromObjectDoc(o: ObjectDoc): AnyObject {
+function fromObjectDoc(o: ObjectDoc, doc: Y.Doc): AnyObject {
   const { kind: _k, ...rest } = o as ObjectDoc & Record<string, unknown>;
   const local = getState();
+  if (_k === "note") rest.text = noteTextOf(doc, o);
   // keep a local blob preview while the shared copy has no URL yet
   if (_k === "media" && !rest.src) {
     const mine = local.media[o.id];
@@ -403,6 +616,8 @@ export function joinBoard(boardId: string, user: UserInfo): BoardSync {
 export function activeBoard(): BoardSync | null {
   return current;
 }
+// dev: the live sync, for headless checks
+if (import.meta.env?.DEV && typeof window !== "undefined") (window as unknown as { __foundationBoard: () => BoardSync | null }).__foundationBoard = () => current;
 
 export function onBoardChange(fn: () => void) {
   boardListeners.add(fn);
@@ -412,3 +627,48 @@ export function onBoardChange(fn: () => void) {
 }
 
 export type { BoardSync };
+
+/** a keystroke in a note, through the board's shared text (see BoardSync.editNote) */
+export function editNoteText(id: string, base: string, next: string) {
+  const text = current ? current.editNote(id, base, next) : next;
+  updateNoteText(id, text);
+  return text;
+}
+
+let lastNotice = 0;
+function viewOnlyNotice() {
+  if (Date.now() - lastNotice < 4000) return;
+  lastNotice = Date.now();
+  toast("View only — you can look around, but changes don't stick. An admin can make you a member.", "warn");
+}
+
+async function fetchEpoch(boardId: string): Promise<string | null> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 2500);
+  try {
+    return (await api<{ epoch: string }>(`/api/boards/${encodeURIComponent(boardId)}/epoch`, { signal: ctrl.signal })).epoch;
+  } catch {
+    return null; // offline (or signed out): this device's copy stands
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/** signing out: this device forgets every board copy it kept */
+export async function forgetDevice() {
+  current?.destroy();
+  current = null;
+  try {
+    const dbs = (await indexedDB.databases?.()) ?? [];
+    await Promise.all(
+      dbs
+        .filter((d) => d.name?.startsWith("foundation-board:"))
+        .map((d) => new Promise<void>((ok) => {
+          const r = indexedDB.deleteDatabase(d.name!);
+          r.onsuccess = r.onerror = r.onblocked = () => ok();
+        })),
+    );
+  } catch {
+    /* nothing kept */
+  }
+}

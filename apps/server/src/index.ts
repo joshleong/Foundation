@@ -14,8 +14,7 @@ import { config } from "./config.ts";
 import { one } from "./db.ts";
 import { HttpError, json, readJson, Router, sse, type Req } from "./http.ts";
 import { clearSession, createSession, googleAuthUrl, googleCallback, isAllowed, requireUser, setSessionCookie, upsertUser, userFromRequest, createSession as mintToken } from "./auth.ts";
-import { attachConnection, ensureBoardRow, getBoard, listBoards, presence } from "./boards.ts";
-import { canSeeBoard, hiddenBoards, listMembers, requireBoard } from "./members.ts";
+import { attachConnection, boardEpoch, editBoard, syncAccess, ensureBoardRow, getBoard, listBoards, presence } from "./boards.ts";
 import { archiveFile, listFiles, reindexFilesIfNeeded, serveFile, uploadFile } from "./files.ts";
 import { integrationStatus, searchAll } from "./search.ts";
 import { listApps, probeApp, saveApp } from "./apps.ts";
@@ -23,13 +22,16 @@ import { parseRepo, repoCommits, repoInfo, repoReadme } from "./github.ts";
 import { companySnapshot, connectorEvents, readConnector, watchFactoryForm } from "./connectors.ts";
 import { createAsk, listAsks, resolveAsk, startHermes } from "./hermes.ts";
 import { getJob, listJobs, startJob } from "./jobs.ts";
-import { runAgent, runtimes } from "./agent.ts";
+import { followRun, listSessions, runtimes, sessionTurns, settleOrphanRuns, startRun, stopRun } from "./agent.ts";
+import { t3Thread, t3Threads } from "./t3.ts";
+import { pollHandoffs } from "./vision.ts";
+import { boardPeople, boardRole, canWrite, requireWriter, setBoardRole } from "./roles.ts";
 import { runTool, TOOLS } from "./tools.ts";
 import { handleMcp } from "./mcp.ts";
 import { seedCompanyBoard } from "./seed.ts";
 import { addLine, attachHuddle, attachRecording, huddleArchive, transcriptText } from "./huddles.ts";
 import { boardLink, channelHistory, channelInfo, inviteText, listChannels, postMessage, shareText, SlackError, slackStatus } from "./slack.ts";
-import { boardMaps } from "@foundation/protocol";
+import { appendSection, boardMaps } from "@foundation/protocol";
 import { migrateAllBoards } from "./migrate.ts";
 import * as flowform from "./flowform.ts";
 
@@ -79,19 +81,31 @@ r.post("/api/agent/token", (req) => {
 
 r.get("/api/boards", (req) => {
   const u = requireUser(req);
-  const hidden = hiddenBoards(u);
-  return { boards: listBoards().filter((b) => !hidden.has(b.id)) };
+  return { boards: listBoards().map((b) => ({ ...b, role: boardRole(u.id, b.id) })) };
 });
-r.get("/api/boards/:id/members", (req) => {
-  requireBoard(requireUser(req), req.params.id);
-  return { members: listMembers(req.params.id) };
+r.get("/api/boards/:id/epoch", (req) => {
+  requireUser(req);
+  return { epoch: boardEpoch(req.params.id) };
+});
+r.get("/api/boards/:id/people", (req) => {
+  requireUser(req);
+  return { people: boardPeople(req.params.id) };
+});
+r.post("/api/boards/:id/people", async (req) => {
+  const u = requireUser(req);
+  const { userId, role } = await readJson<{ userId?: string; role?: "member" | "viewer" | null }>(req);
+  if (!userId || (role !== null && role !== "member" && role !== "viewer")) throw new HttpError(400, "userId and role (member, viewer or null) required");
+  setBoardRole(u, req.params.id, userId, role);
+  return { people: boardPeople(req.params.id) };
 });
 r.post("/api/boards", async (req) => {
-  requireUser(req);
+  requireWriter(requireUser(req));
   const { name } = await readJson<{ name?: string }>(req);
   const id = (name ?? "board").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || `board-${Date.now().toString(36)}`;
   ensureBoardRow(id, name ?? id);
-  getBoard(id);
+  // the server lays the first section, so two people opening a new board at once don't both seed it
+  const doc = getBoard(id).doc;
+  if (boardMaps(doc).sections.size === 0) editBoard(id, "system", (d) => appendSection(d, "Section 1"));
   return { id };
 });
 r.get("/api/boards/:id/presence", (req) => {
@@ -343,17 +357,76 @@ r.get("/api/agent/runtimes", (req) => {
   requireUser(req);
   return runtimes();
 });
+r.get("/api/agent/sessions", (req) => {
+  const user = requireUser(req);
+  return { sessions: listSessions(req.query.get("board") || "company", user.id) };
+});
+r.get("/api/agent/sessions/:id", (req) => {
+  const user = requireUser(req);
+  return { turns: sessionTurns(req.params.id, user.id) };
+});
+
+// ---------- Vision Code (T3) sessions, read-only ----------
+
+r.get("/api/t3/threads", async (req) => {
+  requireUser(req);
+  return t3Threads();
+});
+r.get("/api/t3/threads/:id", async (req) => {
+  requireUser(req);
+  const t = await t3Thread(req.params.id);
+  if (!t) throw new HttpError(404, "no such Vision Code thread");
+  return t;
+});
+
 r.post("/api/agent", async (req, res) => {
   const user = requireUser(req);
-  const body = await readJson<{ board?: string; prompt?: string; runtime?: string }>(req);
+  const body = await readJson<{ board?: string; prompt?: string; runtime?: string; session?: string }>(req);
   if (!body.prompt?.trim()) throw new HttpError(400, "say something");
   requireBoard(user, body.board || "company");
   const send = sse(res);
-  const ctrl = new AbortController();
-  res.on("close", () => ctrl.abort());
-  await runAgent({ boardId: body.board || "company", user, prompt: body.prompt, runtime: body.runtime, emit: send, signal: ctrl.signal });
+  const session = body.session && /^ses_[a-z0-9]{6,24}$/.test(body.session) ? body.session : undefined;
+  // the run lives on the server: closing this stream detaches, it doesn't stop it
+  const r = startRun({ boardId: body.board || "company", user, prompt: body.prompt, runtime: body.runtime, session });
+  await new Promise<void>((done) => {
+    const detach = followRun(r.id, user.id, send, done);
+    res.on("close", () => (detach?.(), done()));
+  });
   res.end();
 });
+r.get("/api/agent/runs/:id/events", async (req, res) => {
+  const user = requireUser(req);
+  const send = sse(res);
+  await new Promise<void>((done) => {
+    const detach = followRun(req.params.id, user.id, send, done);
+    if (!detach) return done(); // finished long ago (or not yours): the transcript has it
+    res.on("close", () => (detach(), done()));
+  });
+  res.end();
+});
+r.post("/api/agent/runs/:id/stop", (req) => {
+  const user = requireUser(req);
+  return { stopped: stopRun(req.params.id, user.id) };
+});
+
+// ---------- view only ----------
+
+/**
+ * Viewers don't write. Any non-GET under /api is a write except these: the
+ * agent (its tools check per call, so a viewer can still ask it things),
+ * stopping your own run, an MCP token (its tools check too), board tools
+ * (runTool checks), and setting roles (admins only). The board is the
+ * route's :id, or ?board=, else the person's account role decides.
+ */
+const READ_POSTS = [/^\/api\/agent$/, /^\/api\/agent\/runs\/[^/]+\/stop$/, /^\/api\/agent\/token$/, /^\/api\/boards\/[^/]+\/tools\//, /^\/api\/boards\/[^/]+\/people$/, /^\/api\/apps\/probe$/];
+function gateWrites(req: Req, path: string) {
+  if (req.method === "GET" || req.method === "OPTIONS" || !path.startsWith("/api/")) return;
+  if (READ_POSTS.some((p) => p.test(path))) return;
+  const user = userFromRequest(req);
+  if (!user) return; // the route's own requireUser answers 401
+  const board = /^\/api\/boards\/([^/]+)/.exec(path)?.[1] ?? req.query.get("board");
+  requireWriter(user, board);
+}
 
 // ---------- server ----------
 
@@ -383,6 +456,7 @@ const server = createServer(async (rawReq, res: ServerResponse) => {
     const m = r.match(req.method ?? "GET", url.pathname);
     if (!m) throw new HttpError(404, "not found");
     req.params = m.params;
+    gateWrites(req, url.pathname);
     const out = await m.handler(req, res);
     if (!res.headersSent && out !== undefined) json(res, out);
   } catch (e) {
@@ -410,13 +484,27 @@ server.on("upgrade", (rawReq, socket, head) => {
     socket.destroy();
     return;
   }
-  wss.handleUpgrade(req, socket, head, (ws) => attachConnection(m[1], ws));
+  // the board a client holds must be this board: a copy from before a reset is refused, and a client
+  // that doesn't say (a build from before epochs) can read but not write until it reloads
+  const access = syncAccess(req.query.get("epoch"), boardEpoch(m[1]), canWrite(user.id, m[1]));
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    if (access === "refuse") return ws.close(4002, "this board was reset");
+    attachConnection(m[1], ws, access === "read", user.id);
+  });
 });
 
 reindexFilesIfNeeded();
 watchFactoryForm();
+// the Vision loop: bring back what hand-off threads export, and ask the reviewers once they have
+setInterval(() => {
+  void pollHandoffs((h, reviewer) => {
+    const section = h.section_id ? boardMaps(getBoard(h.board_id).doc).sections.get(h.section_id)?.name : undefined;
+    createAsk({ boardId: h.board_id, actor: "Vision Code", userId: h.created_by }, { assignee: reviewer, prompt: `Review what Vision made for “${h.title}”`, kind: "review", section });
+  });
+}, 4000).unref();
 seedCompanyBoard();
 migrateAllBoards();
+settleOrphanRuns();
 startHermes();
 
 server.listen(config.port, config.host, () => {

@@ -5,9 +5,9 @@
  *
  *  1. Roads, not strings: only horizontal, vertical and 45° segments.
  *  2. Every wire leaves an output and enters an input on a straight lead.
- *  3. Turns are long 45° runs, never curves: a turn takes as much of the
- *     runs either side as it can (up to TURN) without touching a card, so a
- *     change of height reads as one clean diagonal; joins are bevelled.
+ *  3. Turns are long 45° runs: a turn takes as much of the runs either side
+ *     as it can (up to TURN) without touching a card, so a change of height
+ *     reads as one clean diagonal; each bend is drawn round (ROUND).
  *  4. A wire going back (target behind its source) crosses through the gap
  *     between the two cards, or just clear of both — never through a card.
  *  5. Wires sharing a port run in parallel lanes, equally spaced at bends.
@@ -25,9 +25,34 @@ export const LANE = 4; // pitch between parallel wires sharing a run
 const CHAMFER = 14; // the shortest 45° step that turns a run through 90°
 const TURN = 480; // the longest: a turn's diagonal may run this far each way
 const CLEAR = 28; // how far a crossing keeps from a card edge
+const ROUND = 20; // the radius a bend is drawn round (smaller where a run is too short to hold it)
 
-export function polyline(pts: P[]): string {
-  return pts.map((p, i) => (i ? "L" : "M") + " " + p.x.toFixed(1) + " " + p.y.toFixed(1)).join(" ");
+/** The road as an SVG path: straight runs, and each bend an arc of radius `r` that keeps within half of either run. */
+export function polyline(pts: P[], r = ROUND): string {
+  const f = (p: P) => p.x.toFixed(1) + " " + p.y.toFixed(1);
+  if (!pts.length) return "";
+  let d = "M " + f(pts[0]);
+  for (let i = 1; i < pts.length - 1; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    const c = pts[i + 1];
+    const l1 = Math.hypot(b.x - a.x, b.y - a.y);
+    const l2 = Math.hypot(c.x - b.x, c.y - b.y);
+    const u = { x: (b.x - a.x) / (l1 || 1), y: (b.y - a.y) / (l1 || 1) };
+    const v = { x: (c.x - b.x) / (l2 || 1), y: (c.y - b.y) / (l2 || 1) };
+    const turn = Math.acos(Math.max(-1, Math.min(1, u.x * v.x + u.y * v.y)));
+    if (r <= 0 || !l1 || !l2 || turn < 1e-3 || turn > Math.PI - 1e-3) {
+      d += " L " + f(b);
+      continue;
+    }
+    const tan = Math.tan(turn / 2);
+    const t = Math.min(r * tan, l1 / 2, l2 / 2); // how far the arc starts before the bend
+    const radius = (t / tan).toFixed(1);
+    const sweep = u.x * v.y - u.y * v.x > 0 ? 1 : 0;
+    d += ` L ${f({ x: b.x - u.x * t, y: b.y - u.y * t })} A ${radius} ${radius} 0 0 ${sweep} ${f({ x: b.x + v.x * t, y: b.y + v.y * t })}`;
+  }
+  if (pts.length > 1) d += " L " + f(pts[pts.length - 1]);
+  return d;
 }
 
 /** Offset a route sideways, intersecting parallel segments so lanes stay evenly spaced through bends. */
@@ -121,29 +146,43 @@ export function route(a: P, b: P, opts: RouteOpts = {}): P[] {
 /**
  * Turn an orthogonal skeleton into a road. Each corner becomes a 45° run as
  * long as the runs either side allow — a corner shares its outgoing run with
- * the next one, and the leads keep at least `keep` px straight — and as long
- * as the diagonal stays out of every card in `avoid` (halving until it does,
- * down to a CHAMFER step).
+ * the next one (taking whatever the next can't use, at least half), and the
+ * leads keep at least `keep` px straight — and as long as the diagonal stays
+ * out of every card in `avoid` (the longest clear one, down to a CHAMFER step).
  */
 export function road(corners: P[], avoid: Rect[] = [], keep: { start?: number; end?: number } = {}, max = TURN): P[] {
   const pts = dedupe(corners);
   if (pts.length < 3) return pts;
   const out: P[] = [pts[0]];
   const last = pts.length - 2;
+  const run = (i: number) => Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y);
+  // the most a corner could take of its runs, before cards and neighbours
+  const reach = (i: number) => Math.min(max, run(i - 1) - (i === 1 ? (keep.start ?? 0) : 0), run(i) - (i === last ? (keep.end ?? 0) : 0));
   for (let i = 1; i <= last; i++) {
     const prev = out[out.length - 1];
     const b = pts[i];
     const n = pts[i + 1];
     const lin = Math.hypot(b.x - prev.x, b.y - prev.y) - (i === 1 ? (keep.start ?? 0) : 0);
-    const nextLen = Math.hypot(n.x - b.x, n.y - b.y);
-    const lout = i === last ? nextLen - (keep.end ?? 0) : nextLen / 2;
+    const nextLen = run(i);
+    const lout = i === last ? nextLen - (keep.end ?? 0) : nextLen - Math.max(0, Math.min(reach(i + 1), nextLen / 2));
     const ux = (b.x - prev.x) / (Math.hypot(b.x - prev.x, b.y - prev.y) || 1);
     const uy = (b.y - prev.y) / (Math.hypot(b.x - prev.x, b.y - prev.y) || 1);
     const vx = (n.x - b.x) / (nextLen || 1);
     const vy = (n.y - b.y) / (nextLen || 1);
-    let k = Math.min(max, lin, lout);
     const cut = (k: number) => [{ x: b.x - ux * k, y: b.y - uy * k }, { x: b.x + vx * k, y: b.y + vy * k }] as const;
-    while (k > CHAMFER && avoid.some((r) => segmentOverlap(cut(k)[0], cut(k)[1], r) > 0.5)) k /= 2;
+    const clear = (k: number) => !avoid.some((r) => segmentOverlap(cut(k)[0], cut(k)[1], r) > 0.5);
+    let k = Math.min(max, lin, lout);
+    if (k > CHAMFER && !clear(k)) {
+      // the longest diagonal that stays out of every card, to within a pixel or two
+      let lo = 0;
+      let hi = k;
+      for (let step = 0; step < 8; step++) {
+        const mid = (lo + hi) / 2;
+        if (clear(mid)) lo = mid;
+        else hi = mid;
+      }
+      k = Math.max(lo, CHAMFER);
+    }
     if (k < 0.5) {
       out.push(b);
       continue;

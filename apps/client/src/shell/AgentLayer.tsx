@@ -14,7 +14,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LinkDoc } from "@foundation/protocol";
-import { addLink, getState, gridSize, objectWorldRect, removeLink, uid, updatePanel, useAppState, type PanelMeta } from "../state/store";
+import { addLink, applyWireClip, getState, gridSize, objectWorldRect, removeLink, uid, updatePanel, useAppState, wireClipRect, type PanelMeta } from "../state/store";
 import { toast, useUi } from "../state/ui";
 import { useBoardTick } from "./Presence";
 import { toWorld, camera } from "../state/camera";
@@ -163,6 +163,8 @@ function useDrag() {
 interface Frame {
   pts: P[];
   d: string;
+  /** the section body both ends scroll in, if they share one */
+  clip: { x: number; y: number; w: number; h: number } | null;
 }
 
 function routesFor(links: LinkDoc[]): Map<string, Frame> {
@@ -207,7 +209,7 @@ function routesFor(links: LinkDoc[]): Map<string, Frame> {
       srcLane: classic ? (srcLaneOf.get(l.id) ?? 0) : 0,
       obstacles: obstaclesFor(rects, a.id, b.id),
     });
-    frames.set(l.id, { pts, d: polyline(pts) });
+    frames.set(l.id, { pts, d: polyline(pts), clip: wireClipRect(a, b) });
   }
   return frames;
 }
@@ -283,8 +285,10 @@ export function PortWires() {
           continue;
         }
         g.style.display = "";
-        if (lastD.get(l.id) === f.d) continue;
-        lastD.set(l.id, f.d);
+        const key = f.clip ? `${f.d}|${f.clip.x},${f.clip.y},${f.clip.w},${f.clip.h}` : f.d;
+        if (lastD.get(l.id) === key) continue;
+        lastD.set(l.id, key);
+        applyWireClip(g, f.clip);
         g.querySelectorAll<SVGPathElement>("path[data-route]").forEach((p) => p.setAttribute("d", f.d));
         // the tunnel mask covers just this wire (+40 px): a huge mask fails to rasterise
         const xs = f.pts.map((p) => p.x);
@@ -391,6 +395,9 @@ export function PortWires() {
               }}
             >
               <defs>
+                <clipPath id={`clip-${l.id}`} clipPathUnits="userSpaceOnUse">
+                  <rect />
+                </clipPath>
                 <mask id={`tun-${l.id}`} maskUnits="userSpaceOnUse">
                   <rect fill="white" />
                   <path className="tunnel-cut" fill="black" />

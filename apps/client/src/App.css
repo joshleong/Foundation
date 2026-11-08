@@ -387,7 +387,8 @@ body.is-connecting .section-tools,
   align-items: center;
   justify-content: center;
   padding: 24px;
-  container-type: inline-size;
+  /* sized both ways: a short or narrow section (after a split) gets a smaller welcome, never a clipped one */
+  container-type: size;
 }
 
 .empty-card {
@@ -410,6 +411,42 @@ body.is-connecting .section-tools,
 @container (max-width: 520px) {
   .empty-actions {
     grid-template-columns: 1fr;
+  }
+}
+/* short: the four ways in, without their explanations or the app shelf */
+@container (max-height: 560px) {
+  .section-empty .empty-action small,
+  .section-empty .empty-shelf-label,
+  .section-empty .empty-shelf {
+    display: none;
+  }
+  .section-empty .empty-title {
+    font-size: var(--text-16);
+    margin-bottom: 0;
+  }
+  .section-empty .empty-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+  .section-empty .empty-action {
+    padding: var(--space-3);
+  }
+}
+/* very short or very narrow: just the four glyphs, named on hover */
+@container (max-height: 320px) or (max-width: 340px) {
+  .section-empty .empty-title,
+  .section-empty .empty-action > span:not(.empty-glyph),
+  .section-empty .empty-action .f-kbd {
+    display: none;
+  }
+  .section-empty .empty-card {
+    align-items: center;
+  }
+  .section-empty .empty-actions {
+    grid-template-columns: repeat(4, auto);
+    justify-content: center;
+  }
+  .section-empty .empty-action {
+    padding: var(--space-2);
   }
 }
 .empty-action {
@@ -1281,6 +1318,11 @@ body.is-connecting .frame-header {
   line-height: 1.6;
   color: var(--ink);
   background: var(--color-abyss);
+}
+/* while writing, the card's bar sits over the top edge: start the text below it */
+.note-editor {
+  padding-top: 42px;
+  scroll-padding-top: 42px;
 }
 
 /* media cards */

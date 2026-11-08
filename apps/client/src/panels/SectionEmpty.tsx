@@ -41,6 +41,7 @@ export function SectionEmpty({ name, onUpload, onNote, onFocus }: { name: string
         <div className="empty-actions">
           <button
             className="empty-action"
+            data-tip="Open an app or link (⌘L)"
             onClick={() => {
               onFocus();
               setUi({ command: true });
@@ -53,7 +54,7 @@ export function SectionEmpty({ name, onUpload, onNote, onFocus }: { name: string
             </span>
             <span className="f-kbd">⌘L</span>
           </button>
-          <button className="empty-action" onClick={onUpload}>
+          <button className="empty-action" data-tip="Drop files (⌘U)" onClick={onUpload}>
             <span className="empty-glyph">⇪</span>
             <span>
               <b>Drop files</b>
@@ -61,7 +62,7 @@ export function SectionEmpty({ name, onUpload, onNote, onFocus }: { name: string
             </span>
             <span className="f-kbd">⌘U</span>
           </button>
-          <button className="empty-action is-agent" onClick={() => askAgent(`Set up the “${name}” section: `)}>
+          <button className="empty-action is-agent" data-tip="Ask the agent to build it (⌘J)" onClick={() => askAgent(`Set up the “${name}” section: `)}>
             <span className="empty-glyph">✦</span>
             <span>
               <b>Ask the agent to build it</b>
@@ -69,7 +70,7 @@ export function SectionEmpty({ name, onUpload, onNote, onFocus }: { name: string
             </span>
             <span className="f-kbd">⌘J</span>
           </button>
-          <button className="empty-action" onClick={onNote}>
+          <button className="empty-action" data-tip="Write a note" onClick={onNote}>
             <span className="empty-glyph">▤</span>
             <span>
               <b>Write a note</b>

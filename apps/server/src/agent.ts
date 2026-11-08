@@ -23,9 +23,10 @@ import { join } from "node:path";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type { AgentEvent, AgentRuntime, UserInfo } from "@foundation/protocol";
 import { config } from "./config.ts";
-import { run } from "./db.ts";
+import { all, one, run } from "./db.ts";
 import { boardDigest, editBoard } from "./boards.ts";
 import { runTool, TOOLS, type ToolCtx } from "./tools.ts";
+import { canWrite } from "./roles.ts";
 import { createSession, revokeSession } from "./auth.ts";
 import { logActivity } from "@foundation/protocol";
 
@@ -41,6 +42,8 @@ How you work:
 - Ask before deleting anything or acting on someone else's work in a way they would not expect. Deletes need confirm: true.
 - Nothing that spends money or runs third-party tooling starts on its own: reverse-engineering jobs wait for a person to press Run.
 - When a design needs CAD or a decision you don't have, use ask_person rather than guessing.
+- Building pages: when asked to lay out, gather, or make a board, page or document of things ("lay out all the images from Slack about the Airform PTHP"), call find_images, choose what belongs, then lay_out with a fitting style (grid for a set, board for a mood board, document to be read top to bottom with captions, timeline when the order in time matters) and a short intro. Say how many you placed and where, and what you couldn't search (e.g. Slack not connected).
+- For work with more than one step, call set_plan first (the goal and the steps), and again as each step starts and finishes, so the person can follow along in the session tab.
 - Be brief and concrete. No preamble.`;
 
 const histories = new Map<string, Anthropic.MessageParam[]>();
@@ -78,6 +81,9 @@ export async function runAgent(opts: {
   user: UserInfo;
   prompt: string;
   runtime?: string;
+  /** the session tab this turn belongs to: its own conversation (default: the person's one per board) */
+  session?: string;
+  runId?: string;
   emit: (e: AgentEvent) => void;
   signal: AbortSignal;
 }) {
@@ -89,26 +95,102 @@ export async function runAgent(opts: {
     });
     return;
   }
-  const runId = `run_${randomBytes(6).toString("hex")}`;
+  const runId = opts.runId ?? newRunId();
   run(
-    "insert into agent_runs (id, board_id, runtime, prompt, status, created_by, created_at) values (?, ?, ?, ?, 'running', ?, ?)",
-    runId, opts.boardId, runtime, opts.prompt, opts.user.id, Date.now(),
+    "insert into agent_runs (id, board_id, runtime, prompt, status, created_by, created_at, session_id) values (?, ?, ?, ?, 'running', ?, ?, ?)",
+    runId, opts.boardId, runtime, opts.prompt, opts.user.id, Date.now(), opts.session ?? null,
   );
-  editBoard(opts.boardId, "agent", (doc) => logActivity(doc, { who: opts.user.name, role: "human", text: `asked the agent: ${opts.prompt.slice(0, 140)}` }));
+  // a viewer's question isn't a change to the board, so it doesn't go in its activity
+  if (canWrite(opts.user.id, opts.boardId)) editBoard(opts.boardId, "agent", (doc) => logActivity(doc, { who: opts.user.name, role: "human", text: `asked the agent: ${opts.prompt.slice(0, 140)}` }));
   const transcript: AgentEvent[] = [];
+  // the transcript is saved as the turn runs, so a reload mid-turn replays it
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  const save = () => {
+    saveTimer = null;
+    run("update agent_runs set transcript_json = ? where id = ? and status = 'running'", JSON.stringify(transcript), runId);
+  };
   const emit = (e: AgentEvent) => {
-    transcript.push(e);
+    // streamed text is stored as one event per run of text, not one per token
+    const last = transcript[transcript.length - 1];
+    if (e.type === "text" && last?.type === "text") transcript[transcript.length - 1] = { type: "text", text: last.text + e.text };
+    else transcript.push(e);
     opts.emit(e);
+    saveTimer ??= setTimeout(save, 1200);
+  };
+  const finish = (status: "done" | "error" | "stopped") => {
+    if (saveTimer) clearTimeout(saveTimer);
+    run("update agent_runs set status = ?, transcript_json = ?, finished_at = ? where id = ?", status, JSON.stringify(transcript), Date.now(), runId);
   };
   try {
     if (runtime === "api") await runApi(opts, emit);
-    else await runSubscription(opts, emit);
-    run("update agent_runs set status = 'done', transcript_json = ?, finished_at = ? where id = ?", JSON.stringify(transcript), Date.now(), runId);
+    else await runSubscription(opts, emit, runId);
+    finish(opts.signal.aborted ? "stopped" : "done");
   } catch (e) {
-    const message = (e as Error).message;
-    emit({ type: "error", message });
-    run("update agent_runs set status = 'error', transcript_json = ?, finished_at = ? where id = ?", JSON.stringify(transcript), Date.now(), runId);
+    if (opts.signal.aborted) return finish("stopped");
+    emit({ type: "error", message: (e as Error).message });
+    finish("error");
   }
+}
+
+const newRunId = () => `run_${randomBytes(6).toString("hex")}`;
+
+// ---------- runs outlive the page that started them ----------
+// A turn keeps going when its tab reloads or closes; the page reattaches by
+// run id (replay, then live), and only Stop ends it early.
+
+interface LiveRun {
+  id: string;
+  userId: string;
+  events: AgentEvent[];
+  listeners: Set<(e: AgentEvent) => void>;
+  done: boolean;
+  ctrl: AbortController;
+}
+const live = new Map<string, LiveRun>();
+
+export function startRun(opts: Omit<Parameters<typeof runAgent>[0], "emit" | "signal" | "runId">): LiveRun {
+  const r: LiveRun = { id: newRunId(), userId: opts.user.id, events: [], listeners: new Set(), done: false, ctrl: new AbortController() };
+  live.set(r.id, r);
+  const emit = (e: AgentEvent) => {
+    const last = r.events[r.events.length - 1];
+    if (e.type === "text" && last?.type === "text") r.events[r.events.length - 1] = { type: "text", text: last.text + e.text };
+    else r.events.push(e);
+    for (const fn of r.listeners) fn(e);
+  };
+  emit({ type: "run", id: r.id });
+  void runAgent({ ...opts, runId: r.id, emit, signal: r.ctrl.signal }).finally(() => {
+    r.done = true;
+    for (const fn of r.listeners) fn({ type: "status", status: "ended" });
+    r.listeners.clear();
+    setTimeout(() => live.delete(r.id), 60_000);
+  });
+  return r;
+}
+
+/** a run this person may watch: replay what happened, then follow; returns a detach */
+export function followRun(id: string, userId: string, send: (e: AgentEvent) => void, end: () => void): (() => void) | null {
+  const r = live.get(id);
+  if (!r || r.userId !== userId) return null;
+  for (const e of r.events) send(e);
+  if (r.done) {
+    end();
+    return () => {};
+  }
+  const fn = (e: AgentEvent) => (e.type === "status" && e.status === "ended" ? end() : send(e));
+  r.listeners.add(fn);
+  return () => r.listeners.delete(fn);
+}
+
+export function stopRun(id: string, userId: string) {
+  const r = live.get(id);
+  if (!r || r.userId !== userId) return false;
+  r.ctrl.abort();
+  return true;
+}
+
+/** runs left "running" by a server that stopped can't finish: say so */
+export function settleOrphanRuns() {
+  run("update agent_runs set status = 'error', finished_at = ? where status = 'running'", Date.now());
 }
 
 // ---------- API runtime (credits) ----------
@@ -121,13 +203,16 @@ function apiTools(): Anthropic.Tool[] {
   });
 }
 
+/** one conversation per person per board, or per session tab */
+const convKey = (opts: { boardId: string; user: UserInfo; session?: string }) => `${opts.boardId}:${opts.user.id}${opts.session ? `:${opts.session}` : ""}`;
+
 async function runApi(opts: Parameters<typeof runAgent>[0], emit: (e: AgentEvent) => void) {
   const client = new Anthropic({ apiKey: config.anthropic.apiKey });
-  const key = `${opts.boardId}:${opts.user.id}`;
+  const key = convKey(opts);
   const history = histories.get(key) ?? [];
   history.push({
     role: "user",
-    content: `${opts.prompt}\n\n<board name="${opts.boardId}" person="${opts.user.name}">\n${boardDigest(opts.boardId)}\n</board>`,
+    content: `${opts.prompt}\n\n<board name="${opts.boardId}" person="${opts.user.name}"${canWrite(opts.user.id, opts.boardId) ? "" : ' access="view only — read and answer; do not try to change the board"'}>\n${boardDigest(opts.boardId)}\n</board>`,
   });
   const ctx: ToolCtx = { boardId: opts.boardId, actor: "Foundation Agent", userId: opts.user.id };
   const tools = apiTools();
@@ -183,8 +268,8 @@ async function runApi(opts: Parameters<typeof runAgent>[0], emit: (e: AgentEvent
 
 // ---------- subscription runtime (Claude Code, T3-style session) ----------
 
-async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: AgentEvent) => void) {
-  const key = `${opts.boardId}:${opts.user.id}`;
+async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: AgentEvent) => void, runId: string) {
+  const key = convKey(opts);
   // a short-lived session for this person, so the agent's writes are theirs
   const token = createSession(opts.user.id, 2 * 3600_000);
   const mcpFile = join(config.dataDir, `mcp-${randomBytes(6).toString("hex")}.json`);
@@ -201,7 +286,7 @@ async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: A
     }),
     { mode: 0o600 },
   );
-  const prompt = `${opts.prompt}\n\n<board name="${opts.boardId}" person="${opts.user.name}">\n${boardDigest(opts.boardId)}\n</board>`;
+  const prompt = `${opts.prompt}\n\n<board name="${opts.boardId}" person="${opts.user.name}"${canWrite(opts.user.id, opts.boardId) ? "" : ' access="view only — read and answer; do not try to change the board"'}>\n${boardDigest(opts.boardId)}\n</board>`;
   const argv = [
     "-p",
     prompt,
@@ -215,7 +300,12 @@ async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: A
     "--allowedTools",
     "mcp__foundation__*",
   ];
-  const resume = claudeSessions.get(key);
+  // the Claude Code session to continue: this server's memory, else the last run of this tab
+  const resume =
+    claudeSessions.get(key) ??
+    (opts.session
+      ? one<{ claude_session: string }>("select claude_session from agent_runs where session_id = ? and created_by = ? and claude_session is not null order by created_at desc limit 1", opts.session, opts.user.id)?.claude_session
+      : undefined);
   if (resume) argv.push("--resume", resume);
 
   emit({ type: "status", status: "thinking" });
@@ -249,7 +339,10 @@ async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: A
       } catch {
         return;
       }
-      if (ev.session_id) claudeSessions.set(key, ev.session_id);
+      if (ev.session_id && claudeSessions.get(key) !== ev.session_id) {
+        claudeSessions.set(key, ev.session_id);
+        run("update agent_runs set claude_session = ? where id = ?", ev.session_id, runId);
+      }
       if (ev.type === "assistant") {
         for (const b of ev.message?.content ?? []) {
           if (b.type === "text" && b.text) emit({ type: "text", text: b.text });
@@ -278,4 +371,44 @@ async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: A
       else reject(new Error(`Claude Code exited ${code}: ${err.slice(-600)}`));
     });
   });
+}
+
+// ---------- sessions (the tabs) ----------
+
+export interface SessionSummary {
+  id: string;
+  title: string;
+  board: string;
+  runs: number;
+  status: "running" | "done" | "error";
+  updatedAt: number;
+}
+
+/** this person's agent sessions on a board, newest first */
+export function listSessions(boardId: string, userId: string, limit = 30): SessionSummary[] {
+  const rows = all<{ session_id: string; first: string; runs: number; updated: number; board_id: string }>(
+    `select session_id, board_id, count(*) as runs, max(created_at) as updated,
+            (select prompt from agent_runs b where b.session_id = a.session_id order by created_at asc limit 1) as first
+       from agent_runs a
+      where board_id = ? and created_by = ? and session_id is not null
+      group by session_id order by updated desc limit ?`,
+    boardId, userId, limit,
+  );
+  return rows.map((r) => {
+    const last = one<{ status: string }>("select status from agent_runs where session_id = ? order by created_at desc limit 1", r.session_id);
+    return { id: r.session_id, title: titleOf(r.first), board: r.board_id, runs: r.runs, status: (last?.status ?? "done") as SessionSummary["status"], updatedAt: r.updated };
+  });
+}
+
+/** a session's turns, as the tab replays them */
+export function sessionTurns(sessionId: string, userId: string) {
+  return all<{ id: string; prompt: string; status: string; runtime: string; transcript_json: string; created_at: number }>(
+    "select id, prompt, status, runtime, transcript_json, created_at from agent_runs where session_id = ? and created_by = ? order by created_at asc",
+    sessionId, userId,
+  ).map((r) => ({ id: r.id, prompt: r.prompt, status: r.status, runtime: r.runtime, at: r.created_at, events: JSON.parse(r.transcript_json) as AgentEvent[] }));
+}
+
+export function titleOf(prompt: string) {
+  const line = prompt.split("\n")[0].trim();
+  return line.length > 60 ? `${line.slice(0, 57)}…` : line;
 }

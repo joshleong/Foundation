@@ -17,10 +17,11 @@ export const BOARD = {
   grid: "grid", // key "tracks" → GridTracks
   sections: "sections", // id → SectionDoc
   objects: "objects", // id → ObjectDoc
-  cells: "cells", // tableId → Record<"c,r", raw>
+  cells: "cells", // tableId → Y.Map<"c,r" → raw> (schema 4: one entry per cell; a plain Record before)
   links: "links", // id → LinkDoc
   meta: "meta", // name, createdAt, ...
   activity: "activity", // Y.Array<ActivityEntry>
+  noteText: "noteText", // noteId → Y.Text (schema 3: typing merges character by character)
 } as const;
 
 export interface GridTracks {
@@ -43,8 +44,13 @@ export interface SectionDoc {
   host?: string;
 }
 
-/** The board document's schema version (`meta.schema`). 2: sections host apps. */
-export const BOARD_SCHEMA = 2;
+/**
+ * The board document's schema version (`meta.schema`). 2: sections host apps.
+ * 3: note text is a Y.Text. 4: each table's cells are a Y.Map. 5: every table
+ * has its cell map from the start (made with the table, never lazily — two
+ * people making it at once would each make one, and one would be lost).
+ */
+export const BOARD_SCHEMA = 5;
 
 /** Panel kinds a section can host — whole apps, not artifacts. */
 export const HOSTABLE_KINDS = ["app", "link", "machine", "connector"] as const;
@@ -79,7 +85,12 @@ export interface NoteDoc extends ObjectBaseDoc {
   kind: "note";
   w: number;
   h: number;
-  text: string;
+  /**
+   * Only on boards older than schema 3. The text lives in `noteText` (a
+   * Y.Text per note) so two people typing in one note merge instead of
+   * overwriting each other; read it with noteTextOf, write it with setNoteText.
+   */
+  text?: string;
 }
 export interface MediaDoc extends ObjectBaseDoc {
   kind: "media";
@@ -302,11 +313,125 @@ export function boardMaps(doc: Y.Doc) {
     grid: doc.getMap<GridTracks>(BOARD.grid),
     sections: doc.getMap<SectionDoc>(BOARD.sections),
     objects: doc.getMap<ObjectDoc>(BOARD.objects),
-    cells: doc.getMap<Record<string, string>>(BOARD.cells),
+    cells: doc.getMap<TableCells | Record<string, string>>(BOARD.cells),
     links: doc.getMap<LinkDoc>(BOARD.links),
     meta: doc.getMap<unknown>(BOARD.meta),
     activity: doc.getArray<ActivityEntry>(BOARD.activity),
+    noteText: doc.getMap<Y.Text>(BOARD.noteText),
   };
+}
+
+// ---------- table cells (schema 4) ----------
+
+/** A table's cells: "c,r" → the raw text typed (formulas as written). */
+export type TableCells = Y.Map<string>;
+
+/** A table's cells as a plain record (either form: before or after schema 4). */
+export function tableCellsOf(doc: Y.Doc, tableId: string): Record<string, string> {
+  const v = boardMaps(doc).cells.get(tableId);
+  if (!v) return {};
+  return v instanceof Y.Map ? (v.toJSON() as Record<string, string>) : { ...v };
+}
+
+/**
+ * The live cell map of a table, made (or upgraded from a plain record) if
+ * needed. Call inside a transaction. Make it when the table is made: a map
+ * made lazily by two people at once is two maps, and one of them is lost.
+ */
+export function tableCellMap(doc: Y.Doc, tableId: string): TableCells {
+  const m = boardMaps(doc);
+  const v = m.cells.get(tableId);
+  if (v instanceof Y.Map) return v;
+  const map = new Y.Map<string>();
+  m.cells.set(tableId, map);
+  for (const [k, raw] of Object.entries(v ?? {})) if (raw) map.set(k, raw);
+  return map;
+}
+
+/**
+ * Make a table's cells match `raw`, touching only the cells that differ — so
+ * someone editing another cell of the same table keeps their edit. Empty
+ * means cleared. Call inside a transaction.
+ */
+export function setTableCells(doc: Y.Doc, tableId: string, raw: Record<string, string>) {
+  const map = tableCellMap(doc, tableId);
+  for (const [k, v] of Object.entries(raw)) if (v && map.get(k) !== v) map.set(k, v);
+  for (const k of [...map.keys()]) if (!raw[k]) map.delete(k);
+}
+
+// ---------- note text (schema 3) ----------
+
+/** The one edit that turns `a` into `b`: keep the common start and end, replace the middle. */
+export function textDiff(a: string, b: string): { at: number; remove: number; insert: string } | null {
+  if (a === b) return null;
+  let start = 0;
+  const min = Math.min(a.length, b.length);
+  while (start < min && a.charCodeAt(start) === b.charCodeAt(start)) start++;
+  let end = 0;
+  while (end < min - start && a.charCodeAt(a.length - 1 - end) === b.charCodeAt(b.length - 1 - end)) end++;
+  // never split a surrogate pair
+  if (start > 0 && start < a.length && isLowSurrogate(a.charCodeAt(start))) start--;
+  return { at: start, remove: a.length - start - end, insert: b.slice(start, b.length - end) };
+}
+const isLowSurrogate = (c: number) => c >= 0xdc00 && c <= 0xdfff;
+
+/**
+ * A keystroke as an edit of the shared text: `base` is what the editor showed,
+ * `next` what it shows after the key, `current` what the shared text holds
+ * now (someone else may have typed in between). The person's edit, moved past
+ * the other change so neither loses characters; null when nothing changed.
+ */
+export function rebaseEdit(base: string, next: string, current: string): { at: number; remove: number; insert: string } | null {
+  const mine = textDiff(base, next);
+  if (!mine) return null;
+  const theirs = textDiff(base, current);
+  let { at, remove } = mine;
+  if (theirs) {
+    const theirEnd = theirs.at + theirs.remove;
+    const before = at + remove <= theirs.at && !(at === theirs.at && remove === 0 && theirs.remove === 0);
+    if (before) {
+      // mine is wholly before theirs: positions hold
+    } else if (at >= theirEnd) {
+      at += theirs.insert.length - theirs.remove; // after theirs (or both typing at one spot): slide past it
+    } else {
+      // overlapping: theirs stands, mine goes in just after it, deleting only what's left of my range
+      const myEnd = at + remove;
+      at = theirs.at + theirs.insert.length;
+      remove = Math.max(0, myEnd - theirEnd);
+    }
+  }
+  at = Math.min(at, current.length);
+  remove = Math.min(remove, current.length - at);
+  return { at, remove, insert: mine.insert };
+}
+
+/** A note's text: its Y.Text, or the legacy field on a board that hasn't migrated. */
+export function noteTextOf(doc: Y.Doc, note: { id: string; text?: string }): string {
+  return boardMaps(doc).noteText.get(note.id)?.toString() ?? note.text ?? "";
+}
+
+/**
+ * Set a note's text as the smallest edit from what's there, so someone typing
+ * elsewhere in the same note keeps their characters. Call inside a transaction.
+ */
+export function setNoteText(doc: Y.Doc, id: string, text: string) {
+  const m = boardMaps(doc);
+  let t = m.noteText.get(id);
+  if (!t) {
+    t = new Y.Text();
+    m.noteText.set(id, t);
+  }
+  const d = textDiff(t.toString(), text);
+  if (!d) return;
+  if (d.remove) t.delete(d.at, d.remove);
+  if (d.insert) t.insert(d.at, d.insert);
+}
+
+/** Put a note on the board: the card in `objects`, its text in `noteText`. */
+export function putNote(doc: Y.Doc, note: NoteDoc & { text: string }) {
+  const { text, ...card } = note;
+  boardMaps(doc).objects.set(card.id, card);
+  setNoteText(doc, card.id, text);
 }
 
 export function readTracks(doc: Y.Doc): GridTracks {
@@ -365,9 +490,9 @@ export function describeBoard(doc: Y.Doc): string {
         lines.push(`- ${o.panel} "${o.name}" (${o.id}) ${extra}${ports ? ` ports[${ports}]` : ""}`);
         if (o.text) lines.push(`  ${o.text.slice(0, 240).replace(/\n/g, " ")}`);
       } else if (o.kind === "note") {
-        lines.push(`- note "${o.name}" (${o.id}): ${o.text.slice(0, 240).replace(/\n/g, " ")}`);
+        lines.push(`- note "${o.name}" (${o.id}): ${noteTextOf(doc, o).slice(0, 240).replace(/\n/g, " ")}`);
       } else if (o.kind === "table") {
-        const cells = m.cells.get(o.id) ?? {};
+        const cells = tableCellsOf(doc, o.id);
         const head = [0, 1, 2, 3, 4, 5].map((c) => cells[`${c},0`] ?? "").filter(Boolean);
         lines.push(`- table "${o.name}" (${o.id}) ${o.cols}×${o.rows} headers: ${head.join(" | ")}`);
       } else {
@@ -386,6 +511,8 @@ export function describeBoard(doc: Y.Doc): string {
 // ---------- wire messages (agent stream, server → client) ----------
 
 export type AgentEvent =
+  /** first on every stream: the run it belongs to (reattach with GET /api/agent/runs/:id/events) */
+  | { type: "run"; id: string }
   | { type: "text"; text: string }
   | { type: "tool"; name: string; input: unknown }
   | { type: "tool_result"; name: string; ok: boolean; summary: string }
@@ -416,5 +543,6 @@ export interface UserInfo {
   email: string;
   name: string;
   color: string;
-  role: "admin" | "member";
+  /** account-wide; a board can set its own (viewer: may read, not change) */
+  role: "admin" | "member" | "viewer";
 }

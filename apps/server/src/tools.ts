@@ -10,6 +10,10 @@
  * board so people can see what it is touching.
  */
 
+import { queueHandoff } from "./vision.ts";
+import { findImages, layOut } from "./construct.ts";
+import { READ_TOOLS, canWrite } from "./roles.ts";
+import { HttpError } from "./http.ts";
 import { z } from "zod";
 import * as Y from "yjs";
 import {
@@ -22,6 +26,8 @@ import {
   uid,
   type LinkDoc,
   type NoteDoc,
+  putNote,
+  setNoteText,
   type PanelDoc,
   type PanelKind,
   type Port,
@@ -176,6 +182,47 @@ export const TOOLS: BoardTool[] = [
     },
   }),
   def({
+    name: "set_plan",
+    description:
+      "Show the person the plan for this session: the goal and the steps, each pending, active or done. Call it before work with more than one step, and again whenever a step starts or finishes. The session tab draws it as a checklist.",
+    schema: z.object({
+      goal: z.string().describe("one sentence: what done looks like"),
+      steps: z.array(z.object({ text: z.string(), status: z.enum(["pending", "active", "done"]) })).max(12),
+    }),
+    run: (_ctx, { steps }) => `plan set: ${steps.filter((x) => x.status === "done").length}/${steps.length} done`,
+  }),
+  def({
+    name: "find_images",
+    description:
+      "Find images about something: in Foundation's archive (uploaded files, full text and where they came from), on this board, and in Slack (when connected). Returns refs to pass to lay_out, with titles, where each came from and when. Notes say what couldn't be searched.",
+    schema: z.object({
+      query: z.string().describe("what the images are about, e.g. \"Airform PTHP\""),
+      sources: z.array(z.enum(["files", "slack", "board"])).optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+    }),
+    run: async (ctx, { query, sources, limit }) => findImages(getBoard(ctx.boardId).doc, ctx.boardId, query, sources, limit),
+  }),
+  def({
+    name: "lay_out",
+    description:
+      "Build a page on the board: a new section (or an existing one) with the items placed as a grid (masonry), a board (mood board, some images wide), a document (one readable column: heading, intro, each image with its caption) or a timeline (left to right by date). Items are image refs from find_images (Slack images are copied into the archive), markdown notes, or links. Use it for 'lay out', 'make a page/board/document of', 'put together'.",
+    schema: z.object({
+      title: z.string(),
+      style: z.enum(["grid", "board", "document", "timeline"]).optional(),
+      section: z.string().optional().describe("an existing section's name or id; omit for a new section named after the title"),
+      intro: z.string().optional().describe("markdown shown first: what this is and why"),
+      columns: z.number().int().min(1).max(6).optional(),
+      items: z.array(z.object({ ref: z.string().optional(), markdown: z.string().optional(), url: z.string().optional(), title: z.string().optional(), caption: z.string().optional() })).min(1).max(120),
+      request_id: z.string().optional(),
+    }),
+    write: true,
+    run: async (ctx, i) => {
+      const out = await layOut(ctx, i);
+      touch(ctx, out.section, `laid out “${i.title}” (${out.cards} cards)`);
+      return out;
+    },
+  }),
+  def({
     name: "add_section",
     description: "Add a new section (a column of the grid) with a name. Use sections to organize: one per project, team or flow.",
     schema: z.object({ name: z.string(), request_id: z.string().optional() }),
@@ -194,8 +241,8 @@ export const TOOLS: BoardTool[] = [
     run: (ctx, { section, title, markdown }) => {
       const note = editBoard(ctx.boardId, "agent", (doc) => {
         const sec = sectionOrCreate(doc, section);
-        const n: NoteDoc = { id: uid("note"), kind: "note", sectionId: sec.id, name: title, x: 0, y: 0, float: false, bornAt: Date.now(), w: 420, h: 300, text: markdown };
-        boardMaps(doc).objects.set(n.id, n);
+        const n: NoteDoc & { text: string } = { id: uid("note"), kind: "note", sectionId: sec.id, name: title, x: 0, y: 0, float: false, bornAt: Date.now(), w: 420, h: 300, text: markdown };
+        putNote(doc, n);
         return n;
       });
       touch(ctx, note.id, `wrote “${title}”`);
@@ -253,7 +300,10 @@ export const TOOLS: BoardTool[] = [
           next.sectionId = sec.id;
           next.float = false;
         }
-        if (markdown !== undefined && o.kind === "note") next.text = markdown;
+        if (markdown !== undefined && o.kind === "note") {
+          setNoteText(doc, id, markdown); // the smallest edit: someone typing in it keeps their words
+          delete next.text;
+        }
         if (add_ports && o.kind === "panel") next.ports = [...o.ports, ...add_ports.map((p) => ({ ...p, id: uid("port") }))];
         m.objects.set(id, next as never);
       });
@@ -271,6 +321,7 @@ export const TOOLS: BoardTool[] = [
       editBoard(ctx.boardId, "agent", (doc) => {
         const m = boardMaps(doc);
         m.objects.delete(id);
+        m.noteText.delete(id);
         for (const [lid, l] of m.links.entries()) if (l.from.panel === id || l.to.panel === id) m.links.delete(lid);
       });
       touch(ctx, undefined, `removed a card`);
@@ -406,7 +457,7 @@ export const TOOLS: BoardTool[] = [
   def({
     name: "vision_brief",
     description:
-      "Hand a design to Vision: writes a design brief card (goal, constraints, what to simulate, who reviews), opens Vision on the board, and asks the reviewers. Vision's own agent picks the brief up from the board.",
+      "Hand a design to Vision: writes a design brief card (goal, constraints, what to simulate, who reviews) and a hand-off card. A person presses Run on it to start a Supervised Vision Code thread on the brief; what the thread puts in its exports/ folder comes back to the board beside the brief, and the reviewers are asked then.",
     schema: z.object({
       title: z.string(),
       goal: z.string(),
@@ -417,19 +468,24 @@ export const TOOLS: BoardTool[] = [
     }),
     write: true,
     run: (ctx, i) => {
-      const md = `## ${i.title}\n\n**Goal** ${i.goal}\n\n${i.constraints ? `**Constraints** ${i.constraints}\n\n` : ""}${i.simulate ? `**Simulate** ${i.simulate}\n\n` : ""}**Reviewers** ${i.reviewers.join(", ") || "—"}\n\n_Brief written by ${ctx.actor} for Vision. Status: waiting for Vision._`;
+      const md = `## ${i.title}\n\n**Goal** ${i.goal}\n\n${i.constraints ? `**Constraints** ${i.constraints}\n\n` : ""}${i.simulate ? `**Simulate** ${i.simulate}\n\n` : ""}**Reviewers** ${i.reviewers.join(", ") || "—"}\n\n*Brief written by ${ctx.actor} for Vision.*`;
       const noteId = editBoard(ctx.boardId, "agent", (doc) => {
         const sec = sectionOrCreate(doc, i.section);
-        const n: NoteDoc = { id: uid("note"), kind: "note", sectionId: sec.id, name: `Brief · ${i.title}`, x: 0, y: 0, float: false, bornAt: Date.now(), w: 440, h: 320, text: md };
-        boardMaps(doc).objects.set(n.id, n);
+        const n: NoteDoc & { text: string } = { id: uid("note"), kind: "note", sectionId: sec.id, name: `Brief · ${i.title}`, x: 0, y: 0, float: false, bornAt: Date.now(), w: 440, h: 320, text: md };
+        putNote(doc, n);
         return n.id;
       });
-      const visionUrl = process.env.VISION_URL || "http://localhost:1420";
-      const already = [...boardMaps(getBoard(ctx.boardId).doc).objects.values()].find((o) => o.kind === "panel" && o.connector === "vision");
-      const vision = already ?? addPanel(ctx, { section: i.section, panel: "app", name: "Vision", url: visionUrl, connector: "vision", text: "Design, simulate and test — Pacific Futures Studio", ports: [{ name: "brief", dir: "in", type: "json" }, { name: "design", dir: "out", type: "cad" }] });
-      for (const r of i.reviewers) createAsk(ctx, { assignee: r, prompt: `Review the Vision brief “${i.title}”`, kind: "review", section: i.section });
+      // the hand-off waits on its card for a person to press Run (a thread runs a model on their plan)
+      const job = queueJob(ctx, "vision", i.title, md);
+      const card = addPanel(ctx, { section: i.section, panel: "agent", name: `Vision Code · ${i.title}`, text: "Press Run to start a Supervised Vision Code thread on this brief. What it makes comes back here, and the reviewers are asked then.", status: "idle" });
+      const sectionId = editBoard(ctx.boardId, "agent", (doc) => {
+        const cur = getPanel(doc, card.id);
+        boardMaps(doc).objects.set(card.id, { ...cur, sessionId: job.id });
+        return cur.sectionId;
+      });
+      queueHandoff({ jobId: job.id, boardId: ctx.boardId, sectionId, briefNote: noteId, title: i.title, brief: md, reviewers: i.reviewers, by: ctx.userId });
       touch(ctx, noteId, `briefed Vision: ${i.title}`);
-      return { brief: noteId, vision: vision.id };
+      return { brief: noteId, handoff: card.id, note: "A person starts the Vision Code thread from the hand-off card (Run). Reviewers are asked when results come back." };
     },
   }),
   def({
@@ -533,7 +589,7 @@ export const TOOLS: BoardTool[] = [
   def({
     name: "stage_request",
     description:
-      "Run a stage's hand-off to people and studios: for CAD, Hermes asks the CAD owner for the STEP and delivers it to the stage when it lands; for Concept or Simulate, writes a Vision brief from the stage (with the chosen concept or the CAD and the analysis settings) and opens Vision; for Review, asks every reviewer.",
+      "Run a stage's hand-off to people and studios: for CAD, Hermes asks the CAD owner for the STEP and delivers it to the stage when it lands; for Concept or Simulate, writes a Vision brief from the stage (with the chosen concept or the CAD and the analysis settings) and a hand-off card a person presses Run on to start the Vision Code thread; for Review, asks every reviewer.",
     schema: z.object({ stage_panel: z.string(), who: z.string().optional().describe("override the person to ask") }),
     write: true,
     run: (ctx, { stage_panel, who }) => {
@@ -568,13 +624,21 @@ export const TOOLS: BoardTool[] = [
             ? `## Concepts for ${product}\n\n**Brief** ${brief?.text ?? ""}\n\nExplore at least two directions in Vision; drop renders on the Concept stage and star the one to take forward.`
             : `## Simulate ${product}\n\n**Model** ${cadArt ? `${cadArt.name}${cadArt.note ? ` — ${cadArt.note}` : ""}` : "(no CAD yet)"}\n\n**Analysis** ${settings || "set analysis and loads on the stage"}\n\nRun it in Vision and drop the results (plots, CSV, report) on the Simulate stage.`;
         const noteId = editBoard(ctx.boardId, "agent", (d) => {
-          const n: NoteDoc = { id: uid("note"), kind: "note", sectionId: p.sectionId, name: `Vision brief · ${def.title}`, x: BRIEF_X, y: p.y, float: true, bornAt: Date.now(), w: 420, h: 260, text: md };
-          boardMaps(d).objects.set(n.id, n);
+          const n: NoteDoc & { text: string } = { id: uid("note"), kind: "note", sectionId: p.sectionId, name: `Vision brief · ${def.title}`, x: BRIEF_X, y: p.y, float: true, bornAt: Date.now(), w: 420, h: 260, text: md };
+          putNote(d, n);
           return n.id;
         });
         if (p.status === "idle") editBoard(ctx.boardId, "agent", (d) => boardMaps(d).objects.set(p.id, { ...p, status: "open" }));
+        // a hand-off card under the brief: a person presses Run to start the Vision Code thread; what it makes lands in this section
+        const job = queueJob(ctx, "vision", `${def.title} · ${product}`, md);
+        const card = editBoard(ctx.boardId, "agent", (d) => {
+          const c: PanelDoc = { id: uid("pnl"), kind: "panel", panel: "agent", sectionId: p.sectionId, name: `Vision Code · ${def.title.toLowerCase()} of ${product}`, x: BRIEF_X, y: p.y + 280, float: true, bornAt: Date.now(), w: 420, h: 260, ports: [], status: "idle", sessionId: job.id, text: "Press Run to start a Supervised Vision Code thread on this brief. What it makes comes back to this pipeline." };
+          boardMaps(d).objects.set(c.id, c);
+          return c.id;
+        });
+        queueHandoff({ jobId: job.id, boardId: ctx.boardId, sectionId: p.sectionId, briefNote: noteId, title: `${def.title} of ${product}`, brief: md, reviewers: [], by: ctx.userId });
         touch(ctx, p.id, `briefed Vision for ${def.title.toLowerCase()} of ${product}`);
-        return { brief: noteId, vision: process.env.VISION_URL || "http://localhost:1420" };
+        return { brief: noteId, handoff: card, note: "A person starts the Vision Code thread from the hand-off card (Run)." };
       }
       throw new Error(`${def.title} has no hand-off — complete it when it's done`);
     },
@@ -641,6 +705,10 @@ export async function runTool(ctx: ToolCtx, name: string, rawInput: unknown): Pr
   if (!tool) throw new Error(`unknown tool ${name}`);
   const parsed = tool.schema.safeParse(rawInput ?? {});
   if (!parsed.success) throw new Error(`invalid input for ${name}: ${parsed.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; ")}`);
+  // viewers read: every other tool is a write (or acts for the board) and is refused
+  if (!READ_TOOLS.has(name) && !canWrite(ctx.userId, ctx.boardId)) {
+    throw new HttpError(403, `View only: this person can read the board “${ctx.boardId}” but not change it, so ${name} can't run. Say what you would change instead.`);
+  }
   const rid = (parsed.data as { request_id?: string }).request_id;
   const key = rid ? `${ctx.boardId}:${ctx.userId}:${rid}` : null;
   if (key && seenRequests.has(key)) return seenRequests.get(key);

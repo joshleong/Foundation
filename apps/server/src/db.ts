@@ -95,6 +95,32 @@ create table if not exists asks (
   resolved_file_id text
 );
 
+create table if not exists vision_handoffs (
+  id text primary key,
+  board_id text not null,
+  section_id text,
+  brief_note text,
+  title text not null,
+  folder text not null,
+  thread_id text,
+  thread_url text,
+  reviewers_json text not null default '[]',
+  seen_json text not null default '[]',
+  reviewed integer not null default 0,
+  status text not null,
+  created_by text not null,
+  created_at integer not null
+);
+
+create table if not exists board_roles (
+  board_id text not null,
+  user_id text not null references users(id) on delete cascade,
+  role text not null,
+  set_by text,
+  set_at integer not null,
+  primary key (board_id, user_id)
+);
+
 create table if not exists agent_runs (
   id text primary key,
   board_id text not null,
@@ -172,7 +198,10 @@ const FTS_SQL = `create virtual table search_fts using fts5(
 for (const sql of [
   "alter table asks add column stage_panel_id text",
   "alter table users add column flowform_user_id text",
-  "create unique index if not exists users_flowform_id on users(flowform_user_id) where flowform_user_id is not null",
+  // agent sessions: each tab is its own conversation, resumable after a restart
+  "alter table agent_runs add column session_id text",
+  "alter table agent_runs add column claude_session text",
+  "create index if not exists agent_runs_session on agent_runs(session_id, created_at)",
 ]) {
   try {
     db.exec(sql);

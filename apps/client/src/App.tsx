@@ -6,7 +6,7 @@ import { Login } from "./login/Login";
 import { Shell } from "./shell/Shell";
 import { DesignPage } from "./design/DesignPage";
 import { Tip } from "./shell/Tip";
-import { me } from "./lib/api";
+import { rememberMe, whoAmI } from "./lib/api";
 import "./App.css";
 import "./shell/shell.css";
 import "./panels/live.css";
@@ -26,35 +26,50 @@ function useHashRoute() {
 /**
  * Sign-in gate → the shell. #/design is the living design language page;
  * #/design/sign-in shows the sign-in page even when signed in.
+ *
+ * The sign-in page stays over the shell until its dissolve has run, so
+ * signing in turns into the board rather than cutting to it. Back from
+ * flowform's Google sign-in in the browser (?arrive), it dissolves on arrival.
  */
 function App() {
   const [user, setUser] = useState<UserInfo | null | undefined>(undefined);
   const route = useHashRoute();
+  const [arrive] = useState(() => new URLSearchParams(window.location.search).has("arrive"));
+  /** the sign-in page is still dissolving over the shell */
+  const [veil, setVeil] = useState(arrive);
 
   useEffect(() => {
-    me()
-      .then((r) => setUser(r.user))
-      .catch(() => setUser(null));
-  }, []);
+    void whoAmI().then((r) => setUser(r.user));
+    if (arrive) window.history.replaceState(null, "", window.location.pathname + window.location.hash);
+  }, [arrive]);
 
+  const preview = route.startsWith("#/design/sign-in");
+  if (route.startsWith("#/design") && !preview) {
+    return (
+      <>
+        <DesignPage />
+        <Tip />
+      </>
+    );
+  }
+  if (user === undefined && !preview) return <div className="boot" />;
   return (
     <>
-      {route.startsWith("#/design/sign-in") ? (
+      {user && <Shell user={user} />}
+      {(preview || !user || veil) && (
         <Login
+          arriving={veil && arrive && !!user}
           onSignedIn={(u) => {
-            // signing in from the preview goes in
+            rememberMe(u);
             setUser(u);
-            window.location.hash = "";
+            setVeil(true);
+          }}
+          onGone={() => {
+            setVeil(false);
+            // signing in from the preview goes in
+            if (preview) window.location.hash = "";
           }}
         />
-      ) : route.startsWith("#/design") ? (
-        <DesignPage />
-      ) : user === undefined ? (
-        <div className="boot" />
-      ) : !user ? (
-        <Login onSignedIn={setUser} />
-      ) : (
-        <Shell user={user} />
       )}
       <Tip />
     </>

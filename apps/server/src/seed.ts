@@ -4,7 +4,7 @@
  * after that it belongs to the people (and agents) who edit it.
  */
 
-import { boardMaps, DEFAULT_COL_W, DEFAULT_ROW_H, uid, type LinkDoc, type NoteDoc, type PanelDoc, type SectionDoc } from "@foundation/protocol";
+import { boardMaps, DEFAULT_COL_W, DEFAULT_ROW_H, putNote, uid, type LinkDoc, type NoteDoc, type PanelDoc, type SectionDoc } from "@foundation/protocol";
 import { editBoard, getBoard } from "./boards.ts";
 import { COMPANY_FLOWS, CONNECTORS } from "./connectors.ts";
 import { saveApp } from "./apps.ts";
@@ -71,7 +71,7 @@ export function seedCompanyBoard() {
       maps.links.set(l.id, l);
     }
 
-    const welcome: NoteDoc = {
+    const welcome: NoteDoc & { text: string } = {
       id: uid("note"),
       kind: "note",
       sectionId: hermes.id,
@@ -85,9 +85,9 @@ export function seedCompanyBoard() {
       text:
         "## Foundation\n\nThe company's shared grid. Everyone here, every app we run, and the agents that work with us.\n\n- **⌘K** searches everything — cards, files, CAD, Slack, GitHub\n- **⌘J** talks to the agent (or hold **Space** to speak)\n- **Drop files** anywhere — designs, CAD, PDFs, video\n- **⌘L** opens a link or an app as a live panel\n- **P** presents the board\n- **A** shows the agent layer: who is working on what, and how apps are wired",
     };
-    maps.objects.set(welcome.id, welcome);
+    putNote(doc, welcome);
 
-    const brief: NoteDoc = {
+    const brief: NoteDoc & { text: string } = {
       id: uid("note"),
       kind: "note",
       sectionId: design.id,
@@ -101,7 +101,7 @@ export function seedCompanyBoard() {
       text:
         "## Vision ↔ Foundation\n\nAsk the agent for a design and it writes a **brief** here, opens **Vision**, and asks reviewers through **Hermes**. CAD that comes back lands on the brief's ask card and flows to BomForm.",
     };
-    maps.objects.set(brief.id, brief);
+    putNote(doc, brief);
   });
 
   for (const a of [

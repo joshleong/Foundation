@@ -10,6 +10,8 @@
  * once engaged (click), so panning the grid over them stays smooth.
  */
 
+import { CadPreview } from "../cad/CadPreview";
+import { MODEL_EXT } from "../cad/model";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { MINI_HEADER, emitPort, getState, inputValue, movePanel, removePanel, resizePanel, sectionBodyRect, updatePanel, type PanelMeta } from "../state/store";
 import { ObjectFrame } from "../components/ObjectFrame";
@@ -340,6 +342,11 @@ function FilePreview({ panel }: { panel: PanelMeta }) {
   const [text, setText] = useState<string | null>(null);
   const host = useRef<HTMLDivElement>(null);
   const live = useOnScreen(host, 0.2);
+  // once shown, a 3D preview stays (it's a still; no reason to read the file again)
+  const [seenLive, setSeenLive] = useState(false);
+  useEffect(() => {
+    if (live) setSeenLive(true);
+  }, [live]);
 
   useEffect(() => {
     if (!live || text !== null || !url) return;
@@ -357,17 +364,15 @@ function FilePreview({ panel }: { panel: PanelMeta }) {
     }
   }, [live, url, name, mime, text, panel.fileId]);
 
-  if (panel.status === "running") {
-    return (
-      <div className="file-uploading">
-        <div className="upload-bar" style={{ ["--p" as string]: String(Number(panel.text ?? 0)) }} />
-        <span>Uploading {name}…</span>
-      </div>
-    );
-  }
+  // the observed element stays the same through the upload, so the preview starts when it lands
   return (
     <div ref={host} className="file-preview">
-      {mime.startsWith("image/") ? (
+      {panel.status === "running" ? (
+        <div className="file-uploading">
+          <div className="upload-bar" style={{ ["--p" as string]: String(Number(panel.text ?? 0)) }} />
+          <span>Uploading {name}…</span>
+        </div>
+      ) : mime.startsWith("image/") ? (
         <img src={url} alt={name} loading="lazy" decoding="async" />
       ) : mime.startsWith("video/") ? (
         <video src={url} muted loop playsInline controls preload="metadata" />
@@ -375,11 +380,18 @@ function FilePreview({ panel }: { panel: PanelMeta }) {
         live ? <iframe src={url} title={name} /> : <div className="file-card-glyph">PDF</div>
       ) : CAD.test(name) ? (
         <div className="cad-card">
-          <div className="cad-glyph">
-            <CubeGlyph />
-          </div>
-          <div className="cad-ext">{name.split(".").pop()?.toUpperCase()}</div>
-          {text && <div className="cad-header">{text.slice(0, 220)}</div>}
+          {MODEL_EXT.test(name) && url && (live || seenLive) ? (
+            // the part itself (OpenCascade for STEP/IGES, as Vision reads it)
+            <CadPreview url={url} name={name} />
+          ) : (
+            <>
+              <div className="cad-glyph">
+                <CubeGlyph />
+              </div>
+              <div className="cad-ext">{name.split(".").pop()?.toUpperCase()}</div>
+              {text && <div className="cad-header">{text.slice(0, 220)}</div>}
+            </>
+          )}
           <div className="cad-actions">
             <a className="f-pill" href={url} download={name}>
               Download
@@ -578,7 +590,7 @@ function AgentBody({ panel }: { panel: PanelMeta }) {
   }, [panel.sessionId, panel.status]);
   const run = () =>
     api(`/api/jobs/${panel.sessionId}/run`, { method: "POST" })
-      .then(() => toast("Started", "agent"))
+      .then(() => toast("Starting…", "agent"))
       .catch((e) => toast((e as Error).message, "bad"));
   return (
     <div className="agent-body">
@@ -591,7 +603,17 @@ function AgentBody({ panel }: { panel: PanelMeta }) {
           </button>
         )}
       </div>
-      <pre className="agent-output">{panel.status === "running" ? output.slice(-4000) || "…" : panel.text}</pre>
+      {/^https?:\/\/\S+$/.test(output.trim()) ? (
+        // a hand-off: the job's output is where the work is happening
+        <div className="agent-handoff">
+          <p>{panel.text}</p>
+          <a className="f-pill is-agent" href={output.trim()} target="_blank" rel="noopener">
+            Open in Vision Code ↗
+          </a>
+        </div>
+      ) : (
+        <pre className="agent-output">{panel.status === "running" ? output.slice(-4000) || "…" : panel.text}</pre>
+      )}
     </div>
   );
 }

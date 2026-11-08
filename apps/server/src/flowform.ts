@@ -31,7 +31,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { ServerResponse } from "node:http";
 import type { UserInfo } from "@foundation/protocol";
 import { config } from "./config.ts";
-import { one, run } from "./db.ts";
+import { all, db, one, run } from "./db.ts";
 import { createSession, setSessionCookie, upsertUser } from "./auth.ts";
 import { HttpError, parseCookies, type Req } from "./http.ts";
 
@@ -48,6 +48,8 @@ interface Attempt {
   /** where to land afterwards (web) */
   returnTo: string;
   createdAt: number;
+  /** flowform has come back once; a second /done is a replay */
+  used?: boolean;
   /** desktop: set once /done verified the person */
   result?: { userId: string } | { error: string };
 }
@@ -146,26 +148,49 @@ async function revokeAtFlowform(token: string) {
   }
 }
 
-/** A flowform-verified person becomes (or stays) a Foundation user. */
+/**
+ * A flowform-verified person becomes (or stays) a Foundation user, keyed by
+ * their flowform account. flowform only mints a session after a verified
+ * Google sign-in, so the account is proven; its address may not be (flowform
+ * keeps the sign-up address, e.g. josh@normallab.co for a Google identity at
+ * josh@formindustries.co, and says so with email_verified: false). An
+ * unproven address may name a new Foundation user, never claim someone else's.
+ */
 export function admitFlowformUser(me: FlowformMe): UserInfo {
-  if (!me.email) throw new HttpError(403, "Flowform didn't say who signed in");
-  // flowform's Google callback already refuses unverified Google emails, so a
-  // server too old to send email_verified still vouches for the sign-in. An
-  // explicit false means the account's address isn't the one Google verified.
-  if (me.email_verified === false) {
-    throw new HttpError(403, `Flowform's address for this account (${me.email}) isn't the one Google verified for it`);
-  }
+  if (!me.email || !me.user_id) throw new HttpError(403, "Flowform didn't say who signed in");
   if (me.role === "viewer" && !config.flowformAdmitViewers) throw new HttpError(403, "This Flowform account is view-only");
-  // the flowform id wins over the email: a person the importer already linked
-  // (with their board memberships) stays that person if their address changed
   const linked = one<UserInfo>("select id, email, name, color, role from users where flowform_user_id = ?", me.user_id);
-  const user = linked ?? upsertUser(me.email, me.display_name);
-  if (linked && me.display_name && me.display_name !== linked.name) run("update users set name = ? where id = ?", me.display_name, linked.id);
-  run("update users set flowform_user_id = ? where id = ?", me.user_id, user.id);
+  let user: UserInfo;
+  if (linked) {
+    user = linked;
+    if (me.display_name && me.display_name !== linked.name) {
+      run("update users set name = ? where id = ?", me.display_name, linked.id);
+      user = { ...linked, name: me.display_name };
+    }
+  } else {
+    const holder = one<{ flowform_user_id: string | null }>("select flowform_user_id from users where email = ?", me.email.toLowerCase().trim());
+    if (holder?.flowform_user_id && holder.flowform_user_id !== me.user_id) {
+      throw new HttpError(403, `${me.email} belongs to another Flowform account in Foundation`);
+    }
+    // older flowform servers don't send email_verified; their callback still refused unverified Google emails
+    if (holder && me.email_verified === false) {
+      throw new HttpError(
+        403,
+        `Foundation already has ${me.email}, and Flowform can't confirm this Google sign-in owns that address. Sign in once with the dev login as ${me.email} and an admin can link it, or update your Flowform email.`,
+      );
+    }
+    user = upsertUser(me.email, me.display_name);
+    run("update users set flowform_user_id = ? where id = ?", me.user_id, user.id);
+    // a flowform viewer (let in by FLOWFORM_ADMIT_VIEWERS) starts as a viewer here too; an admin can open a board to them
+    if (!holder && me.role === "viewer" && user.role === "member") {
+      run("update users set role = 'viewer' where id = ?", user.id);
+      user = { ...user, role: "viewer" };
+    }
+  }
   // flowform's admins are Foundation's admins (as are FOUNDATION_ADMIN_EMAILS)
-  if (me.role === "admin" || me.is_admin) {
+  if ((me.role === "admin" || me.is_admin) && user.role !== "admin") {
     run("update users set role = 'admin' where id = ?", user.id);
-    user.role = "admin";
+    user = { ...user, role: "admin" };
   }
   return user;
 }
@@ -176,8 +201,10 @@ export async function done(req: Req, res: ServerResponse) {
   const nonce = req.params.nonce;
   const attempt = attempts.get(nonce);
   const token = req.query.get("session_token") ?? "";
-  if (!attempt) return page(res, 400, "Sign-in expired", "That sign-in took too long or was already used. Go back to Foundation and try again.");
-  attempts.delete(nonce);
+  if (!attempt || attempt.used) return page(res, 400, "Sign-in expired", "That sign-in took too long or was already used. Go back to Foundation and try again.");
+  // spent, but a desktop attempt stays put: the window keeps polling (pending) while flowform answers
+  attempt.used = true;
+  if (attempt.mode === "web") attempts.delete(nonce);
   if (attempt.mode === "web") {
     const presented = parseCookies(req.headers.cookie)[ATTEMPT_COOKIE] ?? "";
     // only the browser that started this sign-in may finish it
@@ -218,10 +245,8 @@ export async function done(req: Req, res: ServerResponse) {
 }
 
 function finishDesktop(attempt: Attempt, result: Attempt["result"]) {
-  if (attempt.mode !== "desktop") return;
-  // keep it (under its poll) until the window collects it
-  attempt.result = result;
-  attempts.set(attempt.nonce, attempt);
+  // kept under its poll until the window collects it
+  if (attempt.mode === "desktop") attempt.result = result;
 }
 
 /** desktop: the window asks whether the browser finished; on success it gets its session cookie */
@@ -250,4 +275,54 @@ h1{font-size:28px;letter-spacing:-.02em;margin:0 0 8px}p{opacity:.75;margin:0}</
 <body><main><h1>${esc(title)}</h1><p>${esc(body)}</p></main></body></html>`;
   res.writeHead(status, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer" });
   res.end(html);
+}
+
+/** every column that holds a Foundation user id (boards store names, not ids) */
+const USER_COLUMNS: Array<[table: string, column: string]> = [
+  ["sessions", "user_id"],
+  ["files", "uploaded_by"],
+  ["apps", "created_by"],
+  ["asks", "created_by"],
+  ["agent_runs", "created_by"],
+  ["jobs", "created_by"],
+  ["huddle_lines", "user_id"],
+];
+
+/**
+ * One person, two Foundation users (say a dev-login address and the address
+ * flowform signs them in with): fold `other` into `keep`. keep's email stays;
+ * its sessions, files, runs and asks now include other's, it takes other's
+ * flowform link (so Google via flowform signs in as keep), stays admin if
+ * either was, and other is removed. An admin's call, from the command line:
+ * `npm run link-accounts -- <keep email> <other email>`.
+ */
+export function linkAccounts(keepEmail: string, otherEmail: string) {
+  type U = { id: string; email: string; role: string; flowform_user_id: string | null };
+  const find = (e: string) => one<U>("select id, email, role, flowform_user_id from users where email = ?", e.toLowerCase().trim());
+  const keep = find(keepEmail);
+  const other = find(otherEmail);
+  if (!keep) throw new Error(`no Foundation user ${keepEmail}`);
+  if (!other) throw new Error(`no Foundation user ${otherEmail}`);
+  if (keep.id === other.id) throw new Error("that's the same user");
+  if (keep.flowform_user_id && other.flowform_user_id && keep.flowform_user_id !== other.flowform_user_id) {
+    throw new Error("both are linked to different Flowform accounts");
+  }
+  const tables = new Set(all<{ name: string }>("select name from sqlite_master where type = 'table'").map((t) => t.name));
+  const moved: Record<string, number> = {};
+  db.exec("begin");
+  try {
+    for (const [table, column] of USER_COLUMNS) {
+      if (!tables.has(table)) continue;
+      const n = Number(run(`update ${table} set ${column} = ? where ${column} = ?`, keep.id, other.id).changes);
+      if (n) moved[`${table}.${column}`] = n;
+    }
+    const ff = keep.flowform_user_id ?? other.flowform_user_id;
+    run("delete from users where id = ?", other.id); // frees the flowform link for keep
+    run("update users set flowform_user_id = ?, role = ? where id = ?", ff, keep.role === "admin" || other.role === "admin" ? "admin" : keep.role, keep.id);
+    db.exec("commit");
+  } catch (e) {
+    db.exec("rollback");
+    throw e;
+  }
+  return { kept: keep.email, removed: other.email, moved };
 }

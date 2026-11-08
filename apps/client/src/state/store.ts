@@ -382,6 +382,37 @@ export function objectWorldRect(obj: AnyObject) {
   };
 }
 
+/**
+ * The window a wire between two objects is seen through: when both sit in one
+ * section's scrolling body, that body — so a wire to a card scrolled out of
+ * view runs to the section's edge rather than across the grid. Otherwise none.
+ */
+export function wireClipRect(a: AnyObject, b: AnyObject) {
+  const sec = sharedSection(a, b);
+  return sec ? sectionBodyRect(getState().grid, sec) : null;
+}
+
+/** the section whose scrolling body holds both objects (neither a hosted app), if any */
+export function sharedSection(a: AnyObject, b: AnyObject) {
+  const sec = a.sectionId === b.sectionId ? getState().sections[a.sectionId] : undefined;
+  return sec && sec.host !== a.id && sec.host !== b.id ? sec : null;
+}
+
+/** Point an SVG wire group at its clip window (a `clipPath` with one rect inside the group), or let it run free. */
+export function applyWireClip(g: SVGGElement, clip: { x: number; y: number; w: number; h: number } | null) {
+  const path = g.querySelector("clipPath");
+  const rect = path?.querySelector("rect");
+  if (!clip || !path || !rect) {
+    g.removeAttribute("clip-path");
+    return;
+  }
+  rect.setAttribute("x", String(clip.x));
+  rect.setAttribute("y", String(clip.y));
+  rect.setAttribute("width", String(clip.w));
+  rect.setAttribute("height", String(clip.h));
+  g.setAttribute("clip-path", `url(#${path.id})`);
+}
+
 // ---------- store ----------
 
 const firstSectionId = uid("sec");
@@ -442,7 +473,7 @@ function emit() {
 }
 
 // dev: let the browser console (and headless checks) read the live model
-if (import.meta.env?.DEV && typeof window !== "undefined") (window as unknown as { __foundation: unknown }).__foundation = { getState: () => state, setState: (p: Partial<AppState>) => set(p) };
+if (import.meta.env?.DEV && typeof window !== "undefined") (window as unknown as { __foundation: unknown }).__foundation = { getState: () => state, setState: (p: Partial<AppState>) => set(p), workbook };
 
 export function getState(): AppState {
   return state;
@@ -451,6 +482,17 @@ export function getState(): AppState {
 export function subscribe(fn: () => void): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);
+}
+
+/**
+ * Changes only when cards or sections come or go (not on every drag frame):
+ * for views that look things up by id, like a session's steps.
+ */
+export function useObjectSetVersion(): string {
+  return useSyncExternalStore(subscribe, () => {
+    const st = getState();
+    return [st.panels, st.notes, st.tables, st.maps, st.media, st.sections].map((r) => Object.keys(r).length).join(",");
+  });
 }
 
 export function useAppState(): AppState {
@@ -746,6 +788,41 @@ function getObjectIn(
 }
 
 /** drop tracks that no section spans anymore, shifting spans down */
+/**
+ * A section left a rectangle of cells empty: grow neighbours into it rather
+ * than leave a void. On any side, the sections touching the hole that
+ * together cover that whole side (and stay within it) extend across; the side
+ * needing the fewest sections wins (one aligned neighbour is the tidiest).
+ * Mutates `sections`; returns false when no side lines up (the cells stay
+ * empty, each offering "+ Section").
+ */
+export function fillHole(sections: Record<string, Section>, hole: { c0: number; c1: number; r0: number; r1: number }): boolean {
+  const others = Object.values(sections);
+  type Side = { list: Section[]; grow: (o: Section) => Section };
+  const tiles = (list: Section[], lo: (o: Section) => number, hi: (o: Section) => number, from: number, to: number) => {
+    const sorted = [...list].sort((a, b) => lo(a) - lo(b));
+    let at = from;
+    for (const o of sorted) {
+      if (lo(o) !== at || hi(o) > to) return false;
+      at = hi(o) + 1;
+    }
+    return at === to + 1;
+  };
+  const sides: Side[] = [];
+  const above = others.filter((o) => o.r1 === hole.r0 - 1 && o.c0 >= hole.c0 && o.c1 <= hole.c1);
+  if (tiles(above, (o) => o.c0, (o) => o.c1, hole.c0, hole.c1)) sides.push({ list: above, grow: (o) => ({ ...o, r1: hole.r1 }) });
+  const left = others.filter((o) => o.c1 === hole.c0 - 1 && o.r0 >= hole.r0 && o.r1 <= hole.r1);
+  if (tiles(left, (o) => o.r0, (o) => o.r1, hole.r0, hole.r1)) sides.push({ list: left, grow: (o) => ({ ...o, c1: hole.c1 }) });
+  const below = others.filter((o) => o.r0 === hole.r1 + 1 && o.c0 >= hole.c0 && o.c1 <= hole.c1);
+  if (tiles(below, (o) => o.c0, (o) => o.c1, hole.c0, hole.c1)) sides.push({ list: below, grow: (o) => ({ ...o, r0: hole.r0 }) });
+  const right = others.filter((o) => o.c0 === hole.c1 + 1 && o.r0 >= hole.r0 && o.r1 <= hole.r1);
+  if (tiles(right, (o) => o.r0, (o) => o.r1, hole.r0, hole.r1)) sides.push({ list: right, grow: (o) => ({ ...o, c0: hole.c0 }) });
+  if (!sides.length) return false;
+  const best = sides.reduce((a, b) => (b.list.length < a.list.length ? b : a));
+  for (const o of best.list) sections[o.id] = best.grow(o);
+  return true;
+}
+
 function pruneEmptyTracks(grid: GridTracks, sections: Record<string, Section>) {
   const secList = () => Object.values(sections);
   for (let c = grid.cols.length - 1; c >= 0; c--) {
@@ -799,6 +876,11 @@ export function moveSectionTo(id: string, c: number, r: number) {
     sections[target.id] = { ...target, c0: s.c0, c1: s.c1, r0: s.r0, r1: s.r1 };
   } else {
     sections[id] = { ...s, c0: c, c1: c, r0: r, r1: r };
+    // where it was is a hole now: the neighbours that line up grow into it
+    const rest = { ...sections };
+    delete rest[id];
+    fillHole(rest, s);
+    Object.assign(sections, rest);
   }
   const grid: GridTracks = { cols: [...state.grid.cols], rows: [...state.grid.rows] };
   pruneEmptyTracks(grid, sections);
@@ -832,15 +914,7 @@ export function moveSectionToEdge(id: string, edge: BoardEdge) {
   const grid: GridTracks = { cols: [...state.grid.cols], rows: [...state.grid.rows] };
   const sections: Record<string, Section> = { ...state.sections };
   delete sections[id];
-  const others = Object.values(sections);
-  const above = others.find((o) => o.c0 === s.c0 && o.c1 === s.c1 && o.r1 === s.r0 - 1);
-  const below = others.find((o) => o.c0 === s.c0 && o.c1 === s.c1 && o.r0 === s.r1 + 1);
-  const left = others.find((o) => o.r0 === s.r0 && o.r1 === s.r1 && o.c1 === s.c0 - 1);
-  const right = others.find((o) => o.r0 === s.r0 && o.r1 === s.r1 && o.c0 === s.c1 + 1);
-  if (above) sections[above.id] = { ...above, r1: s.r1 };
-  else if (below) sections[below.id] = { ...below, r0: s.r0 };
-  else if (left) sections[left.id] = { ...left, c1: s.c1 };
-  else if (right) sections[right.id] = { ...right, c0: s.c0 };
+  fillHole(sections, s);
   const xo = trackOffsets(grid.cols);
   const yo = trackOffsets(grid.rows);
   // the new track takes the section's own size, within a normal track's
@@ -944,11 +1018,36 @@ export function setObjectFloat(id: string, float: boolean) {
   } as Partial<AppState>);
 }
 
+/** the section under a world point (null on empty paper or off the grid) */
+export function sectionAtWorld(x: number, y: number): Section | null {
+  const cell = cellAtWorld(x, y);
+  return cell ? sectionCovering(cell.c, cell.r) : null;
+}
+
+/**
+ * Put a card down where it was dropped: floating in its section, its top-left
+ * centred-ish under the pointer (search pane drags). Keeps it inside the body.
+ */
+export function placeAtWorld(id: string, wx: number, wy: number) {
+  const found = findObject(id);
+  if (!found) return;
+  const sec = state.sections[found.obj.sectionId];
+  if (!sec || sec.host === id) return; // an app that became its section's app fills it
+  const card = sectionCardRect(state.grid, sec);
+  const scroll = getLiveScroll(sec.id);
+  const { w } = objectPixelSize(found.obj);
+  const x = Math.max(0, wx - card.x - 1 - CONTENT_PAD + scroll.x - Math.min(w / 2, 120));
+  const y = Math.max(0, wy - card.y - 1 - SECTION_HEADER - CONTENT_PAD + scroll.y - 16);
+  set({
+    [found.key]: { ...(state[found.key] as Record<string, AnyObject>), [id]: { ...found.obj, float: true, x, y } },
+  } as Partial<AppState>);
+}
+
 // ---------- note actions ----------
 
 let noteCount = 0;
 
-export function addNote(sectionId: string, text?: string): NoteMeta {
+export function addNote(sectionId: string, text?: string, opts: { focus?: boolean } = {}): NoteMeta {
   noteCount++;
   const meta: NoteMeta = {
     id: uid("note"),
@@ -965,7 +1064,7 @@ export function addNote(sectionId: string, text?: string): NoteMeta {
   set({
     notes: { ...state.notes, [meta.id]: meta },
     activeSectionId: sectionId,
-    snapRequest: { kind: "object", id: meta.id, nonce: Math.random() },
+    ...(opts.focus === false ? {} : { snapRequest: { kind: "object" as const, id: meta.id, nonce: Math.random() } }),
   });
   return meta;
 }
@@ -1008,6 +1107,7 @@ export function addMedia(
   name: string,
   w: number,
   h: number,
+  opts: { focus?: boolean } = {},
 ): MediaMeta {
   // fit oversized media to a sane card size, keep aspect
   const maxW = 560;
@@ -1031,7 +1131,7 @@ export function addMedia(
   set({
     media: { ...state.media, [meta.id]: meta },
     activeSectionId: sectionId,
-    snapRequest: { kind: "object", id: meta.id, nonce: Math.random() },
+    ...(opts.focus === false ? {} : { snapRequest: { kind: "object" as const, id: meta.id, nonce: Math.random() } }),
   });
   return meta;
 }

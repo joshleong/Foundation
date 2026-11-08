@@ -7,7 +7,7 @@ Every session:
 2. `npm install && npm test && npm run typecheck`. A red build is the session.
 3. Take the top item of the current SPEC §8 phase, or a §7 issue that's worse.
 4. UI: on tokens only (`packages/ui/src/tokens.css`), shown on `#/design` first, checked in day and night.
-5. Verify in the browser (`npm run dev`, http://localhost:1430; `?rafshim` for hidden/headless panes) and capture evidence in `docs/evidence/<date>_<slice>/`.
+5. Verify in the browser (`npm run dev`, http://localhost:1430; `?rafshim` for hidden/headless panes) and capture evidence in `docs/evidence/<date>_<slice>/`. `npm run e2e -w @foundation/client` runs the real-browser checks (two people, sections moved and split, voice, layouts, the perf trace) on its own server and data.
 6. Update SPEC §3 status and §7 honestly. Commit with what changed and how it was checked.
 
-Invariants (tested in `apps/server/test`): one board schema (`packages/protocol`); writes name their board; `request_id` idempotency; deletes need `confirm`; uploaded files are archived, never deleted; session tokens are stored hashed and never travel in URLs; nothing that spends money or runs third-party code starts without a person.
+Invariants (tested in `apps/server/test`): one board schema (`packages/protocol`); writes name their board; `request_id` idempotency; deletes need `confirm`; uploaded files are archived, never deleted; session tokens are stored hashed and never travel in URLs; nothing that spends money or runs third-party code starts without a person; viewers can't write a board (socket, tools or HTTP).
