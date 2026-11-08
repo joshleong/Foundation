@@ -358,7 +358,7 @@ interface Integrations {
   github: boolean | "cli";
   google: boolean;
   anthropicApi: boolean;
-  agent: { subscription: boolean; api: boolean; model: string };
+  agent: { subscription: boolean; subscriptionNote?: string | null; api: boolean; model: string };
 }
 
 function ServicesTab() {
@@ -369,7 +369,7 @@ function ServicesTab() {
   }, []);
   const rows: Array<{ name: string; on: boolean | null; detail: string; how: string }> = s
     ? [
-        { name: "Agent · subscription", on: s.agent.subscription, detail: s.agent.subscription ? "Claude Code is installed here" : "Claude Code isn't on this computer's PATH", how: "Install Claude Code and sign in (`claude`). A sign-in that has expired shows up when an agent runs." },
+        { name: "Agent · subscription", on: s.agent.subscription, detail: s.agent.subscription ? "Claude Code is installed here" : (s.agent.subscriptionNote ?? "Claude Code isn't on this computer's PATH"), how: "Install Claude Code and sign in (`claude`). A sign-in that has expired shows up when an agent runs." },
         { name: "Agent · API", on: s.agent.api, detail: s.agent.api ? `On credits, ${s.agent.model}` : "No API key", how: "Set ANTHROPIC_API_KEY." },
         { name: "Slack", on: s.slack, detail: s.slack ? "Bot token set" : "Not connected", how: "Create the app from docs/slack-app-manifest.yml and set SLACK_BOT_TOKEN." },
         { name: "GitHub", on: s.github === true || s.github === "cli", detail: s.github === "cli" ? "Through the gh login" : s.github ? "Token set" : "No token", how: "Set GITHUB_TOKEN, or sign in with gh." },

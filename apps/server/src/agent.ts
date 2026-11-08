@@ -32,6 +32,7 @@ import { logActivity } from "@foundation/protocol";
 import { joinCrew, leaveCrew, setDoing, type CrewMember } from "./crew.ts";
 import { setHelperStarter } from "./tools.ts";
 import { runScript } from "./script.ts";
+import { claudeCommand, here, type Runtime } from "./rea.ts";
 
 const SYSTEM = `You are the Foundation agent — the company brain of Form Industries, living inside Foundation, a shared grid where the team keeps its projects, files, designs, running apps and agents together.
 
@@ -58,21 +59,43 @@ You are one of the crew: people see you on the board as a named cursor (your nam
 const histories = new Map<string, Anthropic.MessageParam[]>();
 const claudeSessions = new Map<string, string>();
 
-let cliAvailable: boolean | null = null;
-export function claudeCliAvailable(): boolean {
-  if (cliAvailable !== null) return cliAvailable;
+export type ClaudeStart = { ok: true; cmd: string; pre: string[] } | { ok: false; reason: string };
+
+/**
+ * How to start Claude Code, and whether it answers `--version`. No shell: on
+ * Windows an npm `claude.cmd` runs the cli.js it wraps under this Node and
+ * claude.exe runs as is (rea.ts); macOS and Linux run the CLI as configured.
+ */
+export function resolveClaude(cli: string, rt: Runtime, exec: (cmd: string, args: string[]) => void): ClaudeStart {
+  const c = claudeCommand(cli, rt);
+  if (!c.ok) return c;
   try {
-    execFileSync(config.claudeCli, ["--version"], { stdio: "ignore", timeout: 5000 });
-    cliAvailable = true;
-  } catch {
-    cliAvailable = false;
+    exec(c.cmd, [...c.pre, "--version"]);
+    return c;
+  } catch (e) {
+    const err = e as NodeJS.ErrnoException;
+    if (err.code === "ENOENT") return { ok: false, reason: `Claude Code (${cli}) isn't on this computer's PATH. Install it, or set FOUNDATION_CLAUDE_CLI to where it is, then start Foundation's server again.` };
+    return { ok: false, reason: `Claude Code (${[c.cmd, ...c.pre].join(" ")}) didn't answer --version: ${err.message.split("\n")[0]}` };
   }
-  return cliAvailable;
+}
+
+let claude: ClaudeStart | null = null;
+/** Claude Code on this computer, checked once */
+export function claudeStart(): ClaudeStart {
+  claude ??= resolveClaude(config.claudeCli, here(), (cmd, args) => execFileSync(cmd, args, { stdio: "ignore", timeout: 5000, windowsHide: true }));
+  return claude;
+}
+
+export function claudeCliAvailable(): boolean {
+  return claudeStart().ok;
 }
 
 export function runtimes() {
+  const c = claudeStart();
   return {
-    subscription: claudeCliAvailable(),
+    subscription: c.ok,
+    /** why the subscription runtime is off, when Claude Code was found wanting */
+    subscriptionNote: c.ok ? null : c.reason,
     api: Boolean(config.anthropic.apiKey),
     model: config.anthropic.model,
   };
@@ -102,9 +125,13 @@ export async function runAgent(opts: {
 }) {
   const runtime = pickRuntime(opts.runtime);
   if (!runtime) {
+    const c = claudeStart();
     opts.emit({
       type: "error",
-      message: "No agent runtime: install Claude Code (`claude`) to use your subscription, or set ANTHROPIC_API_KEY to use API credits.",
+      message:
+        opts.runtime === "subscription" && !c.ok
+          ? `The subscription runtime can't start: ${c.reason}`
+          : `No agent runtime: install Claude Code (\`claude\`) to use your subscription, or set ANTHROPIC_API_KEY to use API credits.${c.ok ? "" : `\n${c.reason}`}`,
     });
     return;
   }
@@ -346,6 +373,8 @@ async function runApi(opts: Parameters<typeof runAgent>[0], emit: (e: AgentEvent
 // ---------- subscription runtime (Claude Code, T3-style session) ----------
 
 async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: AgentEvent) => void, runId: string) {
+  const c = claudeStart();
+  if (!c.ok) throw new Error(`The subscription runtime can't start: ${c.reason}`);
   const key = convKey(opts);
   // a short-lived session for this person, so the agent's writes are theirs
   const token = createSession(opts.user.id, 2 * 3600_000);
@@ -387,7 +416,8 @@ async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: A
 
   emit({ type: "status", status: "thinking" });
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(config.claudeCli, argv, { cwd: config.dataDir, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+    // no shell: the prompt is one argument, whatever it holds
+    const child = spawn(c.cmd, [...c.pre, ...argv], { cwd: config.dataDir, env: process.env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     opts.signal.addEventListener("abort", () => child.kill("SIGTERM"));
     let buf = "";
     let err = "";

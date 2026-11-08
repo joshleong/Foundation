@@ -587,6 +587,6 @@ server.listen(config.port, config.host, () => {
   console.log(`\n  Foundation server  ${config.publicUrl}`);
   console.log(`  data               ${config.dataDir}`);
   console.log(`  sign-in            ${config.google.clientId ? "Google" : ""}${config.google.clientId && config.devLogin ? " + " : ""}${config.devLogin ? "dev login" : ""}`);
-  console.log(`  agent              ${rt.subscription ? "Claude Code (subscription)" : "—"}${rt.api ? ` · API (${rt.model})` : ""}`);
+  console.log(`  agent              ${rt.subscription ? "Claude Code (subscription)" : rt.subscriptionNote ? `— (${rt.subscriptionNote.split("\n")[0]})` : "—"}${rt.api ? ` · API (${rt.model})` : ""}`);
   console.log(`  MCP                ${config.publicUrl}/mcp?board=company\n`);
 });
