@@ -137,7 +137,7 @@
       "kind": "bug",
       "milestone": "apps",
       "area": "machines",
-      "status": "next",
+      "status": "doing",
       "body": "The page's frame isn't told the machine stopped. Show it as stopped (and reload when it starts again)."
     },
     {
@@ -146,7 +146,7 @@
       "kind": "bug",
       "milestone": "polish",
       "area": "floor",
-      "status": "next",
+      "status": "done",
       "body": "The floor only gives way on its own. Narrow the session instead when the pane is opened by hand."
     },
     {

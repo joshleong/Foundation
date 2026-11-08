@@ -108,6 +108,14 @@ export function setUi(patch: Partial<UiState>) {
     const f = floorInsets(ui);
     if (window.innerWidth - f.left - f.right < MIN_PAPER) ui.pane = false;
   }
+  // the side pane opened by hand beside a session: it stays (it was asked for); the session narrows to make room,
+  // then search closes, then the pane itself narrows, so the grid keeps its paper instead of a sliver
+  if (patch.pane === true && !before.pane && typeof window !== "undefined") {
+    const short = () => MIN_PAPER - (window.innerWidth - floorInsets(ui).left - floorInsets(ui).right);
+    if (short() > 0 && ui.tab) ui.sessionW = Math.max(WIDTHS.session.min, ui.sessionW - short());
+    if (short() > 0 && ui.search) ui.search = false;
+    if (short() > 0) ui.paneW = Math.max(WIDTHS.pane.min, ui.paneW - short());
+  }
   if ((["pane", "paneW", "tabs", "tab", "sessionW", "search", "searchW"] as const).some((k) => k in patch)) {
     try {
       const keep: Stored = { pane: ui.pane, paneW: ui.paneW, tabs: ui.tabs, tab: ui.tab, sessionW: ui.sessionW, search: ui.search, searchW: ui.searchW };
