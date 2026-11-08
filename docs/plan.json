@@ -92,7 +92,7 @@
       "kind": "plan",
       "milestone": "vision",
       "area": "vision",
-      "status": "next",
+      "status": "done",
       "body": "Vision moves to the next port when :3783 is taken, and records where it went in `<T3CODE_HOME>/userdata/server-runtime.json`. Default `T3_URL` from it instead of assuming :3783."
     },
     {
