@@ -23,6 +23,9 @@
  *    system browser and polls with a secret only it holds; the poll response
  *    sets the session cookie in the window.
  *
+ * Attempts in flight live in SQLite (`flowform_attempts`), hashed, for 10
+ * minutes and spent once, so a server restart mid-sign-in doesn't lose them.
+ *
  * flowform's loopback rule (http, 127.0.0.1 | localhost, a port, no fragment)
  * means this works wherever Foundation's server runs on the person's machine.
  */
@@ -37,37 +40,73 @@ import { HttpError, parseCookies, type Req } from "./http.ts";
 
 const ATTEMPT_TTL = 10 * 60_000; // flowform's own oauth_state lives 10 minutes
 const ATTEMPT_COOKIE = "foundation_ff_attempt";
+const STALLED_AFTER = 60_000; // /done asks flowform with a 10 s timeout; a minute without an answer means it never will
 
+/**
+ * A sign-in in flight. It lives in SQLite (`flowform_attempts`, db.ts), not in
+ * this module, so a server restart (tsx watch reloads on every save) in the
+ * middle of a sign-in doesn't lose it. Only hashes of its secrets are stored —
+ * each is only ever compared: the callback nonce (flowform and the browser
+ * see it), the web browser's binding cookie, the desktop window's poll secret.
+ */
 interface Attempt {
-  nonce: string;
+  nonce_hash: string;
   mode: "web" | "desktop";
   /** web: hash of the cookie the starting browser holds */
-  browserHash?: string;
+  browser_hash: string | null;
   /** desktop: hash of the poll secret only the window holds */
-  pollHash?: string;
+  poll_hash: string | null;
   /** where to land afterwards (web) */
-  returnTo: string;
-  createdAt: number;
+  return_to: string;
+  created_at: number;
+  expires_at: number;
   /** flowform has come back once; a second /done is a replay */
-  used?: boolean;
-  /** desktop: set once /done verified the person */
-  result?: { userId: string } | { error: string };
+  used_at: number | null;
+  /** desktop: set once /done verified the person (or refused them) */
+  result_user_id: string | null;
+  result_error: string | null;
 }
 
-const attempts = new Map<string, Attempt>();
-const byPoll = new Map<string, string>(); // pollHash → nonce
+/** the clock attempts expire by; tests move it */
+export const attemptClock = { now: () => Date.now() };
 
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
 const secret = () => randomBytes(32).toString("base64url");
 
 function sweep() {
-  const now = Date.now();
-  for (const [nonce, a] of attempts) {
-    if (now - a.createdAt > ATTEMPT_TTL) {
-      attempts.delete(nonce);
-      if (a.pollHash) byPoll.delete(a.pollHash);
-    }
-  }
+  run("delete from flowform_attempts where expires_at <= ?", attemptClock.now());
+}
+
+function saveAttempt(nonce: string, a: { mode: Attempt["mode"]; browserHash?: string; pollHash?: string; returnTo: string }) {
+  const now = attemptClock.now();
+  run(
+    "insert into flowform_attempts (nonce_hash, mode, browser_hash, poll_hash, return_to, created_at, expires_at) values (?, ?, ?, ?, ?, ?, ?)",
+    hash(nonce),
+    a.mode,
+    a.browserHash ?? null,
+    a.pollHash ?? null,
+    a.returnTo,
+    now,
+    now + ATTEMPT_TTL,
+  );
+}
+
+/**
+ * flowform came back: spend the attempt in one statement, so a replayed
+ * callback (or a second server on the same file) finds it already used. A web
+ * attempt is gone at once; a desktop attempt stays, used, so the window keeps
+ * polling (pending) while flowform answers.
+ */
+function consumeAttempt(nonce: string): Attempt | undefined {
+  const now = attemptClock.now();
+  const a = one<Attempt>(
+    "update flowform_attempts set used_at = ? where nonce_hash = ? and used_at is null and expires_at > ? returning *",
+    now,
+    hash(nonce),
+    now,
+  );
+  if (a?.mode === "web") run("delete from flowform_attempts where nonce_hash = ?", a.nonce_hash);
+  return a;
 }
 
 function sameHash(a: string, b: string) {
@@ -100,9 +139,10 @@ export function startWeb(req: Req, res: ServerResponse) {
   const nonce = secret();
   const browser = secret();
   const returnTo = safeReturn(req.query.get("return"));
-  attempts.set(nonce, { nonce, mode: "web", browserHash: hash(browser), returnTo, createdAt: Date.now() });
+  const location = flowformStartUrl(loopbackOrigin(req), nonce);
+  saveAttempt(nonce, { mode: "web", browserHash: hash(browser), returnTo });
   res.setHeader("set-cookie", `${ATTEMPT_COOKIE}=${browser}; Path=/auth/flowform; HttpOnly; SameSite=Lax; Max-Age=${ATTEMPT_TTL / 1000}`);
-  res.writeHead(302, { location: flowformStartUrl(loopbackOrigin(req), nonce), "cache-control": "no-store", "referrer-policy": "no-referrer" });
+  res.writeHead(302, { location, "cache-control": "no-store", "referrer-policy": "no-referrer" });
   res.end();
 }
 
@@ -111,10 +151,9 @@ export function beginDesktop(req: Req) {
   sweep();
   const nonce = secret();
   const poll = secret();
-  const pollHash = hash(poll);
-  attempts.set(nonce, { nonce, mode: "desktop", pollHash, returnTo: "/", createdAt: Date.now() });
-  byPoll.set(pollHash, nonce);
-  return { url: flowformStartUrl(loopbackOrigin(req), nonce), poll, expiresIn: ATTEMPT_TTL / 1000 };
+  const url = flowformStartUrl(loopbackOrigin(req), nonce);
+  saveAttempt(nonce, { mode: "desktop", pollHash: hash(poll), returnTo: "/" });
+  return { url, poll, expiresIn: ATTEMPT_TTL / 1000 };
 }
 
 function safeReturn(raw: string | null) {
@@ -198,17 +237,13 @@ export function admitFlowformUser(me: FlowformMe): UserInfo {
 /** flowform 303s here with ?session_token=… after Google */
 export async function done(req: Req, res: ServerResponse) {
   sweep();
-  const nonce = req.params.nonce;
-  const attempt = attempts.get(nonce);
+  const attempt = consumeAttempt(req.params.nonce ?? "");
   const token = req.query.get("session_token") ?? "";
-  if (!attempt || attempt.used) return page(res, 400, "Sign-in expired", "That sign-in took too long or was already used. Go back to Foundation and try again.");
-  // spent, but a desktop attempt stays put: the window keeps polling (pending) while flowform answers
-  attempt.used = true;
-  if (attempt.mode === "web") attempts.delete(nonce);
+  if (!attempt) return page(res, 400, "Sign-in expired", "That sign-in took too long or was already used. Go back to Foundation and try again.");
   if (attempt.mode === "web") {
     const presented = parseCookies(req.headers.cookie)[ATTEMPT_COOKIE] ?? "";
-    // only the browser that started this sign-in may finish it
-    if (!attempt.browserHash || !sameHash(hash(presented), attempt.browserHash)) {
+    // only the browser that started this sign-in may finish it (spent either way: no second try)
+    if (!attempt.browser_hash || !sameHash(hash(presented), attempt.browser_hash)) {
       return page(res, 400, "Sign-in didn't finish", "This sign-in was started in a different browser. Start again from Foundation.");
     }
   }
@@ -232,7 +267,7 @@ export async function done(req: Req, res: ServerResponse) {
     return page(res, 200, "You're signed in", "You can return to Foundation and close this tab.");
   }
   const headers: Record<string, string | string[]> = {
-    location: attempt.returnTo,
+    location: attempt.return_to,
     "cache-control": "no-store",
     "referrer-policy": "no-referrer",
   };
@@ -244,23 +279,43 @@ export async function done(req: Req, res: ServerResponse) {
   res.end();
 }
 
-function finishDesktop(attempt: Attempt, result: Attempt["result"]) {
+function finishDesktop(attempt: Attempt, result: { userId: string } | { error: string }) {
   // kept under its poll until the window collects it
-  if (attempt.mode === "desktop") attempt.result = result;
+  if (attempt.mode !== "desktop") return;
+  run(
+    "update flowform_attempts set result_user_id = ?, result_error = ? where nonce_hash = ?",
+    "userId" in result ? result.userId : null,
+    "error" in result ? result.error : null,
+    attempt.nonce_hash,
+  );
 }
 
 /** desktop: the window asks whether the browser finished; on success it gets its session cookie */
 export function poll(req: Req, res: ServerResponse) {
   sweep();
   const presented = (req.headers.authorization ?? "").replace(/^Bearer /, "");
-  const nonce = presented ? byPoll.get(hash(presented)) : undefined;
-  const attempt = nonce ? attempts.get(nonce) : undefined;
-  if (!attempt) throw new HttpError(404, "no such sign-in (expired?)");
-  if (!attempt.result) return { status: "pending" };
-  attempts.delete(attempt.nonce);
-  byPoll.delete(attempt.pollHash!);
-  if ("error" in attempt.result) return { status: "error", error: attempt.result.error };
-  const user = one<UserInfo>("select id, email, name, color, role from users where id = ?", attempt.result.userId);
+  if (!presented) throw new HttpError(404, "no such sign-in (expired?)");
+  const pollHash = hash(presented);
+  const now = attemptClock.now();
+  // a finished attempt is collected once: read and deleted in one statement
+  const finished = one<Pick<Attempt, "result_user_id" | "result_error">>(
+    `delete from flowform_attempts where poll_hash = ? and mode = 'desktop' and expires_at > ?
+       and (result_user_id is not null or result_error is not null) returning result_user_id, result_error`,
+    pollHash,
+    now,
+  );
+  if (!finished) {
+    const open = one<{ used_at: number | null }>("select used_at from flowform_attempts where poll_hash = ? and mode = 'desktop' and expires_at > ?", pollHash, now);
+    if (!open) throw new HttpError(404, "no such sign-in (expired?)");
+    // flowform came back but no answer was recorded: the server stopped while asking flowform (its calls time out in seconds)
+    if (open.used_at !== null && now - open.used_at > STALLED_AFTER) {
+      run("delete from flowform_attempts where poll_hash = ?", pollHash);
+      return { status: "error", error: "Sign-in was interrupted. Try again." };
+    }
+    return { status: "pending" };
+  }
+  if (!finished.result_user_id) return { status: "error", error: finished.result_error ?? "Sign-in didn't finish" };
+  const user = one<UserInfo>("select id, email, name, color, role from users where id = ?", finished.result_user_id);
   if (!user) throw new HttpError(500, "user vanished");
   setSessionCookie(res, createSession(user.id));
   return { status: "ok", user };

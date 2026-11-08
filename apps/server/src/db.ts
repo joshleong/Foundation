@@ -161,6 +161,24 @@ create table if not exists flowform_imports (
   primary key (kind, flowform_id)
 );
 
+-- Sign-ins in flight through flowform (flowform.ts): kept here, not in
+-- memory, so a server restart mid-sign-in doesn't make the person click
+-- again. Every secret is stored as its sha256 (only ever compared): the
+-- callback nonce, the web browser's binding cookie, the desktop poll secret.
+-- A row lives 10 minutes and is consumed once.
+create table if not exists flowform_attempts (
+  nonce_hash text primary key,
+  mode text not null check (mode in ('web', 'desktop')),
+  browser_hash text,
+  poll_hash text unique,
+  return_to text not null default '/',
+  created_at integer not null,
+  expires_at integer not null,
+  used_at integer,
+  result_user_id text,
+  result_error text
+);
+
 create table if not exists jobs (
   id text primary key,
   kind text not null,
