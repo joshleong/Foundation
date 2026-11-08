@@ -6,6 +6,16 @@ const host = process.env.TAURI_DEV_HOST;
 // @ts-expect-error process is a nodejs global
 const server = process.env.FOUNDATION_SERVER_URL ?? "http://127.0.0.1:4410";
 
+const proxy = {
+  "/api": { target: server, changeOrigin: false },
+  "/auth": { target: server, changeOrigin: false },
+  "/files": { target: server, changeOrigin: false },
+  "/mcp": { target: server, changeOrigin: false },
+  "/sync": { target: server.replace(/^http/, "ws"), ws: true, changeOrigin: false },
+  "/huddle": { target: server.replace(/^http/, "ws"), ws: true, changeOrigin: false },
+  "/machines": { target: server.replace(/^http/, "ws"), ws: true, changeOrigin: false },
+};
+
 // Foundation's client. 1430 (Vision's browser edition owns 1420). The server's
 // routes are proxied so the session cookie is same-origin in dev.
 export default defineConfig(async () => ({
@@ -17,14 +27,8 @@ export default defineConfig(async () => ({
     host: host || false,
     hmr: host ? { protocol: "ws", host, port: 1431 } : undefined,
     watch: { ignored: ["**/src-tauri/**"] },
-    proxy: {
-      "/api": { target: server, changeOrigin: false },
-      "/auth": { target: server, changeOrigin: false },
-      "/files": { target: server, changeOrigin: false },
-      "/mcp": { target: server, changeOrigin: false },
-      "/sync": { target: server.replace(/^http/, "ws"), ws: true, changeOrigin: false },
-      "/huddle": { target: server.replace(/^http/, "ws"), ws: true, changeOrigin: false },
-      "/machines": { target: server.replace(/^http/, "ws"), ws: true, changeOrigin: false },
-    },
+    proxy,
   },
+  // `vite preview` serves the production build the same way (e2e frames on the build: E2E_BUILD=1)
+  preview: { proxy },
 }));

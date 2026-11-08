@@ -756,7 +756,7 @@ export function activeBoard(): BoardSync | null {
   return current;
 }
 // dev: the live sync, for headless checks
-if (import.meta.env?.DEV && typeof window !== "undefined") (window as unknown as { __foundationBoard: () => BoardSync | null }).__foundationBoard = () => current;
+if ((import.meta.env?.DEV || import.meta.env?.VITE_E2E_HOOKS) && typeof window !== "undefined") (window as unknown as { __foundationBoard: () => BoardSync | null }).__foundationBoard = () => current;
 
 export function onBoardChange(fn: () => void) {
   boardListeners.add(fn);

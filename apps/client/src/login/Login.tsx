@@ -26,6 +26,7 @@ import { motion } from "motion/react";
 import type { UserInfo } from "@foundation/protocol";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { initAsciiWind2 } from "./asciiWind2";
+import { activeBoard } from "../sync/board";
 import { authConfig, devLogin, flowformBegin, flowformPoll, serverUrl } from "../lib/api";
 
 const inDesktop = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -63,6 +64,31 @@ function measureGrid(el: HTMLElement): Grid {
 }
 
 const ease = (k: number) => 1 - Math.pow(1 - k, 3);
+
+/** resolves once `ok()` holds, checked each frame (or after `cap` ms) */
+function until(ok: () => boolean, cap: number): Promise<void> {
+  return new Promise((done) => {
+    const start = performance.now();
+    const step = (t: number) => (ok() || t - start > cap ? done() : requestAnimationFrame(step));
+    requestAnimationFrame(step);
+  });
+}
+
+/** resolves once the page draws `run` frames in a row on time (or after `cap` ms, whatever happens) */
+function calm(run = 6, cap = 1500): Promise<void> {
+  return new Promise((done) => {
+    const start = performance.now();
+    let last = start;
+    let good = 0;
+    const step = (t: number) => {
+      good = t - last < 20 ? good + 1 : 0;
+      last = t;
+      if (good >= run || t - start > cap) done();
+      else requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
 
 export function Login({
   onSignedIn,
@@ -230,6 +256,11 @@ export function Login({
         });
         await new Promise((ok) => setTimeout(ok, 350));
       }
+      // the board mounts and syncs behind the page now; let that land first (the wind keeps turning), so
+      // the dissolve isn't dropping frames to it: 100–200 ms of work on a 200-card board, measured in
+      // e2e/frames.spec.ts. Offline, or a slow server: it goes after 2.5 s regardless.
+      await until(() => activeBoard()?.status === "live", 2500);
+      await calm();
       const o = origin ?? lastPress.current ?? (frame ? { x: frame.x + frame.width / 2, y: frame.y + frame.height / 2 } : { x: g.width / 2, y: g.height / 2 });
       const far =
         Math.max(...[[0, 0], [g.width, 0], [0, g.height], [g.width, g.height]].map(([x, y]) => Math.hypot(x - o.x, y - o.y))) + BAND;

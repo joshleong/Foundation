@@ -24,6 +24,10 @@ export interface AsciiWindHooks {
   shapes(list: Array<AsciiWindShape>): void;
   /** glyphs nearer than `radius` (less a ragged `band`) to (x, y) are gone; the front burns bright. radius 0 = off */
   dissolve(x: number, y: number, radius: number, band: number): void;
+  /** draw one frame now (the hooks above draw on the next display frame); for measuring */
+  drawNow(): void;
+  /** how it's pacing: 0 = every display frame, 1 = 30 fps, 2 = 15 fps; and why it last backed off */
+  state(): { backoff: number; suspended: boolean; settled: boolean; backoffs: Array<{ at: number; why: string; to: number }> };
 }
 
 export interface AsciiWindShape {

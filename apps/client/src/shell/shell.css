@@ -25,26 +25,28 @@ body {
 
 @property --floor-l {
   syntax: "<length>";
-  inherits: true;
+  inherits: false;
   initial-value: 0px;
 }
 @property --floor-t {
   syntax: "<length>";
-  inherits: true;
+  inherits: false;
   initial-value: 0px;
 }
 @property --floor-r {
   syntax: "<length>";
-  inherits: true;
+  inherits: false;
   initial-value: 0px;
 }
-.grid-viewport {
+/* not inherited, and set and transitioned on .world-mask only: an inherited custom property animating on
+   .grid-viewport restyled every card on the board on each frame of a pane opening (e2e/frames.spec.ts) */
+.world-mask {
   transition:
     --floor-l 0.42s var(--ease-move),
     --floor-t 0.42s var(--ease-move),
     --floor-r 0.42s var(--ease-move);
 }
-body.is-resizing-floor .grid-viewport {
+body.is-resizing-floor .world-mask {
   transition: none;
 }
 body.is-resizing-floor {

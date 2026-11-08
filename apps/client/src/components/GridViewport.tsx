@@ -759,10 +759,11 @@ export function GridViewport() {
       onPointerLeave={onPointerLeave}
       onWheel={onWheel}
       onDoubleClickCapture={onDoubleClickCapture}
-      style={{ "--floor-l": `${insets.left}px`, "--floor-t": `${insets.top}px`, "--floor-r": `${insets.right}px` } as CSSProperties}
     >
-      {/* the cards live above the paper but under the floor: masked out where the floor is */}
-      <div className="world-mask">
+      {/* the cards live above the paper but under the floor: masked out where the floor is.
+          The floor's edges are set (and transition) on the mask alone: on the viewport, every card under
+          it restyled on each frame of a pane opening */}
+      <div className="world-mask" style={{ "--floor-l": `${insets.left}px`, "--floor-t": `${insets.top}px`, "--floor-r": `${insets.right}px` } as CSSProperties}>
       <div ref={worldRef} className={"world" + (state.expandedSection && state.sections[state.expandedSection] ? " has-expanded" : "")}>
         {/* ----- grid chrome: track lines + spreadsheet labels ----- */}
         <div className="grid-frame" style={{ width: size.w, height: size.h }} />

@@ -13,8 +13,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const data = mkdtempSync(join(tmpdir(), "foundation-e2e-"));
-/** :1450 by default; E2E_CLIENT_PORT moves it (Windows can reserve 1437–1536 at boot) */
-export const CLIENT = `http://localhost:${process.env.E2E_CLIENT_PORT ?? 1450}`;
+// Ports can move: Windows (Hyper-V/WSL) reserves blocks of the dynamic range at
+// boot, and on some machines that range starts at 1024 (SPEC §7).
+const SERVER_PORT = process.env.E2E_SERVER_PORT ?? "4430";
+const CLIENT_PORT = process.env.E2E_CLIENT_PORT ?? "1450";
+const SLACK_PORT = process.env.E2E_SLACK_PORT ?? "4440";
+process.env.E2E_CLIENT_PORT = CLIENT_PORT;
+export const CLIENT = `http://localhost:${CLIENT_PORT}`;
 
 export default defineConfig({
   testDir: ".",
@@ -28,14 +33,12 @@ export default defineConfig({
     deviceScaleFactor: 1,
     colorScheme: "dark",
     actionTimeout: 10_000,
-    // a machine whose Chromium isn't the one this Playwright downloads (a cloud box, CI) names its own
-    ...(process.env.PW_CHROMIUM ? { launchOptions: { executablePath: process.env.PW_CHROMIUM } } : {}),
   },
   webServer: [
     {
-      command: "node slack-standin.mjs 4440",
+      command: `node slack-standin.mjs ${SLACK_PORT}`,
       cwd: ".",
-      url: "http://127.0.0.1:4440/auth.test",
+      url: `http://127.0.0.1:${SLACK_PORT}/auth.test`,
       reuseExistingServer: false,
       timeout: 20_000,
       ignoreHTTPSErrors: true,
@@ -44,13 +47,13 @@ export default defineConfig({
       command: `npx tsx src/index.ts`,
       cwd: "../../server",
       env: {
-        FOUNDATION_PORT: "4430",
+        FOUNDATION_PORT: SERVER_PORT,
         FOUNDATION_DATA_DIR: data,
         FOUNDATION_CLIENT_URL: CLIENT,
         FOUNDATION_ADMIN_EMAILS: "admin@normal.dev",
         FOUNDATION_DEV_LOGIN: "1",
         // a stand-in Slack (e2e/slack-standin.mjs); no agent runtime, so a check never spends an agent turn
-        SLACK_API_BASE: "http://127.0.0.1:4440",
+        SLACK_API_BASE: `http://127.0.0.1:${SLACK_PORT}`,
         SLACK_USER_TOKEN: "xoxp-standin",
         SLACK_BOT_TOKEN: "xoxb-standin",
         FOUNDATION_CLAUDE_CLI: "/nonexistent/claude",
@@ -63,17 +66,20 @@ export default defineConfig({
         T3CODE_HOME: "/nonexistent/t3home",
         ANTHROPIC_API_KEY: "",
       },
-      url: "http://127.0.0.1:4430/api/me",
+      url: `http://127.0.0.1:${SERVER_PORT}/api/me`,
       reuseExistingServer: false,
       timeout: 60_000,
     },
     {
-      command: `npx vite --port ${process.env.E2E_CLIENT_PORT ?? 1450} --strictPort`,
+      // E2E_BUILD=1: the production build (what the packaged app ships), with the test page beside it
+      command: process.env.E2E_BUILD
+        ? `npx vite build && node -e "require('fs').cpSync('e2e/frame.html','dist/e2e/frame.html')" && npx vite preview --port ${CLIENT_PORT} --strictPort`
+        : `npx vite --port ${CLIENT_PORT} --strictPort`,
       cwd: "..",
-      env: { FOUNDATION_SERVER_URL: "http://127.0.0.1:4430" },
+      env: { FOUNDATION_SERVER_URL: `http://127.0.0.1:${SERVER_PORT}`, ...(process.env.E2E_BUILD ? { VITE_E2E_HOOKS: "1" } : {}) },
       url: CLIENT,
       reuseExistingServer: false,
-      timeout: 60_000,
+      timeout: process.env.E2E_BUILD ? 240_000 : 60_000,
     },
   ],
 });
