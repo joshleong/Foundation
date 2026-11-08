@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { workbook } from "../engine/workbook";
-import { applyWireClip, bindMap, getState, gridSize, objectWorldRect, useAppState, wireClipRect } from "../state/store";
+import { applyWireClip, bindMap, getState, gridSize, objectWorldRect, useAppState, wireBackstage, wireClipRect } from "../state/store";
 import { polyline, route, routeAvoiding, tunnelGeometry, type P } from "../shell/wireGeometry";
 import { cardRects, obstaclesFor } from "../shell/ports";
 import { allCrossings, publishRoutes, routesVersion, unpublishRoutes } from "../shell/routeRegistry";
@@ -263,6 +263,7 @@ export function WireLayer() {
 
   const size = gridSize(state.grid);
   if (edges.length === 0) return null;
+  const sectionOf = (id: string) => (state.tables[id] ?? state.maps[id])?.sectionId;
 
   return (
     <svg
@@ -276,7 +277,7 @@ export function WireLayer() {
       {edges.map((e) => (
         <g
           key={e.key}
-          className={`pipe wire-group ${e.kind}`}
+          className={`pipe wire-group ${e.kind}${wireBackstage(state, sectionOf(e.from), sectionOf(e.to)) ? " is-backstage" : ""}`}
           style={{ ["--wire-tone" as string]: e.kind === "map" ? "var(--color-pulse)" : "var(--color-wire-formula)" }}
           ref={(el) => {
             if (el) groupRefs.current.set(e.key, el);

@@ -1147,6 +1147,19 @@ body.is-presenting .empty-cell {
 .pipe {
   --pipe-opacity: 0.38;
 }
+/* both ends stepped back for an expanded section: the wire steps back with them.
+   An animation, not a transition: the router rewrites the group every frame,
+   which kept restarting a transition at 0 */
+.pipe.is-backstage {
+  opacity: 0.12;
+  pointer-events: none;
+  animation: pipe-backstage var(--dur-pane) var(--ease-out-soft);
+}
+@keyframes pipe-backstage {
+  from {
+    opacity: 1;
+  }
+}
 .port-layer.is-on .pipe,
 .pipe.is-hover,
 .pipe.is-selected {

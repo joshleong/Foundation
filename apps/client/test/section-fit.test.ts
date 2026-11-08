@@ -77,3 +77,15 @@ test("expanded: its own width, full size, and the section grows to hold it all; 
   assert.equal(sectionFlow("S").fit, MIN_FIT);
   assert.deepEqual(sectionCardRect(getState().grid, getState().sections.S), base);
 });
+
+test("an expanded section: wires between the sections that stepped back fade with them", async () => {
+  const { wireBackstage, getState: st } = await import("../src/state/store");
+  load(2);
+  const base = st();
+  assert.equal(wireBackstage(base, "A", "B"), false, "nothing is open");
+  const open = { ...base, expandedSection: "S" };
+  assert.equal(wireBackstage(open, "A", "B"), true, "neither end is in the open section");
+  assert.equal(wireBackstage(open, "S", "B"), false, "a wire out of the open section stays");
+  assert.equal(wireBackstage(open, "A", "S"), false, "a wire into it stays");
+  assert.equal(wireBackstage({ ...base, expandedSection: "gone" }, "A", "B"), false, "a section that no longer exists opens nothing");
+});

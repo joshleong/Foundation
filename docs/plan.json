@@ -209,7 +209,7 @@
       "kind": "bug",
       "milestone": "polish",
       "area": "sections",
-      "status": "doing",
+      "status": "done",
       "body": "Agents' cards no longer do this: since 2026-11-07 a card an agent adds to a hosted section makes the app a card in the flow beside it (`cardSection` in `tools.ts`). The client's own add paths (⌘K, the section toolbar, the empty-section actions) should do the same."
     },
     {
@@ -218,7 +218,7 @@
       "kind": "bug",
       "milestone": "polish",
       "area": "sections",
-      "status": "next",
+      "status": "done",
       "body": "The + buttons sit in the 40 px gaps between sections, so a double-click aimed at the gap adds a section. Make adding a single, deliberate press that a double-click can't trigger (SPEC §7)."
     },
     {
@@ -227,7 +227,7 @@
       "kind": "bug",
       "milestone": "polish",
       "area": "wires",
-      "status": "next",
+      "status": "done",
       "body": "When a section is expanded its neighbours fade to 12 %, but the wires between them draw at full strength. Dim them with their sections (SPEC §7)."
     },
     {

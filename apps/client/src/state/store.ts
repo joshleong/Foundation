@@ -463,6 +463,17 @@ export function hostOf(sectionId: string): PanelMeta | null {
   return p && p.sectionId === sectionId ? p : null;
 }
 
+/**
+ * A wire between two sections that both stepped back for an expanded one:
+ * it fades with them (DESIGN §5 Section body). A wire with an end in the open
+ * section stays, so you can see what it's connected to.
+ */
+export function wireBackstage(st: AppState, fromSection: string | undefined, toSection: string | undefined): boolean {
+  const open = st.expandedSection;
+  if (!open || !st.sections[open]) return false;
+  return fromSection !== open && toSection !== open;
+}
+
 export function isHosted(obj: AnyObject): boolean {
   return getState().sections[obj.sectionId]?.host === obj.id;
 }

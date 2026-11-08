@@ -14,7 +14,7 @@
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { LinkDoc } from "@foundation/protocol";
-import { addLink, applyWireClip, getState, gridSize, objectWorldRect, removeLink, subscribe, uid, updatePanel, useAppState, wireClipRect, type PanelMeta } from "../state/store";
+import { addLink, applyWireClip, getState, gridSize, objectWorldRect, removeLink, subscribe, uid, updatePanel, useAppState, wireBackstage, wireClipRect, type PanelMeta } from "../state/store";
 import { toast, useUi } from "../state/ui";
 import { useBoardTick } from "./Presence";
 import { toWorld, camera } from "../state/camera";
@@ -384,10 +384,11 @@ export function PortWires() {
         {links.map((l) => {
           const type = portType(l.from.panel, l.from.port);
           const live = state.panels[l.from.panel]?.outputs?.[l.from.port] !== undefined;
+          const backstage = wireBackstage(state, state.panels[l.from.panel]?.sectionId, state.panels[l.to.panel]?.sectionId);
           return (
             <g
               key={l.id}
-              className={`pipe${live ? " is-live" : ""}${selected === l.id ? " is-selected" : ""}${hover?.id === l.id ? " is-hover" : ""}`}
+              className={`pipe${live ? " is-live" : ""}${selected === l.id ? " is-selected" : ""}${hover?.id === l.id ? " is-hover" : ""}${backstage ? " is-backstage" : ""}`}
               style={{ ["--wire-tone" as string]: toneOf(type) }}
               ref={(el) => {
                 if (el) groups.current.set(l.id, el);
