@@ -117,7 +117,7 @@ body.is-presenting .world-mask {
   width: 1px;
   background: var(--color-line);
   opacity: 0;
-  transition: opacity var(--dur-quick) var(--ease-out-soft), background var(--dur-quick) var(--ease-out-soft);
+  transition: opacity var(--dur-quick) var(--ease-out-soft);
 }
 .floor-edge:hover .floor-edge-line,
 body.is-resizing-floor .floor-edge-line {
@@ -156,7 +156,6 @@ body.is-resizing-floor .floor-edge-line {
   color: var(--color-mist);
   font: 500 var(--text-14) / 1 var(--font-sans);
   cursor: pointer;
-  transition: background var(--dur-quick) var(--ease-out-soft), color var(--dur-quick) var(--ease-out-soft);
 }
 .top-btn:hover {
   background: var(--color-pulse-dim);
@@ -191,7 +190,6 @@ body.is-resizing-floor .floor-edge-line {
   align-items: center;
   border-radius: var(--radius-card);
   color: var(--color-mist);
-  transition: background var(--dur-quick) var(--ease-out-soft), color var(--dur-quick) var(--ease-out-soft);
 }
 button.tab,
 .tab-main {
@@ -1010,14 +1008,6 @@ body.is-dragging-hit * {
   font-size: var(--text-12);
 }
 
-.sync-dot {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--color-dim);
-  font-size: var(--text-11);
-}
-
 .presence-stack {
   display: flex;
   align-items: center;
@@ -1783,7 +1773,6 @@ body.is-connecting .port-in.is-snap {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  transition: background var(--dur-quick) var(--ease-out-soft);
 }
 .ask-body.is-over {
   background: var(--color-pulse-dim);
@@ -2104,10 +2093,6 @@ body.is-connecting .port-in.is-snap {
   color: var(--color-dim);
   font-size: var(--text-11);
 }
-.activity-empty {
-  color: var(--color-dim);
-  font-size: var(--text-12);
-}
 .toast {
   position: fixed;
   z-index: 120;
@@ -2354,7 +2339,7 @@ body.is-connecting .port-in.is-snap {
   overflow: hidden;
 }
 .login-fields .f-input {
-  box-shadow: inset 0 1px 2px rgb(32 30 25 / 0.06);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--color-frost) 6%, transparent);
 }
 .login-waiting {
   display: flex;
@@ -3020,19 +3005,6 @@ body.is-connecting .port-in.is-snap {
 .stage-done-note {
   color: var(--color-ok);
   font-size: var(--text-12);
-}
-.stage-waiting {
-  position: absolute;
-  left: 50%;
-  top: 52%;
-  translate: -50% -50%;
-  padding: 6px 12px;
-  border-radius: var(--radius-pill);
-  background: var(--color-raise);
-  border: 1px solid var(--color-line);
-  color: var(--color-mist);
-  font-size: var(--text-12);
-  box-shadow: var(--shadow-sheet);
 }
 .stage-over {
   position: absolute;
