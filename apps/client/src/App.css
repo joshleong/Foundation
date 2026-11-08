@@ -1369,6 +1369,22 @@ body.is-connecting .frame-header {
   border-bottom: 1px solid color-mix(in srgb, var(--color-pulse) 30%, transparent);
 }
 .note-rendered a:hover { border-bottom-color: var(--select); }
+/* | tables | in a note: hairlines, a soft header, scroll sideways in a narrow note */
+.note-rendered .md-table { overflow-x: auto; margin: 6px 0; }
+.note-rendered table { border-collapse: collapse; font-size: 12px; min-width: 100%; }
+.note-rendered th, .note-rendered td {
+  border: 1px solid var(--line);
+  padding: 3px 7px;
+  text-align: left;
+  vertical-align: top;
+}
+.note-rendered th {
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--color-frost) 5%, transparent);
+  white-space: nowrap;
+}
+.note-rendered td:empty::after { content: "\00a0"; }
 
 .note-editor {
   width: 100%;

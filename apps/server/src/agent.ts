@@ -113,8 +113,9 @@ export async function runAgent(opts: {
     "insert into agent_runs (id, board_id, runtime, prompt, status, created_by, created_at, session_id) values (?, ?, ?, ?, 'running', ?, ?, ?)",
     runId, opts.boardId, runtime, opts.prompt, opts.user.id, Date.now(), opts.session ?? null,
   );
-  // a viewer's question isn't a change to the board, so it doesn't go in its activity
-  if (canWrite(opts.user.id, opts.boardId)) editBoard(opts.boardId, "agent", (doc) => logActivity(doc, { who: opts.user.name, role: "human", text: `asked the agent: ${opts.prompt.slice(0, 140)}` }));
+  // a viewer's question isn't a change to the board, so it doesn't go in its activity;
+  // a helper's brief isn't the person's ask (call_in_help logs it, signed by the lead)
+  if (!opts.crew?.lead && canWrite(opts.user.id, opts.boardId)) editBoard(opts.boardId, "agent", (doc) => logActivity(doc, { who: opts.user.name, role: "human", text: `asked the agent: ${opts.prompt.slice(0, 140)}` }));
   const transcript: AgentEvent[] = [];
   // the transcript is saved as the turn runs, so a reload mid-turn replays it
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
