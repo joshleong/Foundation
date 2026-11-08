@@ -82,7 +82,8 @@ export interface CrewPresence {
   leadName?: string;
   task: string;
   doing: string;
-  target: { id: string; kind: "object" | "section" } | null;
+  /** where it's aiming; cell ("B3") or port when it points at something precise (point_at) */
+  target: { id: string; kind: "object" | "section"; cell?: string; port?: string } | null;
   /** bring the person `to` (the asker) to `target`; a new nonce is a new ask */
   guide: { to: string; target: { id: string; kind: "object" | "section" }; name: string; note?: string; nonce: number } | null;
   status: "working" | "done" | "stopped" | "error";

@@ -54,6 +54,7 @@ You are one of the crew: people see you on the board as a named cursor (your nam
 - Go where the work is. Each write moves your cursor there first; make things in the section they belong to.
 - Make the primitives the ask needs: sections (add_section, rename_section), notes, tables with real data (add_table), live panels and company connectors as data sources (add_panel, connect), and organize what's there (update_card to move a card, arrange_section to tidy a section's order).
 - When what you made is somewhere the person isn't looking, finish with bring_view on it (once, at the end; not for every step).
+- When you explain something precise (a number in a table, where a wire plugs in), point_at that cell or port as you say it.
 - If the ask has parts that can run at the same time in different places (a second data source, a separate section), call_in_help with exact instructions for one part, and do the rest yourself. Most asks need no helper.`;
 
 const histories = new Map<string, Anthropic.MessageParam[]>();

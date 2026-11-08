@@ -23,7 +23,8 @@ import { AnimatePresence, motion } from "motion/react";
 import { presets, Spring, Spring2D, type SpringConfig } from "../physics/spring";
 import { camera, onCamera, toWorld } from "../state/camera";
 import { floorInsets } from "../state/ui";
-import { getState, objectsInSection, objectWorldRect, requestSnap, sectionBodyRect, subscribe } from "../state/store";
+import { CELL_H, CELL_W, COLHEAD_H, getState, HEADER_H, objectsInSection, objectWorldRect, requestSnap, ROWNUM_W, sectionBodyRect, subscribe } from "../state/store";
+import { portPoint } from "./ports";
 import type { CrewPresence, PeerState } from "../sync/board";
 import { useBoardTick } from "./Presence";
 
@@ -67,6 +68,9 @@ export function aimPoint(target: CrewPresence["target"], slot = 0): { x: number;
     return { x: Math.max(body.x + 12, Math.min(body.x + body.w - 120, x)), y: Math.max(body.y + 8, Math.min(body.y + body.h - 56, y)) };
   } else {
     const o = st.tables[target.id] ?? st.maps[target.id] ?? st.notes[target.id] ?? st.media[target.id] ?? st.panels[target.id];
+    // pointing at something precise: the tip sits on it
+    const exact = o && pointSpot(target);
+    if (exact) return exact;
     if (o) r = objectWorldRect(o);
     const sec = o ? st.sections[o.sectionId] : undefined;
     if (sec) within = sectionBodyRect(st.grid, sec);
@@ -81,6 +85,34 @@ export function aimPoint(target: CrewPresence["target"], slot = 0): { x: number;
     y = Math.max(within.y + 8, Math.min(within.y + within.h - 56, y));
   }
   return { x, y };
+}
+
+/** "B3" → column 1, row 2 (zero-based) */
+export function parseCell(cell: string): { c: number; r: number } | null {
+  const m = /^([A-Za-z]{1,3})([1-9][0-9]*)$/.exec(cell.trim());
+  if (!m) return null;
+  let c = 0;
+  for (const ch of m[1].toUpperCase()) c = c * 26 + (ch.charCodeAt(0) - 64);
+  return { c: c - 1, r: Number(m[2]) - 1 };
+}
+
+/** a table cell or a panel's port, in world px, for an agent pointing at it (null: not something precise) */
+function pointSpot(target: NonNullable<CrewPresence["target"]>) {
+  const st = getState();
+  if (target.cell && st.tables[target.id]) {
+    const t = st.tables[target.id];
+    const at = parseCell(target.cell);
+    const r = objectWorldRect(t);
+    if (!at || !r || at.c >= t.cols || at.r >= t.rows) return null;
+    const s = r.s ?? 1;
+    return { x: r.x + (ROWNUM_W + at.c * CELL_W + CELL_W * 0.35) * s, y: r.y + (HEADER_H + COLHEAD_H + at.r * CELL_H + CELL_H * 0.55) * s };
+  }
+  if (target.port && st.panels[target.id]) {
+    const p = st.panels[target.id];
+    const port = p.ports.find((x) => x.id === target.port || x.name === target.port);
+    return port ? portPoint(p, port.id) : null;
+  }
+  return null;
 }
 
 /** where the voice sheet is, in world px: an agent you asked rises from it */
@@ -196,14 +228,14 @@ function CrewCursor({ peer, mine, slot }: { peer: CrewPeer; mine: boolean; slot:
   }, [mine]);
 
   // a new target, or a new slot beside another agent (awareness, not the store, says so)
-  useEffect(() => placeRef.current?.(), [peer.crew.target?.id, peer.crew.target?.kind, slot]);
+  useEffect(() => placeRef.current?.(), [peer.crew.target?.id, peer.crew.target?.kind, peer.crew.target?.cell, peer.crew.target?.port, slot]);
 
   const c = peer.crew;
   const done = c.status !== "working";
   return (
     <div
       ref={el}
-      className={`crew-cursor${placed ? " is-placed" : ""}${done ? ` is-${c.status}` : ""}${mine ? " is-mine" : ""}`}
+      className={`crew-cursor${placed ? " is-placed" : ""}${done ? ` is-${c.status}` : ""}${mine ? " is-mine" : ""}${!done && (c.target?.cell || c.target?.port) ? " is-pointing" : ""}`}
       style={{ ["--crew" as string]: `var(--color-crew-${c.hue % 6})` }}
       data-crew={c.id}
       data-crew-name={peer.user.name}
@@ -213,6 +245,7 @@ function CrewCursor({ peer, mine, slot }: { peer: CrewPeer; mine: boolean; slot:
         <path d="M2 2 L17.5 10.5 L10.4 12.3 L7 19.5 Z" fill="var(--crew)" stroke="var(--color-raise)" strokeWidth="1.6" strokeLinejoin="round" />
       </svg>
       <span className="crew-spark" />
+      <span className="crew-laser" aria-hidden />
       <div className="crew-tag">
         <span className="crew-name">
           ✦ {peer.user.name}

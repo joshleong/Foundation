@@ -464,3 +464,36 @@
   background: color-mix(in srgb, var(--crew) 12%, transparent);
 }
 
+/* pointing at a cell or a port (point_at): a laser ring on the spot under the tip, breathing */
+.crew-laser {
+  position: absolute;
+  left: -9px;
+  top: -9px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--crew);
+  background: color-mix(in srgb, var(--crew) 14%, transparent);
+  opacity: 0;
+  transform: scale(0.4);
+  transition:
+    opacity var(--dur-quick) var(--ease-out-soft),
+    transform var(--dur-pane) var(--ease-spring);
+  pointer-events: none;
+}
+.crew-cursor.is-pointing .crew-laser {
+  opacity: 1;
+  transform: scale(1);
+  animation: crew-laser 1.6s var(--ease-out-soft) infinite;
+}
+@keyframes crew-laser {
+  50% {
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--crew) 16%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .crew-cursor.is-pointing .crew-laser {
+    animation: none;
+  }
+}
+

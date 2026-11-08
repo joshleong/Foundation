@@ -858,8 +858,9 @@ function CrewDemo() {
           {cursor("Wren", 0, "making table “Parts”", 70, 50)}
           {cursor("Kestrel", 2, "writing “Suppliers to call”", 400, 52, "", "Wren")}
           {cursor("Basalt", 1, "✓ done", 260, 170, " is-done")}
+          {cursor("Vega", 4, "the total, 52.62", 150, 110, " is-pointing")}
         </div>
-        <div className="effect-label">Cursors at 100 %: Wren aiming at the table it's filling, Kestrel (a helper Wren called in), Basalt done and leaving</div>
+        <div className="effect-label">Cursors at 100 %: Wren aiming at the table it's filling, Kestrel (a helper Wren called in), Basalt done and leaving, Vega pointing at a cell (the laser)</div>
       </div>
       <div className="crew-demo-col">
         <div className="crew-guide crew-follow f-glass" style={{ ["--crew" as string]: "var(--color-crew-1)" }}>

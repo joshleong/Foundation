@@ -63,7 +63,7 @@ export async function runScript(opts: { prompt: string; signal: AbortSignal }, e
   });
   await step("read_board", {});
   await step("add_section", { name: section });
-  await step("add_table", {
+  const table = (await step("add_table", {
     section,
     name: "Parts",
     columns: ["Part", "Qty", "Supplier", "Unit $"],
@@ -73,7 +73,12 @@ export async function runScript(opts: { prompt: string; signal: AbortSignal }, e
       ["M4 cap screw", 48, "Pacific Fasteners", 0.12],
       ["Total", "", "", "=SUM(D2:D4)"],
     ],
-  });
+  })) as { id: string };
+  // asked to point things out: the cursor shows the total, then the cheapest part
+  if (/\bpoint|\btotal\b/i.test(opts.prompt)) {
+    await step("point_at", { target: table.id, cell: "D5", note: "the total, 52.62" });
+    await step("point_at", { target: table.id, cell: "A4", note: "the cheapest part" });
+  }
   if (/factory|data source|hook/i.test(opts.prompt)) {
     await step("add_panel", { section, panel: "connector", name: "FactoryForm", connector: "factoryform", text: "the floor, live" });
   }

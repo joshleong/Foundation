@@ -371,8 +371,8 @@
       "kind": "plan",
       "milestone": "crew",
       "area": "crew",
-      "status": "doing",
-      "body": "A laser on a table cell or a port, not just a card, so an agent can show what it means."
+      "status": "done",
+      "body": "Done 2026-11-07: `point_at` aims an agent's cursor at a table cell (\"D5\") or a panel's port, with a laser ring on the spot; it writes nothing. The agent's prompt tells it to point as it explains. Seen on the scripted runtime: the laser sat on D5 (52.62). A real model hasn't used it yet."
     },
     {
       "id": "crew-spatial-voice",

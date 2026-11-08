@@ -41,6 +41,10 @@ export interface CrewTarget {
   /** a card or section id */
   id: string;
   kind: "object" | "section";
+  /** point_at: a cell of a table ("B3"), drawn as a laser on it */
+  cell?: string;
+  /** point_at: a port of a panel (its id or name) */
+  port?: string;
 }
 
 export interface CrewGuide {

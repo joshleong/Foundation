@@ -115,7 +115,7 @@ Evidence: `docs/evidence/2026-11-07_machines/`.
 - **Anticipation.** An agent's cursor goes to where the change will land and waits a beat (`FOUNDATION_CREW_TRAVEL_MS`, 520 ms) before the change lands. A creation aims at the next free slot in its section's flow. People can follow the work instead of watching cards pop in.
 - **Consent over your camera.** Only the person who asked is moved. If they were moving around in the last 1.8 s, the agent asks first (**Go**) instead of yanking the view. **Back** always returns them to where they were.
 - **Space still pans.** If a pointer goes down while Space is held, it's a pan, and the sheet stands down before it has heard anything. A quick tap types instead, for no mic or no recogniser.
-- **Bounded crews.** Helpers come only inside a person's ask: at most two per ask, never a helper's helper, at most six agents on a board. Every agent can be stopped from the sheet, all of yours at once with **Stop all** (2026-11-07), and no cursor outlives its run. **Follow** (2026-11-07) rides your view along with any working agent until you move.
+- **Bounded crews.** Helpers come only inside a person's ask: at most two per ask, never a helper's helper, at most six agents on a board. Every agent can be stopped from the sheet, all of yours at once with **Stop all** (2026-11-07), and no cursor outlives its run. **Follow** (2026-11-07) rides your view along with any working agent until you move, and agents can **point** at a cell or a port (`point_at`).
 
 **2. The rawest material.**
 - The y-protocols awareness wire (client ids, clocks, the 30 s timeout).
@@ -321,7 +321,7 @@ One definition (`apps/server/src/tools.ts`), three doors: the built-in agent, `/
 |---|---|
 | Reading | `read_board`, `search`, `company`, `read_file`, `read_repo`, `find_repo`, `app_tools` |
 | Organizing | `add_section`, `rename_section`, `add_note`, `add_table` (with data), `update_card`, `arrange_section` (a section's flow order), `delete_card` (confirm), `focus`, `set_plan` (the goal and steps a session tab shows; writes nothing) |
-| The crew | `bring_view` (brings the person who asked to a section or card: their view glides there, or they're asked first if busy; read-only), `call_in_help` (a helper agent for an independent part of the ask: its own name, cursor, run and session; two per ask, none from a helper, six agents per board). Every Foundation run is a crew member: its tool calls carry its id (`ToolCtx.crew`, MCP `&crew=`), aim its cursor first and sign its writes |
+| The crew | `point_at` (aims the cursor at a table cell or a panel's port, a laser on the spot; writes nothing), `bring_view` (brings the person who asked to a section or card: their view glides there, or they're asked first if busy; read-only), `call_in_help` (a helper agent for an independent part of the ask: its own name, cursor, run and session; two per ask, none from a helper, six agents per board). Every Foundation run is a crew member: its tool calls carry its id (`ToolCtx.crew`, MCP `&crew=`), aim its cursor first and sign its writes |
 | Apps | `add_panel` (app, link, machine, connector, agent), `connect`, `send_to_port`, `call_app_tool` |
 | People and studios | `ask_person` (Hermes), `vision_brief`, `reverse_engineer` (REA, person-run) |
 | Machines | `propose_machine` (a card waiting for a person's Start), `machines` (read: engines, state, ports as URLs, the last screen of each shared terminal). Start, stop, restart, remove and load are a person's, from the card |

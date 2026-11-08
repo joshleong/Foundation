@@ -861,6 +861,29 @@ export const TOOLS: BoardTool[] = [
     },
   }),
   def({
+    name: "point_at",
+    description:
+      "Point your cursor at something precise while you explain it: a table cell (\"B3\") or a panel's port, or just a card or section. Everyone on the board sees your cursor there with a laser ring on the spot. It changes nothing on the board.",
+    schema: z.object({
+      target: z.string().describe("a card id, or a section name or id"),
+      cell: z.string().regex(/^[A-Za-z]{1,3}[1-9][0-9]{0,4}$/).optional().describe("a table cell, A1-style"),
+      port: z.string().optional().describe("a panel's port, by name or id"),
+      note: z.string().max(80).optional().describe("what you're pointing out, in a few words"),
+    }),
+    run: (ctx, { target, cell, port, note }) => {
+      const t = resolveTarget(ctx.boardId, target);
+      if (!t) throw new Error(`nothing called “${target}” on this board`);
+      const o = t.kind === "object" ? boardMaps(getBoard(ctx.boardId).doc).objects.get(t.id) : undefined;
+      if (cell && o?.kind !== "table") throw new Error("cells are on tables; point at a table's id with cell");
+      if (port && (o?.kind !== "panel" || !(o as PanelDoc).ports.some((p) => p.id === port || p.name === port))) throw new Error(`no port “${port}” on that card`);
+      const member = crewMember(ctx.crew);
+      if (!member) return "only Foundation's own agents have a cursor to point with";
+      const spot = cell ? `cell ${cell.toUpperCase()}` : port ? `port “${port}”` : (o?.name ?? target);
+      aim(member, { ...t, ...(cell ? { cell: cell.toUpperCase() } : {}), ...(port ? { port } : {}) }, note ?? `pointing at ${spot}`);
+      return `pointing at ${spot}`;
+    },
+  }),
+  def({
     name: "call_in_help",
     description: `Call in a helper agent for a separate part of this ask that can run at the same time as yours (a different section, a different data source). It gets its own name and cursor, works through the same tools and finishes on its own; say exactly what it should do and where. At most two per ask; helpers can't call helpers. Don't use it for small or dependent steps.`,
     schema: z.object({ task: z.string().min(8).max(2000), section: z.string().optional() }),

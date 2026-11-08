@@ -241,3 +241,25 @@ test("a person's note made through the tools (no crew) names nobody", async () =
   assert.equal(note.createdBy, undefined);
 });
 
+
+test("point_at: the cursor points at a cell or a port, writes nothing, and checks what it's given", async () => {
+  const r = startRun({ boardId: "c-point", user: ada, prompt: "Make a section called “Costs” with the parts and point out the total" });
+  const events = await finish(r, ada.id);
+  const points = events.filter((e) => e.type === "tool" && e.name === "point_at");
+  assert.equal(points.length, 2, "pointed twice");
+  assert.ok(events.some((e) => e.type === "tool_result" && e.name === "point_at" && e.ok && String(e.summary).includes("cell D5")));
+  const doc = getBoard("c-point").doc;
+  const m = boardMaps(doc);
+  const table = [...m.objects.values()].find((o) => o.kind === "table")!;
+  const before = m.activity.length;
+  const member = joinCrew({ boardId: "c-point", userId: ada.id, userName: ada.name, runId: "run_point", task: "point" });
+  const ctx = { boardId: "c-point", actor: member.name, userId: ada.id, crew: member.id };
+  assert.equal(await runTool(ctx, "point_at", { target: table.id, cell: "B2" }), "pointing at cell B2");
+  const aw = crewStates("c-point").find((s) => s.crew.id === member.id)!;
+  assert.deepEqual(aw.crew.target, { id: table.id, kind: "object", cell: "B2" });
+  assert.equal(m.activity.length, before, "pointing writes nothing to the board");
+  await assert.rejects(runTool(ctx, "point_at", { target: table.id, port: "out" }), /no port/);
+  const sec = [...m.sections.values()][0];
+  await assert.rejects(runTool(ctx, "point_at", { target: sec.id, cell: "A1" }), /cells are on tables/);
+  leaveCrew(member, "done", 0);
+});

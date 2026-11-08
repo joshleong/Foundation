@@ -236,7 +236,7 @@ export function planOf(turns: Turn[]): Plan | null {
 }
 
 /** tools that only look: what they mention isn't something the session touched */
-export const READ_ONLY = new Set(["read_board", "search", "find_images", "company", "read_file", "read_repo", "find_repo", "app_tools", "pipeline_status", "set_plan", "huddle_transcript", "slack_read"]);
+export const READ_ONLY = new Set(["read_board", "search", "find_images", "company", "read_file", "read_repo", "find_repo", "app_tools", "pipeline_status", "set_plan", "huddle_transcript", "slack_read", "point_at"]);
 
 /** cards and sections a session's tools named — ringed on the grid while it shows */
 export function touchedBy(turns: Turn[]): string[] {
