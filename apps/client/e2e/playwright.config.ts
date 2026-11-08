@@ -54,6 +54,9 @@ export default defineConfig({
         SLACK_USER_TOKEN: "xoxp-standin",
         SLACK_BOT_TOKEN: "xoxb-standin",
         FOUNDATION_CLAUDE_CLI: "/nonexistent/claude",
+        // the crew's agents run a fixed playbook through the real board tools (no model, nothing spent)
+        FOUNDATION_AGENT_SCRIPT: "1",
+        FOUNDATION_SCRIPT_STEP_MS: "450",
         // never the real Vision Code: hand-offs here fail to start, and say why
         T3_CLI: "/nonexistent/t3",
         T3_URL: "http://127.0.0.1:9",

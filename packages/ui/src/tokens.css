@@ -55,6 +55,13 @@
   /* Foundation's two additions: the agent layer and the data wires */
   --color-agent: color-mix(in srgb, #8f76ee calc(var(--night-hard) * 100%), #6b5bd6);
   --color-agent-dim: color-mix(in srgb, rgb(143 118 238 / 0.16) calc(var(--night-hard) * 100%), rgb(107 91 214 / 0.1));
+  /* the crew: six agents told apart, all from the agent's violet family (an agent is always violet) */
+  --color-crew-0: var(--color-agent);
+  --color-crew-1: color-mix(in srgb, #7b8cf4 calc(var(--night-hard) * 100%), #4f5fd0);
+  --color-crew-2: color-mix(in srgb, #c084f0 calc(var(--night-hard) * 100%), #9a4fc4);
+  --color-crew-3: color-mix(in srgb, #e07ac0 calc(var(--night-hard) * 100%), #a8488f);
+  --color-crew-4: color-mix(in srgb, #a99bff calc(var(--night-hard) * 100%), #4a3fa8);
+  --color-crew-5: color-mix(in srgb, #b0a8e8 calc(var(--night-hard) * 100%), #6f6aa8);
   --color-wire: var(--color-pulse);
   --color-wire-formula: var(--color-ok);
 
