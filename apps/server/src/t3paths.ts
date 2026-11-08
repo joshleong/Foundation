@@ -13,6 +13,9 @@
  *   package in `.tools/t3-server`) or from an installed app's
  *   `code-server/` resource. Then `t3` on PATH.
  *
+ * - Address: T3_URL, else the origin T3 wrote to
+ *   `<home>/userdata/server-runtime.json`, else http://127.0.0.1:3783.
+ *
  * T3_CLI, T3CODE_HOME and T3_URL win over all of it, and are read when used,
  * never at import (a test or a launcher may set them after this loads).
  * Plain T3 Code's `~/.t3` is not a candidate: Vision keeps its own home, and
@@ -36,8 +39,62 @@ const pathOf = (w: Where) => (w.platform === "win32" ? path.win32 : path.posix);
 const exeName = (w: Where) => (w.platform === "win32" ? "t3.exe" : "t3");
 const APP_ID = "co.normallab.vision";
 
-/** Vision Code's address, read when used */
-export const t3Url = (env: Where["env"] = process.env) => (env.T3_URL || "http://localhost:3783").replace(/\/$/, "");
+export const DEFAULT_T3_URL = "http://127.0.0.1:3783";
+
+/** a usable http(s) origin, without a trailing slash, or null */
+function origin(v: unknown): string | null {
+  if (typeof v !== "string" || !v) return null;
+  try {
+    const u = new URL(v);
+    return (u.protocol === "http:" || u.protocol === "https:") && u.hostname ? u.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The address T3 says it's serving on: `<home>/userdata/server-runtime.json`,
+ * which T3 writes when its server starts and clears when it stops
+ * (`{version: 1, pid, host?, port, origin, startedAt, …}`). Its own CLI goes
+ * by `origin`; `host`/`port` stand in when that's unusable. Null when the
+ * file is missing, unreadable or names nothing usable.
+ */
+export function runtimeOrigin(home: string, w: Where = here(), read: (f: string) => string = (f) => readFileSync(f, "utf8")): string | null {
+  let state: { origin?: unknown; host?: unknown; port?: unknown };
+  try {
+    state = JSON.parse(read(pathOf(w).join(home, "userdata", "server-runtime.json")));
+  } catch {
+    return null;
+  }
+  if (!state || typeof state !== "object") return null;
+  const o = origin(state.origin);
+  if (o) return o;
+  const port = state.port;
+  if (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65535) return null;
+  const host = typeof state.host === "string" && /^[A-Za-z0-9.-]+$/.test(state.host) && state.host !== "0.0.0.0" ? state.host : "127.0.0.1";
+  return `http://${host}:${port}`;
+}
+
+export interface T3Address {
+  url: string;
+  /** where it came from, in a person's words */
+  from: string;
+}
+
+/**
+ * Vision Code's address, read when used: T3_URL, else what Vision Code's
+ * server-runtime.json says (Vision takes the next free port when :3783 is
+ * taken), else http://127.0.0.1:3783.
+ */
+export function t3Address(w: Where = here(), exists: (f: string) => boolean = existsSync, read?: (f: string) => string): T3Address {
+  if (w.env.T3_URL) return { url: w.env.T3_URL.replace(/\/+$/, ""), from: "T3_URL" }; // taken as given
+  const home = findT3Home(w, exists).found;
+  const said = home ? runtimeOrigin(home, w, read) : null;
+  if (said) return { url: said, from: `${pathOf(w).join(home!, "userdata", "server-runtime.json")}` };
+  return { url: DEFAULT_T3_URL, from: "the default" };
+}
+
+export const t3Url = (w: Where = here()) => t3Address(w).url;
 
 /** Vision's T3CODE_HOME, in the order looked at. T3CODE_HOME, when set, is the only one */
 export function t3HomeCandidates(w: Where): string[] {
@@ -135,6 +192,12 @@ export function t3Command(cli: string, w: Where = here(), read: (f: string) => s
   return { cmd: cli, pre: [] };
 }
 
+/** the address in use and where it came from, for messages */
+export function addressSaid(w: Where = here()) {
+  const a = t3Address(w);
+  return a.from === "the default" ? `${a.url}, the default` : `${a.url}, from ${a.from}`;
+}
+
 const list = (xs: string[]) => xs.map((x) => `  ${x}`).join("\n");
 
 /** what a person sees when Vision Code isn't found: where we looked, and what to set */
@@ -145,7 +208,7 @@ export function notFoundMessage(cli: Found<string> | null, home: Found<string> |
   const set = [
     cli && !cli.found ? "T3_CLI to its t3 program (t3.exe on Windows)" : null,
     home && !home.found ? "T3CODE_HOME to its data folder (the one holding userdata/state.sqlite)" : null,
-    `T3_URL to its address (now ${t3Url()})`,
+    `T3_URL to its address (now ${addressSaid()})`,
   ].filter(Boolean) as string[];
   const said = set.length > 1 ? `${set.slice(0, -1).join(", ")} and ${set.at(-1)}` : set[0];
   return `${parts.join("\n")}\nIf Vision Code is somewhere else, set ${said} for Foundation's server, then start it again.`;

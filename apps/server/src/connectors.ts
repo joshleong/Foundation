@@ -6,7 +6,7 @@
  * - BomForm (remote MCP, stateless JSON-RPC over HTTP, bearer + private CA):
  *   projects, certification progress, critical components, BOM costs.
  * - Vision (desktop): no HTTP API yet — the connector reports what's reachable
- *   (Vision Code/T3 on :3783, the Archive on :63727).
+ *   (Vision Code/T3 at its address, usually :3783 (t3paths.ts), the Archive on :63727).
  * - Airform Data Room: public site, linked.
  *
  * Every connector answers { ok, summary, metrics, flows } so the company
@@ -17,6 +17,7 @@ import { EventEmitter } from "node:events";
 import { config } from "./config.ts";
 import { callMcpTool } from "./mcpclient.ts";
 import { one } from "./db.ts";
+import { t3Url } from "./t3paths.ts";
 
 export interface ConnectorState {
   id: string;
@@ -348,8 +349,9 @@ async function creation(): Promise<ConnectorState> {
 
 async function vision(): Promise<ConnectorState> {
   const reach: string[] = [];
-  const t3 = await timed(fetch("http://127.0.0.1:3783/.well-known/t3/environment"), 1200).then((r) => r.ok).catch(() => false);
-  if (t3) reach.push("Vision Code (T3) on :3783");
+  const t3Base = t3Url(); // T3_URL, or where Vision Code says it's serving (t3paths.ts)
+  const t3 = await timed(fetch(`${t3Base}/.well-known/t3/environment`), 1200).then((r) => r.ok).catch(() => false);
+  if (t3) reach.push(`Vision Code (T3) at ${t3Base.replace(/^https?:\/\//, "")}`);
   const archive = await timed(fetch("http://127.0.0.1:63727/api/health"), 1200).then((r) => r.ok).catch(() => false);
   if (archive) reach.push("Archive on :63727");
   const web = await timed(fetch(config.connectors.vision), 1200).then((r) => r.ok).catch(() => false);
