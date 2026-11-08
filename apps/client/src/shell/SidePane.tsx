@@ -150,7 +150,9 @@ function Sessions() {
 
       <section className="pane-group">
         <div className="pane-eyebrow">Vision Code</div>
-        {lists.t3Available === false && <div className="pane-empty">Vision Code isn't on this machine (or its store moved). Set T3CODE_HOME on the server to point at it.</div>}
+        {lists.t3Available === false && (
+          <div className="pane-empty is-paths">{lists.t3Missing ?? "Vision Code isn't on this computer (or its store moved). Set T3CODE_HOME on the server to point at it."}</div>
+        )}
         {t3.map((t) => (
           <button
             key={t.id}
