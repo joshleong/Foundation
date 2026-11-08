@@ -22,7 +22,8 @@ export default defineConfig(async () => ({
   plugins: [react()],
   clearScreen: false,
   server: {
-    port: 1430,
+    // FOUNDATION_CLIENT_PORT moves it (scripts/dev-orphans-check.mjs runs the whole launcher above 15000)
+    port: Number(process.env.FOUNDATION_CLIENT_PORT ?? 1430),
     strictPort: true,
     host: host || false,
     hmr: host ? { protocol: "ws", host, port: 1431 } : undefined,
