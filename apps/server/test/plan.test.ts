@@ -27,23 +27,26 @@ test("the plan reads from the file", () => {
   assert.ok(plan.columns.some((c) => c.id === "next"));
 });
 
+// any card not in Next/Doing/Review: it's moved into Next first, so the test doesn't hang on the board's own state
+const pick = () => readPlan()!.cards.find((c) => c.status === "backlog")!;
+
 test("only an admin moves a card; a column must exist", () => {
-  const card = readPlan()!.cards.find((c) => c.status === "next")!;
+  const card = pick();
   assert.throws(() => movePlanCard(ada, card.id, "doing"), /Only an admin/);
   assert.throws(() => movePlanCard(boss, card.id, "someday"), /No column/);
   assert.throws(() => movePlanCard(boss, "no-such-card", "doing"), /No card/);
 });
 
 test("a move writes the file and marks the card; moving back clears the mark", () => {
-  const card = readPlan()!.cards.find((c) => c.status === "next")!;
+  const card = pick();
   const moved = movePlanCard(boss, card.id, "doing");
   assert.equal(moved.status, "doing");
-  assert.equal(moved.moved?.from, "next");
+  assert.equal(moved.moved?.from, "backlog");
   assert.equal(moved.moved?.by, "Boss");
   const onDisk = JSON.parse(readFileSync(process.env.FOUNDATION_PLAN_FILE!, "utf8"));
   assert.equal(onDisk.cards.find((c: { id: string }) => c.id === card.id).status, "doing");
   movePlanCard(boss, card.id, "review");
-  assert.equal(readPlan()!.cards.find((c) => c.id === card.id)!.moved?.from, "next");
-  const back = movePlanCard(boss, card.id, "next");
+  assert.equal(readPlan()!.cards.find((c) => c.id === card.id)!.moved?.from, "backlog");
+  const back = movePlanCard(boss, card.id, "backlog");
   assert.equal(back.moved, undefined);
 });
