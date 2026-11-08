@@ -245,7 +245,7 @@
       "kind": "bug",
       "milestone": "huddles",
       "area": "huddles",
-      "status": "doing",
+      "status": "done",
       "body": "MediaRecorder's WebM carries no duration, so the archive's player can't seek until it has played through. Write the duration into the file before it uploads (SPEC §7)."
     },
     {
