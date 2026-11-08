@@ -308,7 +308,7 @@
       "kind": "bug",
       "milestone": "polish",
       "area": "design",
-      "status": "doing",
+      "status": "done",
       "body": "`.app-bar` is still in App.css; a few `rgba()` and hex colours and hover transitions on `background` remain and lag the night fade. Prune them and add a `check-design` test that ratchets raw colours down (Phase 1 leftover, DESIGN §2)."
     },
     {
@@ -564,6 +564,15 @@
       "body": "Huddle transcripts and the crew's sheet were checked with typed lines and a stand-in recogniser. Talk in a huddle and to the sheet on a real machine."
     },
     {
+      "id": "on-fill-token",
+      "title": "Tokens for text on a solid fill and for highlights",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "design",
+      "status": "backlog",
+      "body": "Most of the 19 raw colours left in components (`design.test.ts`'s allowlist) are white text on a solid state or person colour and the port bead's white gloss. A `--color-on-fill` and a highlight token in `tokens.css` would clear them; lower the test's ceiling as they go."
+    },
+    {
       "id": "codemirror-notes",
       "title": "Notes in CodeMirror with y-codemirror",
       "kind": "plan",
@@ -650,7 +659,7 @@
       "kind": "bug",
       "milestone": "ship",
       "area": "desktop",
-      "status": "doing",
+      "status": "done",
       "body": "A hard kill of `scripts/dev.mjs` (an IDE stop button, Task Manager) never reaches its `taskkill /T`, so the server, Vite and the window keep their ports. Tie the children to the launcher."
     },
     {

@@ -32,7 +32,7 @@
 | `--color-crew-0…5` | agent · `#4f5fd0` · `#9a4fc4` · `#a8488f` · `#4a3fa8` · `#6f6aa8` | agent · `#7b8cf4` · `#c084f0` · `#e07ac0` · `#a99bff` · `#b0a8e8` | the crew: six agents told apart, all violets |
 | `--color-line(-strong)` | ink 14 % (26 %) | frost 13 % (28 %) | rules, borders |
 
-Never write a hex or `rgba()` in a component; mix tokens (`color-mix(in srgb, var(--color-pulse) 12%, transparent)`). `App.css` has 6 legacy `rgba()` left (white highlights, a modal shadow) — ratchet them out.
+Never write a hex or `rgba()` in a component; mix tokens (`color-mix(in srgb, var(--color-pulse) 12%, transparent)`). No raw colours in components; `apps/client/test/design.test.ts` holds the ratchet (and fails on any component transition of `background`, `color` or `all`). 19 remain on its allowlist, each with its reason: white text on a solid state or person colour (no on-fill token yet), the photo-thumbnail scrim, the night orb's sun and moon, the white canvas behind embedded pages, Drive's brand green, the port bead's white gloss, three non-CSS consumers (three.js, MapLibre, the dev camera fallback) and the sign-in mask. The list may only shrink.
 
 ## 3. Type
 
