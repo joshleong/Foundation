@@ -425,8 +425,8 @@
       "kind": "plan",
       "milestone": "company",
       "area": "company",
-      "status": "doing",
-      "body": "Once a day, a note on the company board that says what changed in BomForm, FactoryForm and the board's own activity. Built deterministically from the activity log and connector snapshots (no model, so nothing is spent); an agent can be asked to expand on it."
+      "status": "done",
+      "body": "Done 2026-11-07: a server-built note (no model) in the company board's \"Daily digest\" section each morning: who did what, sections and cards added or removed, each connector compared with the last digest. One per day, 14 kept by reusing the oldest, `write_digest` for one now."
     },
     {
       "id": "bomform-diff",
@@ -598,6 +598,15 @@
       "area": "panels",
       "status": "needs-you",
       "body": "Seen while checking machine pages (2026-11-07): the bar that drops in over a card's top edge on hover sits over the machine card's head, where its published ports are pills (`:8080 ↗`), so they're hard to press. Options: move the port pills to the card's foot (as the huddle card moved its controls to the bottom for the same reason); start the head below the bar's 30 px; or let the bar skip machine cards and put its actions in the foot. DESIGN puts the pills in the head today, so this is Josh's call."
+    },
+    {
+      "id": "activity-roles",
+      "title": "A person's tool calls are logged as an agent; grid edits aren't logged",
+      "kind": "bug",
+      "milestone": "company",
+      "area": "company",
+      "status": "backlog",
+      "body": "`touch()` in `tools.ts` logs every tool call with role `agent`, including a person's HTTP call, so the daily digest counts people as agents. A person's own edits on the grid write no activity at all. Log the actor's real role, and log a person's structural edits (sections and cards added or removed)."
     },
     {
       "id": "codemirror-notes",
