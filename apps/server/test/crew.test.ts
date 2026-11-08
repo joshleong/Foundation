@@ -26,7 +26,7 @@ const { run } = await import("../src/db.ts");
 const { upsertUser } = await import("../src/auth.ts");
 const { runTool } = await import("../src/tools.ts");
 const { startRun, followRun } = await import("../src/agent.ts");
-const { joinCrew, leaveCrew, crewOn, MAX_HELPERS, _resetCrew } = await import("../src/crew.ts");
+const { joinCrew, leaveCrew, crewOn, MAX_HELPERS, _resetCrew, describeStep } = await import("../src/crew.ts");
 const { getBoard, closeBoards } = await import("../src/boards.ts");
 const { crewFor } = await import("../src/mcp.ts");
 const { boardMaps, tableCellsOf } = await import("@foundation/protocol");
@@ -123,6 +123,9 @@ test("a run is a crew member from start to finish, and a helper is its own agent
   assert.ok(cards.some((c) => c.kind === "panel" && c.panel === "connector" && c.createdBy === lead.name), "the connector names its agent");
   const who = new Set(m.activity.toArray().filter((a) => a.role === "agent").map((a) => a.who));
   assert.ok(who.has(lead.name) && who.has(helper.name), `both agents signed their work: ${[...who]}`);
+  const log = m.activity.toArray();
+  assert.equal(log.filter((a) => a.who === ada.name && a.text.startsWith("asked the agent")).length, 1, "Ada asked once; the helper's brief isn't logged as hers");
+  assert.ok(log.some((a) => a.who === lead.name && a.text.startsWith(`called in ${helper.name}:`)), "the lead signs calling in help");
   const guide = events.find((e) => e.type === "tool" && e.name === "bring_view");
   assert.ok(guide, "brought the person there");
   // done, then gone (after the linger)
@@ -170,6 +173,37 @@ test("organizing: arrange orders a section's flow without new times; rename_sect
   await runTool(ctx, "rename_section", { section: "Messy", name: "Tidy" });
   assert.ok([...boardMaps(getBoard("c7").doc).sections.values()].some((s) => s.name === "Tidy"));
   leaveCrew(m, "done", 0);
+});
+
+test("a cursor names what it wires by card, not by the ids a real model passes", async () => {
+  const m = joinCrew({ boardId: "c9", userId: ada.id, userName: ada.name, runId: "run_w", task: "wire" });
+  const ctx = { boardId: "c9", actor: m.name, userId: ada.id, crew: m.id };
+  await runTool(ctx, "add_section", { name: "Wired" });
+  const from = (await runTool(ctx, "add_panel", { section: "Wired", panel: "link", name: "Stock feed", url: "https://example.com" })) as { id: string };
+  const to = (await runTool(ctx, "add_panel", { section: "Wired", panel: "link", name: "Shortages", url: "https://example.com" })) as { id: string };
+  const input = { from_panel: from.id, from_port: "port_x1", to_panel: to.id, to_port: "port_y2" };
+  assert.equal(describeStep("connect", input, "c9"), "wiring Stock feed → Shortages");
+  assert.equal(describeStep("connect", { ...input, from_panel: "nope" }, "c9"), "wiring nope → Shortages", "an unknown id is shown as given");
+  leaveCrew(m, "done", 0);
+});
+
+test("a connector hooked up first doesn't hide the cards added after it", async () => {
+  // a real crew turn's order: section, connector, then a table and notes
+  const ctx = { boardId: "c10", actor: "Talc", userId: ada.id };
+  await runTool(ctx, "add_section", { name: "Ops review" });
+  const ff = (await runTool(ctx, "add_panel", { section: "Ops review", panel: "connector", connector: "factoryform", name: "FactoryForm" })) as { id: string };
+  const sec = () => [...boardMaps(getBoard("c10").doc).sections.values()].find((s) => s.name === "Ops review")!;
+  assert.equal(sec().host, ff.id, "alone in its section, the app fills it");
+  const t = (await runTool(ctx, "add_table", { section: "Ops review", name: "Open work orders", columns: ["WO", "Status"] })) as { id: string };
+  assert.equal(sec().host, undefined, "with a table beside it, it's a card in the flow");
+  const n = (await runTool(ctx, "add_note", { section: "Ops review", title: "What's blocked", markdown: "x" })) as { id: string };
+  const objs = boardMaps(getBoard("c10").doc).objects;
+  for (const id of [ff.id, t.id, n.id]) assert.equal(objs.get(id)?.sectionId, sec().id);
+  // a second app into a hosted section joins the flow too
+  await runTool(ctx, "add_section", { name: "Solo" });
+  await runTool(ctx, "add_panel", { section: "Solo", panel: "connector", connector: "bomform", name: "BomForm" });
+  await runTool(ctx, "add_panel", { section: "Solo", panel: "link", name: "Docs", url: "https://example.com" });
+  assert.equal([...boardMaps(getBoard("c10").doc).sections.values()].find((s) => s.name === "Solo")!.host, undefined);
 });
 
 test("MCP: a crew id counts only for the person and board it belongs to", () => {

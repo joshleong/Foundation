@@ -1,7 +1,7 @@
 /**
  * Minimal markdown → HTML renderer for note boxes.
  * Supports: # headings, lists (-, *, 1.), **bold**, *italic*, `code`,
- * ``` fenced blocks, [links](url), > quotes, --- rules. Input is escaped
+ * ``` fenced blocks, [links](url), > quotes, --- rules, | tables |. Input is escaped
  * first, so raw HTML in notes is inert.
  */
 
@@ -24,6 +24,12 @@ function inline(s: string): string {
     );
 }
 
+/** a table row: | a | b | */
+const isRow = (l: string) => /^\s*\|.*\|\s*$/.test(l);
+/** the line under a table's header: |---|:--:| */
+const isRule = (l: string) => /^\s*\|(\s*:?-+:?\s*\|)+\s*$/.test(l);
+const cells = (l: string) => l.trim().slice(1, -1).split("|").map((c) => c.trim());
+
 export function renderMarkdown(src: string): string {
   const lines = escapeHtml(src).split(/\r?\n/);
   const out: string[] = [];
@@ -37,8 +43,19 @@ export function renderMarkdown(src: string): string {
     }
   };
 
-  for (const raw of lines) {
-    const line = raw;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (!inCode && isRow(line) && i + 1 < lines.length && isRule(lines[i + 1])) {
+      closeList();
+      const head = cells(line);
+      const body: string[][] = [];
+      for (i += 2; i < lines.length && isRow(lines[i]); i++) body.push(cells(lines[i]));
+      i--;
+      const tr = (r: string[], tag: "th" | "td") => `<tr>${head.map((_, j) => `<${tag}>${inline(r[j] ?? "")}</${tag}>`).join("")}</tr>`;
+      out.push(`<div class="md-table"><table><thead>${tr(head, "th")}</thead><tbody>${body.map((r) => tr(r, "td")).join("")}</tbody></table></div>`);
+      continue;
+    }
 
     if (line.trim().startsWith("```")) {
       closeList();
