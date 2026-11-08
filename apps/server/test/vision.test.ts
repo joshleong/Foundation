@@ -18,7 +18,7 @@ import { png } from "./fixtures/png.ts";
 const dir = mkdtempSync(join(tmpdir(), "foundation-test-"));
 process.env.FOUNDATION_DATA_DIR = dir;
 const log = join(dir, "t3-cli.log");
-const cliPath = join(dir, "t3");
+const cliPath = join(dir, "t3.cjs");
 writeFileSync(
   cliPath,
   `#!/usr/bin/env node

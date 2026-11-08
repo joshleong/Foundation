@@ -18,6 +18,6 @@
     "services": "node scripts/sibling.mjs all"
   },
   "engines": {
-    "node": ">=22.13"
+    "node": ">=22.16"
   }
 }
