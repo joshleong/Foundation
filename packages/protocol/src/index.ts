@@ -67,6 +67,12 @@ interface ObjectBaseDoc {
   y: number;
   float: boolean;
   bornAt: number;
+  /**
+   * Who made it, when it wasn't a person at the board: the crew agent's name
+   * (notes and tables an agent writes say so on the card). Panels also carry
+   * the actor of the tool call that made them.
+   */
+  createdBy?: string;
 }
 
 export interface TableDoc extends ObjectBaseDoc {
@@ -151,7 +157,6 @@ export interface PanelDoc extends ObjectBaseDoc {
   /** for asks: who, and whether it's done */
   assignee?: string;
   status?: "open" | "done" | "running" | "idle" | "error";
-  createdBy?: string;
   /** last value each output port emitted (JSON-able) */
   outputs?: Record<string, unknown>;
   // ---- design pipeline stages (panel === "stage") ----

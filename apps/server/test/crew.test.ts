@@ -121,6 +121,8 @@ test("a run is a crew member from start to finish, and a helper is its own agent
   const cards = [...m.objects.values()];
   assert.ok(cards.some((c) => c.kind === "table" && c.name === "Parts"));
   assert.ok(cards.some((c) => c.kind === "panel" && c.panel === "connector" && c.createdBy === lead.name), "the connector names its agent");
+  assert.ok(cards.some((c) => c.kind === "table" && c.name === "Parts" && c.createdBy === lead.name), "the table names its agent");
+  assert.ok(cards.filter((c) => c.kind === "note").every((c) => c.createdBy && (c.createdBy === lead.name || c.createdBy === helper.name)), "each note names the agent that wrote it");
   const who = new Set(m.activity.toArray().filter((a) => a.role === "agent").map((a) => a.who));
   assert.ok(who.has(lead.name) && who.has(helper.name), `both agents signed their work: ${[...who]}`);
   const log = m.activity.toArray();
@@ -230,5 +232,12 @@ test("the crew-wide stop: all of one person's agents on one board, and nobody el
   assert.equal(ended.length, 4);
   await new Promise((res) => setTimeout(res, 2600));
   assert.equal(crewOn("s1").length, 0, "no cursor left behind");
+});
+
+test("a person's note made through the tools (no crew) names nobody", async () => {
+  await runTool({ boardId: "c-person", actor: "Ada Lovelace", userId: ada.id }, "add_note", { title: "Mine", markdown: "hi" });
+  const note = [...boardMaps(getBoard("c-person").doc).objects.values()].find((o) => o.kind === "note");
+  assert.ok(note);
+  assert.equal(note.createdBy, undefined);
 });
 

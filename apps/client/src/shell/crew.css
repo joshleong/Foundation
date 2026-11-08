@@ -420,3 +420,26 @@
   translate: none;
   width: 100%;
 }
+
+/* a note or table an agent made says which one, at rest: violet, because an agent did it */
+.card-maker {
+  position: absolute;
+  left: 10px;
+  bottom: 8px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--color-agent-dim);
+  color: var(--color-agent);
+  font: 600 var(--text-11) / 1 var(--font-sans);
+  white-space: nowrap;
+}
+.card-maker.is-inline {
+  position: static;
+  flex-shrink: 0;
+  margin: 0 var(--space-2);
+}
+

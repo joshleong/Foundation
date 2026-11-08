@@ -31,6 +31,8 @@ interface ObjectBase {
   /** false = docked into the section's flow grid, true = free position */
   float: boolean;
   bornAt: number;
+  /** the crew agent that made it (protocol ObjectBaseDoc.createdBy); people's cards leave it unset */
+  createdBy?: string;
 }
 
 export interface TableMeta extends ObjectBase {
