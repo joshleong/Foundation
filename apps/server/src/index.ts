@@ -26,6 +26,7 @@ import { followRun, listSessions, runtimes, sessionTurns, settleOrphanRuns, star
 import { t3Thread, t3Threads } from "./t3.ts";
 import { pollHandoffs } from "./vision.ts";
 import { boardPeople, boardRole, canWrite, requireWriter, setBoardRole } from "./roles.ts";
+import { canSeeBoard, hiddenBoards, requireBoard } from "./members.ts";
 import { runTool, TOOLS } from "./tools.ts";
 import { handleMcp } from "./mcp.ts";
 import { seedCompanyBoard } from "./seed.ts";

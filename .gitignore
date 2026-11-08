@@ -30,3 +30,6 @@ apps/server/.env
 
 # Playwright run output (traces, failure contexts); the evidence folders keep the curated shots
 docs/evidence/e2e-results/
+
+# fixture data the tests need (caught by data/ above)
+!apps/server/test/fixtures/**/data/
