@@ -7,10 +7,13 @@
 // Both also start Kiri, the engine machines run on, if it is installed (npm run kiri:install
 // installs it; FOUNDATION_KIRI=0 leaves it alone). It runs on after Foundation stops, as Docker would.
 import { spawn } from "node:child_process";
+import { startWatchdog } from "./dev-watchdog.mjs";
 import { startKiri } from "./kiri.mjs";
 
 const win = process.platform === "win32";
 const desktop = process.argv.includes("--desktop");
+// Windows: a hard kill of this launcher never reaches stop() below, so a watchdog outside its tree ends the children then
+const watchdog = startWatchdog();
 
 const procs = [
   ["server", "npm", ["run", "dev", "-w", "@foundation/server"], "\x1b[35m"],
@@ -20,7 +23,9 @@ const procs = [
 ].map(([name, cmd, args, color]) => {
   // npm is npm.cmd on Windows, which Node only starts through a shell (the arguments are fixed, above)
   // each child leads its own process group (macOS, Linux) so stopping it stops what npm started under it
+  const startedAt = Date.now();
   const p = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], env: process.env, shell: win, detached: !win });
+  watchdog.add(p.pid, startedAt);
   const tag = `${color}${name.padEnd(7)}\x1b[0m │ `;
   const pipe = (s) => s.on("data", (b) => process.stdout.write(b.toString().replace(/^(?=.)/gm, tag)));
   pipe(p.stdout);
@@ -51,6 +56,19 @@ for (const sig of ["SIGINT", "SIGTERM"])
     stopAll();
     process.exit(0);
   });
+// Windows: `npm run dev` is npm → a shell → this. Killing npm (an IDE's stop button) takes the shell with it but
+// not this, so stop when the parent goes (the watchdog then sees to the children)
+const parent = process.ppid;
+if (win)
+  setInterval(() => {
+    try {
+      process.kill(parent, 0);
+    } catch (e) {
+      if (e.code !== "ESRCH") return;
+      stopAll();
+      process.exit(0);
+    }
+  }, 1000).unref();
 console.log(
   desktop
     ? "\n  Foundation → the desktop window opens once the client is built  (server http://localhost:4410)\n"
