@@ -37,7 +37,8 @@
 
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import type { Socket } from "node:net";
-import { createReadStream, existsSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, posix } from "node:path";
 import type { WebSocket } from "ws";
@@ -62,6 +63,8 @@ export interface EngineStatus extends Engine {
   api?: string;
   os?: string;
   error?: string;
+  /** Kiri is installed here but not running: a person's Start wakes it (wakeKiri) */
+  asleep?: boolean;
 }
 
 /** Where each engine listens, most specific first. FOUNDATION_ENGINES="kiri=<path>,docker=<path>" replaces the list. */
@@ -215,6 +218,11 @@ export async function engineStatus(fresh = false): Promise<EngineStatus[]> {
       }
     }),
   );
+  // Kiri installed but not running: say so once, on its first entry, so the card offers Start rather than "no engine"
+  if (!list.some((s) => s.id === "kiri" && s.up) && kiriApp()) {
+    const k = list.find((s) => s.id === "kiri");
+    if (k) Object.assign(k, { asleep: true, error: "Kiri is installed and asleep: Start wakes it." });
+  }
   // the same engine reached twice (Kiri behind docker.sock) shows once
   const seen = new Set<string>();
   const uniq = list.filter((s) => {
@@ -228,13 +236,70 @@ export async function engineStatus(fresh = false): Promise<EngineStatus[]> {
   return uniq;
 }
 
+/**
+ * Kiri's app on this computer, if it is installed (npm run kiri:install, or
+ * Kiri's own installer): %LOCALAPPDATA%\Kiri\kiri-win.exe, or Kiri.app. On
+ * Linux Kiri's package runs the engine as a service, so there is nothing to wake.
+ */
+export function kiriApp(env = process.env, platform = process.platform): { exe: string; args: string[] } | null {
+  if (env.FOUNDATION_ENGINES?.trim()) return null; // the engines are named: wake none
+  if (platform === "win32") {
+    const dir = join(env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "Kiri");
+    const exe = join(dir, "kiri-win.exe");
+    if (!existsSync(exe)) return null;
+    // the WSL distro Kiri's setup chose, else the one npm run kiri:install makes
+    let distro = "kiri";
+    try {
+      distro = (JSON.parse(readFileSync(join(dir, "setup.json"), "utf8")) as { distro?: string }).distro || distro;
+    } catch {
+      /* no setup.json: installed by npm run kiri:install */
+    }
+    return { exe, args: ["--background", "--distro", distro] };
+  }
+  if (platform === "darwin" && existsSync("/Applications/Kiri.app")) return { exe: "open", args: ["-g", "-a", "Kiri"] };
+  return null;
+}
+
+let waking: Promise<boolean> | null = null;
+
+/** Start Kiri's app (no window) and wait for its engine; one wake at a time. Only a person's Start calls this. */
+export function wakeKiri(timeoutMs = 60_000): Promise<boolean> {
+  if (waking) return waking;
+  const app = kiriApp();
+  if (!app) return Promise.resolve(false);
+  waking = (async () => {
+    try {
+      spawn(app.exe, app.args, { detached: true, stdio: "ignore", windowsHide: true }).unref();
+      const until = Date.now() + timeoutMs;
+      while (Date.now() < until) {
+        if ((await engineStatus(true)).some((s) => s.id === "kiri" && s.up)) return true;
+        await new Promise((r) => setTimeout(r, 750));
+      }
+      return false;
+    } catch {
+      return false;
+    } finally {
+      waking = null;
+    }
+  })();
+  return waking;
+}
+
+/** before a person's Start: Kiri asleep and wanted (by name, or as the first choice) → wake it */
+async function wakeIfAsleep(want?: string) {
+  if (want && want !== "kiri") return;
+  const list = await engineStatus();
+  if (!list.some((s) => s.id === "kiri" && s.asleep)) return;
+  if (!(await wakeKiri()) && want === "kiri") throw new HttpError(503, "Kiri is installed but didn't start within a minute. Open Kiri from the Start menu to see why.");
+}
+
 async function pickEngine(want?: string): Promise<EngineStatus> {
   const list = await engineStatus();
   const up = list.filter((s) => s.up);
   const e = want ? up.find((s) => s.id === want) : up[0];
   if (e) return e;
   if (want) throw new HttpError(503, list.find((s) => s.id === want)?.error ?? `no ${want} engine here`);
-  throw new HttpError(503, "No container engine is running here. Install Kiri (runkiri.com) or Docker Desktop, start it, and press Start again.");
+  throw new HttpError(503, "No container engine is running here. Install Kiri (npm run kiri:install in Foundation's folder, or runkiri.com) or Docker Desktop, start it, and press Start again.");
 }
 
 // ---------- the card ----------
@@ -336,9 +401,14 @@ export async function reconcileMachine(boardId: string, panelId: string): Promis
     const ports = portsOf(found.c);
     const changed = state !== m.state || found.c.Id !== m.containerId || JSON.stringify(ports) !== JSON.stringify(m.ports ?? []) || found.engine.id !== m.engine;
     if (changed) writeMachine(boardId, panelId, { state, containerId: found.c.Id, ports, engine: found.engine.id, image: m.image ?? found.c.Image, detail: state === "stopped" ? found.c.Status : undefined });
-  } else if (m.containerId && engines.some((e) => e.up)) {
-    // it was there and isn't now: someone removed it outside Foundation
+  } else if (m.containerId && engines.some((e) => e.up && (!m.engine || e.id === m.engine))) {
+    // its engine answers and it isn't there: someone removed it outside Foundation
     writeMachine(boardId, panelId, { state: "absent", containerId: undefined, ports: undefined, detail: "Not on the engine any more (removed outside Foundation). Start makes a fresh one." });
+  } else if (m.containerId && (m.state === "running" || m.state === "starting")) {
+    // its engine doesn't answer (Kiri's app quit, Docker quit): out of reach, its disk still on that engine.
+    // (Kiri's engine in WSL can outlive its app, so the machine may still be running there.)
+    const name = engines.find((e) => e.id === m.engine)?.name ?? "Its engine";
+    writeMachine(boardId, panelId, { state: "stopped", ports: undefined, detail: `${name} isn't answering here, so this machine is out of reach. Its disk is kept: Start brings ${name} back and runs it again.` });
   }
   return { machine: machinePanel(boardId, panelId).machine ?? null, engines };
 }
@@ -412,11 +482,22 @@ async function doStart(boardId: string, panelId: string, person: string, input: 
   if (!validImage(image)) throw new HttpError(400, `“${image}” isn't an image name an engine will take`);
   const wantPorts = (input.ports ?? prev.wantPorts ?? []).filter((n) => Number.isInteger(n) && n > 0 && n < 65536).slice(0, 8);
 
-  const existing = await findContainer(boardId, panelId, input.engine ?? prev.engine);
+  // a machine whose disk is on a sleeping Kiri is found once Kiri is up, not made again on Docker
+  // the engine its disk is on; a card with no machine (never started, or removed) takes the first one
+  const wantEngine = input.engine ?? (prev.containerId ? prev.engine : undefined);
+  if ((!wantEngine || wantEngine === "kiri") && (await engineStatus()).some((s) => s.id === "kiri" && s.asleep)) {
+    writeMachine(boardId, panelId, { state: "starting", detail: "Waking Kiri…" });
+    await wakeIfAsleep(wantEngine).catch((err: Error) => {
+      writeMachine(boardId, panelId, { state: prev.containerId ? "stopped" : "absent", detail: err.message });
+      throw err;
+    });
+  }
+
+  const existing = await findContainer(boardId, panelId, wantEngine ?? prev.engine);
   if (existing && existing.c.Image !== image && input.image && input.image !== prev.image) {
     throw new HttpError(409, `This card already has a machine running ${existing.c.Image}. Remove it first to start ${image}.`);
   }
-  const engine = existing?.engine ?? (await pickEngine(input.engine ?? prev.engine));
+  const engine = existing?.engine ?? (await pickEngine(wantEngine));
   const fail = (err: unknown): never => {
     const msg = (err as Error).message;
     writeMachine(boardId, panelId, { state: "error", detail: msg }, { who: person, role: "human", text: `couldn't start ${prev.name}: ${msg.slice(0, 160)}` });
@@ -481,6 +562,8 @@ async function reconcileAfter(boardId: string, panelId: string, engine: Engine) 
 
 async function container(boardId: string, panelId: string) {
   const panel = machinePanel(boardId, panelId);
+  // its disk is on a sleeping Kiri: wake it to act on it (stop, restart and remove are a person's too)
+  if (panel.machine?.engine === "kiri" && panel.machine.containerId) await wakeIfAsleep("kiri");
   const found = await findContainer(boardId, panelId, panel.machine?.engine);
   if (!found) throw new HttpError(404, "this card has no machine on any engine here");
   return { panel, ...found };
@@ -589,7 +672,7 @@ export async function describeMachines(boardId: string) {
   const engines = await engineStatus();
   const fresh = [...boardMaps(getBoard(boardId).doc).objects.values()].filter((o): o is PanelDoc => o.kind === "panel" && o.panel === "machine" && Boolean(o.machine));
   return {
-    engines: engines.map((e) => ({ engine: e.id, up: e.up, version: e.version, ...(e.up ? {} : { why: e.error }) })),
+    engines: engines.map((e) => ({ engine: e.id, up: e.up, version: e.version, ...(e.asleep ? { asleep: true } : {}), ...(e.up ? {} : { why: e.error }) })),
     machines: fresh.map((o) => ({
       id: o.id,
       name: o.machine!.name,

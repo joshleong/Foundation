@@ -520,7 +520,7 @@ export function DesignPage() {
         </div>
       </Section>
 
-      <Section title="Machines" note="A Linux machine or container in a section, on this computer's engine: Kiri or Docker (one wire, the Docker Engine API). The state pill leads: Running (green, breathing), Pulling and Starting (amber, with the engine's own progress), Stopped and Not started (grey), Error (red, in the engine's words), No engine (amber, a hatched well that says why). Then the engine and its version, the image in code type, and published ports as pills that open the port as a page in the section. Start is the one blue action, and only a person presses it: an agent's proposal says so in violet. Running, the shared terminal fills the card (paper, ink, the tokens as its colours); viewers watch it under an amber View only tag. Remove asks twice. Shown at 560, 400 and 260 px.">
+      <Section title="Machines" note="A Linux machine or container in a section, on this computer's engine: Kiri or Docker (one wire, the Docker Engine API). The state pill leads: Running (green, breathing), Pulling and Starting (amber, with the engine's own progress), Stopped and Not started (grey), Error (red, in the engine's words), No engine (amber, a hatched well that says why). Kiri installed but asleep is not No engine: the tag says Kiri · asleep and Start wakes it first; a machine whose disk is on a sleeping Kiri is Out of reach (amber), never removed. Then the engine and its version, the image in code type, and published ports as pills that open the port as a page in the section. Start is the one blue action, and only a person presses it: an agent's proposal says so in violet. Running, the shared terminal fills the card (paper, ink, the tokens as its colours); viewers watch it under an amber View only tag. Remove asks twice. Shown at 560, 400 and 260 px.">
         <div className="adapt-row">
           <div className="frame-card live-specimen" style={{ width: 560, height: 320 }}>
             <div className="machine-body is-running">
@@ -634,6 +634,55 @@ export function DesignPage() {
                   <span className="t-ok">box</span>:<span className="t-pulse">~</span># ls{"\n"}notes.md  src{"\n"}
                 </pre>
                 <div className="machine-watching">View only: you're watching</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="adapt-row">
+          <div className="frame-card live-specimen" style={{ width: 400, height: 220 }}>
+            <div className="machine-body is-absent">
+              <div className="machine-head">
+                <span className="machine-state is-idle">
+                  <span className="f-dot" />
+                  Not started
+                </span>
+                <span className="machine-engine">Kiri · asleep</span>
+                <code className="machine-image">alpine:3.22</code>
+              </div>
+              <div className="machine-picker">
+                <div className="f-eyebrow">A Linux machine</div>
+                <div className="machine-chips">
+                  {["ubuntu", "debian", "alpine", "fedora"].map((d) => (
+                    <span key={d} className={`machine-chip${d === "alpine" ? " is-on" : ""}`}>
+                      {d}
+                    </span>
+                  ))}
+                </div>
+                <div className="machine-start">
+                  <span className="f-pill is-accent">Start alpine:3.22 on Kiri</span>
+                  <span className="machine-terms">Wakes Kiri first · Pulls it if needed · ports on 127.0.0.1 only · nothing from this computer mounted</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="frame-card live-specimen" style={{ width: 400, height: 220 }}>
+            <div className="machine-body is-stopped">
+              <div className="machine-head">
+                <span className="machine-state is-warn">
+                  <span className="f-dot is-warn" />
+                  Out of reach
+                </span>
+                <span className="machine-engine">Kiri · asleep</span>
+                <code className="machine-image">alpine:3.22</code>
+              </div>
+              <div className="machine-well">
+                <div className="connector-offline-title">build-box is out of reach</div>
+                <div className="connector-offline-reason">Kiri isn't answering here, so this machine is out of reach. Its disk is kept: Start brings Kiri back and runs it again.</div>
+              </div>
+              <div className="machine-controls">
+                <span className="f-pill is-accent">Start on Kiri</span>
+                <span className="machine-name">build-box</span>
+                <span className="f-pill machine-remove">Remove</span>
               </div>
             </div>
           </div>
