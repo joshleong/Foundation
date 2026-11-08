@@ -37,22 +37,26 @@ function appendUpdate(roomDir: string, edit: (doc: Y.Doc) => void) {
 const sha = (p: string) => createHash("sha256").update(readFileSync(p)).digest("hex");
 
 let mod: typeof import("../src/flowform-import.ts");
-// The room documents (fixtures/flowform/data/rooms) were never committed: the
-// root .gitignore's `data/` caught them. Without them these checks can't run,
-// so they skip and say why instead of failing every fresh clone (SPEC §7).
-const ROOMS = join(import.meta.dirname, "fixtures", "flowform", "data", "rooms");
-const present = existsSync(ROOMS);
-const check: typeof test = present ? test : ((name: string) => test(name, { skip: `missing fixture ${ROOMS}` })) as typeof test;
-const fx = present ? makeBackup() : { dir: "", media: "", put: () => {} } as unknown as ReturnType<typeof makeBackup>;
-const scratch = [process.env.FOUNDATION_DATA_DIR!, fx.dir, fx.media].filter(Boolean);
+// The fixture's room documents (fixtures/flowform/data/rooms) were never committed: the root
+// .gitignore's `data/` caught them (now `/data/`). Until they are, these tests say so instead of crashing.
+const MISSING = existsSync(join(import.meta.dirname, "fixtures", "flowform", "data", "rooms"))
+  ? false
+  : "fixture rooms missing: test/fixtures/flowform/data/rooms was never committed (SPEC §7)";
+const fx = MISSING ? (null as unknown as ReturnType<typeof makeBackup>) : makeBackup();
+const scratch = [process.env.FOUNDATION_DATA_DIR!, ...(MISSING ? [] : [fx.dir, fx.media])];
 after(async () => {
-  if (!present) return void rmSync(process.env.FOUNDATION_DATA_DIR!, { recursive: true, force: true });
   (await import("../src/boards.ts")).closeBoards();
-  for (const d of scratch) rmSync(d, { recursive: true, force: true });
+  for (const d of scratch) {
+    try {
+      rmSync(d, { recursive: true, force: true });
+    } catch {
+      // Windows won't delete the database while this process holds it open; it's a temp folder
+    }
+  }
 });
 const BOARD = `ff-${LAUNCH}`;
 
-check("a flowform backup becomes boards, cards, files and members", async () => {
+test("a flowform backup becomes boards, cards, files and members", { skip: MISSING }, async () => {
   mod = await import("../src/flowform-import.ts");
   const { boardMaps } = await import("@foundation/protocol");
   const { getBoard } = await import("../src/boards.ts");
@@ -133,7 +137,7 @@ check("a flowform backup becomes boards, cards, files and members", async () => 
   assert.equal(sha(join(fx.dir, "flowform.db")), before, "the backup is only read");
 });
 
-check("re-running changes nothing", async () => {
+test("re-running changes nothing", { skip: MISSING }, async () => {
   const { all } = await import("../src/db.ts");
   const rows = all("select seq from board_updates").length;
   const r = await mod.importFlowform({ dir: fx.dir, media: mod.dirMedia(fx.media) });
@@ -147,7 +151,7 @@ check("re-running changes nothing", async () => {
   assert.equal(all("select id from files").length, 4);
 });
 
-check("upstream changes land; edits and removals made here win; late media fills its placeholder", async () => {
+test("upstream changes land; edits and removals made here win; late media fills its placeholder", { skip: MISSING }, async () => {
   const { boardMaps } = await import("@foundation/protocol");
   const { editBoard, getBoard } = await import("../src/boards.ts");
   const { run } = await import("../src/db.ts");
@@ -195,7 +199,7 @@ check("upstream changes land; edits and removals made here win; late media fills
   assert.equal(launch.files.imported, 1);
 });
 
-check("an imported room is members-only; flowform's default room is open", async () => {
+test("an imported room is members-only; flowform's default room is open", { skip: MISSING }, async () => {
   const { canSeeBoard, hiddenBoards } = await import("../src/members.ts");
   const { upsertUser } = await import("../src/auth.ts");
   const { one } = await import("../src/db.ts");
@@ -215,7 +219,7 @@ check("an imported room is members-only; flowform's default room is open", async
   assert.ok(searchLocal("chamber", undefined, 30, hiddenBoards(vic)).length > 0);
 });
 
-check("signing in with flowform finds the imported person by flowform id, even at a new address", async () => {
+test("signing in with flowform finds the imported person by flowform id, even at a new address", { skip: MISSING }, async () => {
   const { admitFlowformUser } = await import("../src/flowform.ts");
   const { boardRole } = await import("../src/members.ts");
   const user = admitFlowformUser({ user_id: NOA, display_name: "Noa Field", email: "noa@newdomain.example", email_verified: true, role: "admin" });
@@ -223,7 +227,7 @@ check("signing in with flowform finds the imported person by flowform id, even a
   assert.equal(boardRole(BOARD, user.id), "owner");
 });
 
-check("a tar.gz backup opens like the directory, and its extraction is removed", async () => {
+test("a tar.gz backup opens like the directory, and its extraction is removed", { skip: MISSING }, async () => {
   const { execFileSync } = await import("node:child_process");
   const parent = mkdtempSync(join(tmpdir(), "flowform-tar-"));
   scratch.push(parent);

@@ -26,7 +26,6 @@ import { followRun, listSessions, runtimes, sessionTurns, settleOrphanRuns, star
 import { t3Thread, t3Threads } from "./t3.ts";
 import { pollHandoffs } from "./vision.ts";
 import { boardPeople, boardRole, canWrite, requireWriter, setBoardRole } from "./roles.ts";
-import { canSeeBoard, hiddenBoards, requireBoard } from "./members.ts";
 import { runTool, TOOLS } from "./tools.ts";
 import { handleMcp } from "./mcp.ts";
 import { seedCompanyBoard } from "./seed.ts";
@@ -35,6 +34,9 @@ import { boardLink, channelHistory, channelInfo, inviteText, listChannels, postM
 import { appendSection, boardMaps } from "@foundation/protocol";
 import { migrateAllBoards } from "./migrate.ts";
 import * as flowform from "./flowform.ts";
+import { canSeeBoard, hiddenBoards, requireBoard } from "./members.ts";
+import { requirePerson } from "./auth.ts";
+import { attachTerminal, engineImages, engineStatus, loadImage, reconcileMachine, removeMachine, restartMachine, startMachine, stopMachine } from "./machines.ts";
 
 const r = new Router();
 
@@ -352,6 +354,52 @@ r.post("/api/jobs/:id/run", (req) => {
   return { job: startJob(job.id, job.board_id ?? "company", u.name) };
 });
 
+// ---------- machines (Kiri or Docker, through the Engine API) ----------
+
+r.get("/api/machines/engines", async (req) => {
+  requireUser(req);
+  return { engines: await engineStatus(req.query.get("fresh") === "1") };
+});
+r.get("/api/machines/images", async (req) => {
+  requireUser(req);
+  return engineImages(req.query.get("engine") ?? undefined);
+});
+// a card on screen asks: the server reads the engine and writes what's true to the board
+r.get("/api/boards/:id/machines/:panel", async (req) => {
+  requireBoard(requireUser(req), req.params.id);
+  return reconcileMachine(req.params.id, req.params.panel);
+});
+// everything that runs, stops or removes needs a person at a browser (gateWrites has already refused viewers)
+r.post("/api/boards/:id/machines/:panel/start", async (req) => {
+  const u = requirePerson(req, "Starting a machine");
+  requireBoard(u, req.params.id);
+  const b = await readJson<{ image?: string; engine?: string; ports?: number[] }>(req);
+  return { machine: await startMachine(req.params.id, req.params.panel, u.name, b) };
+});
+r.post("/api/boards/:id/machines/:panel/stop", async (req) => {
+  const u = requirePerson(req, "Stopping a machine");
+  requireBoard(u, req.params.id);
+  return { machine: await stopMachine(req.params.id, req.params.panel, u.name) };
+});
+r.post("/api/boards/:id/machines/:panel/restart", async (req) => {
+  const u = requirePerson(req, "Restarting a machine");
+  requireBoard(u, req.params.id);
+  return { machine: await restartMachine(req.params.id, req.params.panel, u.name) };
+});
+r.post("/api/boards/:id/machines/:panel/remove", async (req) => {
+  const u = requirePerson(req, "Removing a machine");
+  requireBoard(u, req.params.id);
+  const b = await readJson<{ confirm?: boolean }>(req);
+  return { machine: await removeMachine(req.params.id, req.params.panel, u.name, b.confirm === true) };
+});
+r.post("/api/boards/:id/machines/load", async (req) => {
+  const u = requirePerson(req, "Loading an image into an engine");
+  requireBoard(u, req.params.id);
+  const b = await readJson<{ fileId?: string; engine?: string }>(req);
+  if (!b.fileId) throw new HttpError(400, "name the file to load");
+  return loadImage(req.params.id, b.fileId, u.name, b.engine);
+});
+
 // ---------- agent ----------
 
 r.get("/api/agent/runtimes", (req) => {
@@ -477,6 +525,12 @@ server.on("upgrade", (rawReq, socket, head) => {
   const hm = /^\/huddle\/([A-Za-z0-9_-]{1,64})\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
   if (hm && user && canSeeBoard(user, hm[1])) {
     wss.handleUpgrade(req, socket, head, (ws) => attachHuddle(hm[1], hm[2], ws, user, req.query.get("send") === "1"));
+    return;
+  }
+  // a machine card's shared terminal: editors type, viewers watch
+  const tm = /^\/machines\/([A-Za-z0-9_-]{1,64})\/([A-Za-z0-9_-]{1,64})\/tty$/.exec(url.pathname);
+  if (tm && user && canSeeBoard(user, tm[1])) {
+    wss.handleUpgrade(req, socket, head, (ws) => void attachTerminal(tm[1], tm[2], ws, user, canWrite(user.id, tm[1])));
     return;
   }
   const m = /^\/sync\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);

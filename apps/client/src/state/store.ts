@@ -500,6 +500,57 @@ export function useAppState(): AppState {
   return useSyncExternalStore(subscribe, getState);
 }
 
+/** what one section draws from the store: its cards, its app, and which of them is active */
+export interface SectionSnap {
+  /** the cards in the section's flow (not its hosted app) */
+  objects: AnyObject[];
+  host: PanelMeta | null;
+  /** the active card, if it's one of this section's */
+  activeObjectId: string | null;
+  sectionFocus: boolean;
+  pendingRemoval: boolean;
+}
+
+const sectionSnaps = new Map<string, { st: AppState; snap: SectionSnap }>();
+
+export function sectionSnap(sectionId: string): SectionSnap {
+  const cached = sectionSnaps.get(sectionId);
+  if (cached && cached.st === state) return cached.snap;
+  const host = hostOf(sectionId);
+  const objects = objectsInSection(sectionId).filter((o) => o.id !== host?.id);
+  const a = state.focusLevel === "object" ? state.activeObjectId : null;
+  const next: SectionSnap = {
+    objects,
+    host,
+    activeObjectId: a && (a === host?.id || objects.some((o) => o.id === a)) ? a : null,
+    sectionFocus: state.focusLevel === "section",
+    pendingRemoval: state.pendingRemoval === sectionId,
+  };
+  const prev = cached?.snap;
+  // the same cards keep the same array, so the section's layout (and its cards' props) hold
+  if (prev && prev.objects.length === objects.length && prev.objects.every((o, i) => o === objects[i])) next.objects = prev.objects;
+  const same =
+    prev &&
+    prev.objects === next.objects &&
+    prev.host === next.host &&
+    prev.activeObjectId === next.activeObjectId &&
+    prev.sectionFocus === next.sectionFocus &&
+    prev.pendingRemoval === next.pendingRemoval;
+  const snap = same ? prev : next;
+  sectionSnaps.set(sectionId, { st: state, snap });
+  return snap;
+}
+
+/**
+ * One section's slice of the store. A section re-renders when its own cards
+ * change, or the active card moves into, out of or within it — not when a
+ * card elsewhere is pressed, dragged or typed in (which used to re-render
+ * every section and every card on the board).
+ */
+export function useSection(sectionId: string): SectionSnap {
+  return useSyncExternalStore(subscribe, () => sectionSnap(sectionId));
+}
+
 function set(partial: Partial<AppState>) {
   const prev = state;
   state = { ...state, ...partial };
@@ -713,6 +764,7 @@ export function addSectionAdjacent(
     activeSectionId: fresh.id,
     snapRequest: { kind: "section", id: fresh.id, nonce: Math.random() },
   });
+  return fresh.id;
 }
 
 /**

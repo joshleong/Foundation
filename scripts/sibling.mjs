@@ -43,7 +43,8 @@ for (const name of names) {
     if (names.length === 1) process.exit(1);
     continue;
   }
-  const p = spawn(s.cmd, s.args, { cwd, env: { ...process.env, ...s.env }, stdio: names.length === 1 ? "inherit" : ["ignore", "pipe", "pipe"] });
+  // npm and npx are .cmd files on Windows, which Node only starts through a shell (the arguments are fixed, above)
+  const p = spawn(s.cmd, s.args, { cwd, env: { ...process.env, ...s.env }, stdio: names.length === 1 ? "inherit" : ["ignore", "pipe", "pipe"], shell: process.platform === "win32" });
   if (names.length > 1) {
     const tag = `${name.padEnd(12)} │ `;
     const pipe = (st) => st.on("data", (b) => process.stdout.write(b.toString().replace(/^(?=.)/gm, tag)));

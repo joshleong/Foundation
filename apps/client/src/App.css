@@ -1946,3 +1946,94 @@ body.is-connecting .frame-header {
   font-size: 9px !important;
   opacity: 0.7;
 }
+
+/* other people writing in a note (live, from awareness) */
+.note-caret-mirror {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  color: transparent;
+  background: none;
+}
+.note-editor {
+  scrollbar-gutter: stable; /* the mirror wraps at the same width whether or not the editor scrolls */
+}
+.note-peer-sel {
+  color: transparent;
+  background: color-mix(in srgb, var(--peer) 22%, transparent);
+  border-radius: var(--radius-paper);
+}
+.note-caret {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  height: 1.6em;
+  vertical-align: top;
+}
+.note-caret::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--peer);
+}
+.note-caret-name {
+  position: absolute;
+  left: -1px;
+  bottom: 100%;
+  padding: 2px 6px;
+  border-radius: var(--radius-paper) var(--radius-paper) var(--radius-paper) 0;
+  background: var(--peer);
+  color: var(--color-raise);
+  font: 600 var(--text-11) / 1.2 var(--font-sans);
+  white-space: nowrap;
+  /* named while they move; then just the bar, so the line above stays readable */
+  animation: note-caret-name-rest 1.8s var(--ease-out-soft) forwards;
+}
+@keyframes note-caret-name-rest {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.note-writers {
+  position: absolute;
+  bottom: 8px;
+  right: 24px; /* clear of the resize grip */
+  z-index: 1;
+  display: flex;
+  gap: 4px;
+  pointer-events: none;
+}
+.note-writer {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-raise);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--peer) 45%, transparent);
+  color: var(--color-frost);
+  font: 600 var(--text-11) / 1 var(--font-sans);
+}
+.note-writer::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--peer);
+  animation: note-writer-breathe 1.6s var(--ease-out-soft) infinite alternate;
+}
+@keyframes note-writer-breathe {
+  to { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .note-caret-name { animation: none; }
+  .note-writer::before { animation: none; }
+}

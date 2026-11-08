@@ -102,6 +102,21 @@ export function requireUser(req: Req): UserInfo {
   return u;
 }
 
+/**
+ * A person at a browser, not an agent: the session must come from the
+ * sign-in cookie, with no bearer token on the request. Agents, MCP clients
+ * and the service token all hold bearer tokens, so things that run
+ * third-party code (starting a machine) can ask for this.
+ */
+export function requirePerson(req: Req, what = "This"): UserInfo {
+  const u = requireUser(req);
+  const cookie = parseCookies(req.headers.cookie)[COOKIE];
+  if (u.id === AGENT_USER.id || req.headers.authorization || !cookie) {
+    throw new HttpError(403, `${what} needs a person: press the button on the card. Agents can propose, not run.`);
+  }
+  return u;
+}
+
 // ---------- Google OAuth ----------
 
 const pendingStates = new Map<string, number>();

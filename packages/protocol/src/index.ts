@@ -161,6 +161,54 @@ export interface PanelDoc extends ObjectBaseDoc {
   checklist?: Array<{ text: string; done: boolean }>;
   /** stage-specific settings, e.g. { analysis: "CFD", loads: "…" } */
   settings?: Record<string, string>;
+  // ---- machines on a container engine (panel === "machine" without a url) ----
+  /** a Linux machine or container this card runs on Kiri or Docker, kept by the server (machines.ts) */
+  machine?: MachineState;
+}
+
+// ---------- machines: Linux machines and containers on a local engine ----------
+
+/**
+ * A machine card's engine-side state. The engine is the truth: the server
+ * reads it back (by the container's labels) and writes what it finds here,
+ * so everyone sees the same state. Starting needs a person; agents propose.
+ */
+export interface MachineState {
+  /** machine name; the container is `machine-<name>` (Kiri's convention, so `kiri machine shell <name>` finds it) */
+  name: string;
+  /** image it runs ("ubuntu:24.04"): picked by a person on the card, or proposed by an agent */
+  image?: string;
+  /** "kiri" | "docker"; unset: the first engine that answers, Kiri first */
+  engine?: string;
+  state: "absent" | "pulling" | "starting" | "running" | "stopped" | "error";
+  /** words for the state: pull progress, why it stopped, the error */
+  detail?: string;
+  containerId?: string;
+  /** container ports to publish on 127.0.0.1 */
+  wantPorts?: number[];
+  /** what the engine published: container port → host port on 127.0.0.1 */
+  ports?: Array<{ port: number; host: number }>;
+  proposedBy?: string;
+  startedBy?: string;
+  /** when it entered this state */
+  since?: number;
+}
+
+/** Kiri's distro shortcuts (`kiri machine create NAME --distro ubuntu`): these images become long-lived machines */
+export const MACHINE_DISTROS: ReadonlyArray<{ id: string; image: string }> = [
+  { id: "ubuntu", image: "ubuntu:24.04" },
+  { id: "debian", image: "debian:trixie" },
+  { id: "alpine", image: "alpine:3.22" },
+  { id: "fedora", image: "fedora:42" },
+  { id: "arch", image: "archlinux:latest" },
+  { id: "rocky", image: "rockylinux:9" },
+  { id: "opensuse", image: "opensuse/tumbleweed:latest" },
+];
+
+/** a machine name: letters, digits and dashes, not starting with a dash (Kiri's rule), at most 40 */
+export function machineName(s: string): string {
+  const n = s.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+  return n || "machine";
 }
 
 // ---------- huddles: video portals on the board ----------

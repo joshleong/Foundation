@@ -68,6 +68,17 @@ export interface PeerState {
   focus?: string | null;
 }
 
+/** someone else writing in a note: their selection (from === to for a bare caret) */
+export interface NoteCaret {
+  clientId: number;
+  name: string;
+  color: string;
+  from: number;
+  to: number;
+  /** where their caret is (from or to) */
+  head: number;
+}
+
 class BoardSync {
   doc = new Y.Doc();
   awareness = new awarenessProtocol.Awareness(this.doc);
@@ -105,6 +116,7 @@ class BoardSync {
     });
     this.awareness.on("update", ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => {
       if (origin !== "local") {
+        this.refreshCarets();
         this.notify();
         return;
       }
@@ -520,6 +532,110 @@ class BoardSync {
     return t.toString();
   }
 
+  // ---------- your own undo in a note ----------
+
+  private undoers = new Map<string, Y.UndoManager>();
+
+  /**
+   * Undo (or redo) in a note takes back only what *you* typed there: other
+   * people's words stay. One stack per note, kept while the board is open;
+   * keystrokes within half a second are one step. Returns whether anything
+   * changed (the store hears of it through the note's text observer).
+   */
+  undoNote(id: string, redo = false): boolean {
+    if (this.readOnly) return false;
+    const u = this.undoerFor(id);
+    if (!u) return false;
+    return (redo ? u.redo() : u.undo()) !== null;
+  }
+
+  private undoerFor(id: string): Y.UndoManager | null {
+    const t = boardMaps(this.doc).noteText.get(id);
+    let u = this.undoers.get(id);
+    if (u && t && u.scope[0] === t) return u;
+    u?.destroy();
+    this.undoers.delete(id);
+    if (!t) return null;
+    u = new Y.UndoManager(t, { trackedOrigins: new Set([LOCAL]), captureTimeout: 500 });
+    this.undoers.set(id, u);
+    return u;
+  }
+
+  /** start tracking a note's edits before the first keystroke, so that keystroke can be undone */
+  watchNoteUndo(id: string) {
+    this.undoerFor(id);
+  }
+
+  // ---------- carets in notes ----------
+
+  /**
+   * Where you are writing: the note and your selection, as positions in its
+   * shared text (relative, so they stay on the same characters while others
+   * type around them). null when you stop writing.
+   */
+  setCaret(noteId: string | null, anchor = 0, head = anchor) {
+    const t = noteId ? boardMaps(this.doc).noteText.get(noteId) : null;
+    const next = t
+      ? {
+          note: noteId,
+          anchor: Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(t, anchor)),
+          head: Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(t, head)),
+        }
+      : null;
+    const prev = (this.awareness.getLocalState() as { caret?: unknown } | null)?.caret ?? null;
+    if (JSON.stringify(prev) === JSON.stringify(next)) return;
+    this.awareness.setLocalStateField("caret", next);
+  }
+
+  /** other people's carets in a note, as indexes into its text now */
+  noteCarets(noteId: string): NoteCaret[] {
+    const t = boardMaps(this.doc).noteText.get(noteId);
+    if (!t) return [];
+    const out: NoteCaret[] = [];
+    for (const [clientId, s] of this.awareness.getStates()) {
+      if (clientId === this.doc.clientID) continue;
+      const c = (s as { caret?: { note: string; anchor: unknown; head: unknown } | null; user?: PeerState["user"] }).caret;
+      if (!c || c.note !== noteId || !s.user) continue;
+      const at = (j: unknown) => {
+        const abs = Y.createAbsolutePositionFromRelativePosition(Y.createRelativePositionFromJSON(j), this.doc);
+        return abs && abs.type === t ? abs.index : null;
+      };
+      const a = at(c.anchor);
+      const h = at(c.head);
+      if (a === null || h === null) continue;
+      out.push({ clientId, name: s.user.name, color: s.user.color, from: Math.min(a, h), to: Math.max(a, h), head: h });
+    }
+    return out.sort((x, y) => x.clientId - y.clientId);
+  }
+
+  private caretSig = new Map<string, string>();
+  private caretListeners = new Map<string, Set<() => void>>();
+
+  /** a note hears only when someone's caret in it moves (not on every pointer move) */
+  onNoteCarets(noteId: string, fn: () => void) {
+    let s = this.caretListeners.get(noteId);
+    if (!s) this.caretListeners.set(noteId, (s = new Set()));
+    s.add(fn);
+    return () => {
+      s!.delete(fn);
+    };
+  }
+
+  private refreshCarets() {
+    const sig = new Map<string, string>();
+    for (const [clientId, s] of this.awareness.getStates()) {
+      if (clientId === this.doc.clientID) continue;
+      const c = (s as { caret?: { note: string } | null }).caret;
+      if (!c?.note) continue;
+      sig.set(c.note, (sig.get(c.note) ?? "") + clientId + JSON.stringify(c));
+    }
+    for (const note of new Set([...sig.keys(), ...this.caretSig.keys()])) {
+      if (sig.get(note) === this.caretSig.get(note)) continue;
+      for (const fn of this.caretListeners.get(note) ?? []) fn();
+    }
+    this.caretSig = sig;
+  }
+
   // ---------- presence ----------
 
   setCursor(cursor: { x: number; y: number } | null) {
@@ -548,6 +664,8 @@ class BoardSync {
   destroy() {
     this.closed = true;
     setSyncHook(null);
+    for (const u of this.undoers.values()) u.destroy();
+    this.undoers.clear();
     this.unsubWorkbook?.();
     awarenessProtocol.removeAwarenessStates(this.awareness, [this.doc.clientID], "local");
     this.ws?.close();
@@ -627,6 +745,11 @@ export function onBoardChange(fn: () => void) {
 }
 
 export type { BoardSync };
+
+/** ⌘Z / ⇧⌘Z in a note: only your own typing (see BoardSync.undoNote) */
+export function undoNoteText(id: string, redo = false): boolean {
+  return current?.undoNote(id, redo) ?? false;
+}
 
 /** a keystroke in a note, through the board's shared text (see BoardSync.editNote) */
 export function editNoteText(id: string, base: string, next: string) {

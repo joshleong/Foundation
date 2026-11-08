@@ -23,6 +23,7 @@ import {
   findSection,
   isHostable,
   logActivity,
+  MACHINE_DISTROS,
   uid,
   type LinkDoc,
   type NoteDoc,
@@ -44,6 +45,7 @@ import { attachToStage, chooseArtifact, completeStage, describePipeline, setChec
 import { stageDef } from "@foundation/protocol";
 import { huddleArchive, transcriptText } from "./huddles.ts";
 import { channelHistory, channelInfo, listChannels } from "./slack.ts";
+import { describeMachines, proposeMachine, validImage } from "./machines.ts";
 
 export interface ToolCtx {
   boardId: string;
@@ -504,6 +506,40 @@ export const TOOLS: BoardTool[] = [
       touch(ctx, p.id, `queued reverse-engineering of ${target}`);
       return { job: job.id, card: p.id, note: "waiting for a person to press Run on the card" };
     },
+  }),
+  // ---------- machines: Linux machines and containers on Kiri or Docker (machines.ts) ----------
+  def({
+    name: "propose_machine",
+    description:
+      "Propose a Linux machine or container for a section: a machine card that runs on this computer's container engine (Kiri or Docker) once a person presses Start on it. Agents can't start, stop or remove machines — that runs third-party code, so a person does it. Distros: ubuntu, debian, alpine, fedora, arch, rocky, opensuse (or any image name, e.g. 'postgres:17', 'nginx:1.27'). Ports are container ports to publish on 127.0.0.1.",
+    schema: z.object({
+      name: z.string().describe("short machine name, e.g. 'build box'"),
+      image: z.string().optional().describe("a distro id (ubuntu…) or an image ref; omit to let the person pick on the card"),
+      ports: z.array(z.number().int().min(1).max(65535)).max(8).optional(),
+      why: z.string().optional().describe("what it's for, in a sentence: shown on the card"),
+      section: z.string().optional(),
+      request_id: z.string().optional(),
+    }),
+    write: true,
+    run: (ctx, input) => {
+      const distro = MACHINE_DISTROS.find((d) => d.id === input.image?.toLowerCase());
+      const image = distro?.image ?? input.image?.trim();
+      if (image && !validImage(image)) throw new Error(`“${image}” isn't an image name an engine will take`);
+      const p = addPanel(ctx, { section: input.section, panel: "machine", name: input.name, text: input.why });
+      editBoard(ctx.boardId, "agent", (doc) => {
+        const cur = getPanel(doc, p.id);
+        boardMaps(doc).objects.set(p.id, proposeMachine(cur, image, ctx.actor, input.ports));
+      });
+      touch(ctx, p.id, `proposed a machine “${input.name}”${image ? ` (${image})` : ""}`);
+      return { card: p.id, image: image ?? null, note: "waiting for a person to press Start on the card" };
+    },
+  }),
+  def({
+    name: "machines",
+    description:
+      "Read the machine cards on this board: which engines (Kiri, Docker) answer here, each machine's image, state (absent, pulling, starting, running, stopped, error), published ports as URLs, and the last screen of its shared terminal (what people ran and saw).",
+    schema: z.object({}),
+    run: (ctx) => describeMachines(ctx.boardId),
   }),
   // ---------- design pipelines: design → CAD → simulation → release ----------
   def({

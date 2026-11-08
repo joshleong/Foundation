@@ -1,22 +1,54 @@
 #!/usr/bin/env node
-// One command for local testing: the server (:4410) and the client (:1430), with prefixed logs.
+// One command for local testing, with prefixed logs, on macOS, Linux and Windows:
+//
+//   npm run dev       the server (:4410) and the web client (:1430) → open http://localhost:1430
+//   npm run desktop   the server and the desktop window (Tauri starts the client itself; needs Rust)
 import { spawn } from "node:child_process";
+
+const win = process.platform === "win32";
+const desktop = process.argv.includes("--desktop");
 
 const procs = [
   ["server", "npm", ["run", "dev", "-w", "@foundation/server"], "\x1b[35m"],
-  ["client", "npm", ["run", "dev", "-w", "@foundation/client"], "\x1b[34m"],
+  desktop
+    ? ["desktop", "npm", ["run", "tauri", "-w", "@foundation/client", "--", "dev"], "\x1b[36m"]
+    : ["client", "npm", ["run", "dev", "-w", "@foundation/client"], "\x1b[34m"],
 ].map(([name, cmd, args, color]) => {
-  const p = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], env: process.env });
-  const tag = `${color}${name.padEnd(6)}\x1b[0m │ `;
+  // npm is npm.cmd on Windows, which Node only starts through a shell (the arguments are fixed, above)
+  // each child leads its own process group (macOS, Linux) so stopping it stops what npm started under it
+  const p = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], env: process.env, shell: win, detached: !win });
+  const tag = `${color}${name.padEnd(7)}\x1b[0m │ `;
   const pipe = (s) => s.on("data", (b) => process.stdout.write(b.toString().replace(/^(?=.)/gm, tag)));
   pipe(p.stdout);
   pipe(p.stderr);
   p.on("exit", (code) => {
     console.log(`${tag}exited ${code}`);
-    for (const q of procs) q.kill();
+    stopAll();
     process.exit(code ?? 0);
   });
   return p;
 });
-process.on("SIGINT", () => procs.forEach((p) => p.kill("SIGINT")));
-console.log("\n  Foundation → http://localhost:1430  (server http://localhost:4410)\n");
+
+/** stop a child and everything it started: killing npm alone leaves vite, tsx and the window holding their ports */
+function stop(p) {
+  if (p.exitCode !== null) return;
+  try {
+    if (win) spawn("taskkill", ["/pid", String(p.pid), "/T", "/F"], { stdio: "ignore" });
+    else process.kill(-p.pid, "SIGINT");
+  } catch {
+    /* already gone */
+  }
+}
+function stopAll() {
+  for (const p of procs) stop(p);
+}
+for (const sig of ["SIGINT", "SIGTERM"])
+  process.on(sig, () => {
+    stopAll();
+    process.exit(0);
+  });
+console.log(
+  desktop
+    ? "\n  Foundation → the desktop window opens once the client is built  (server http://localhost:4410)\n"
+    : "\n  Foundation → http://localhost:1430  (server http://localhost:4410)\n",
+);

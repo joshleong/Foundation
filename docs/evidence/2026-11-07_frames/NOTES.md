@@ -33,6 +33,7 @@ E2E_BUILD=1 PERF_GPU=1 npm run e2e -w @foundation/client -- frames   # productio
 | `after-dev/` | this change, dev server, 1440×900 @2× |
 | `after-build/` | this change, production build, 1440×900 @2× (+ screenshots) |
 | `after-build-2560/` | this change, production build, 2560×1400 @2× (canvas 6149×3380) |
+| `after-merge-build/` | the same on `main` after merging the per-section store slice and machines: 0 frames over on every board surface, wind 60 fps |
 | `profile-before.json` | CPU profiles (CDP, 100 µs sampling) of the slow interactions on `before` |
 
 ## What was wrong, and the evidence for each
