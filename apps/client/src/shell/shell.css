@@ -319,6 +319,11 @@ button.tab,
   font-size: var(--text-12);
   line-height: 1.45;
 }
+/* the server's "looked in…" list: one path a line, long paths wrap anywhere */
+.pane-empty.is-paths {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
 .pane-row {
   display: flex;
   align-items: center;

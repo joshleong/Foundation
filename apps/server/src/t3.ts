@@ -11,22 +11,30 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { findT3Home, notFoundMessage, t3Url } from "./t3paths.ts";
 
-const HOME = process.env.T3CODE_HOME ?? join(homedir(), "Library", "Application Support", "co.normallab.vision", "code");
-const DB = join(HOME, "userdata", "state.sqlite");
-/** Read when used, not at import: a test (or a launcher) may set T3_URL after this module loads. */
-const t3Url = () => (process.env.T3_URL ?? "http://localhost:3783").replace(/\/$/, "");
-
-let db: DatabaseSync | null = null;
+/** where T3's store is, looked up when used: T3CODE_HOME, or Vision's home on this platform */
+let db: { path: string; db: DatabaseSync } | null = null;
+let missing: string | null = null;
 function open(): DatabaseSync | null {
-  if (db) return db;
-  if (!existsSync(DB)) return null;
+  const home = findT3Home();
+  const path = home.found ? join(home.found, "userdata", "state.sqlite") : null;
+  if (db && db.path === path) return db.db;
+  db?.db.close();
+  db = null;
+  if (!path || !existsSync(path)) {
+    missing = process.env.T3CODE_HOME
+      ? `T3CODE_HOME is ${process.env.T3CODE_HOME}, but there's no userdata/state.sqlite in it. Point it at Vision Code's data folder, or unset it to look in the usual places.`
+      : notFoundMessage(null, { found: null, tried: home.tried });
+    return null;
+  }
   try {
-    db = new DatabaseSync(DB, { readOnly: true });
-    return db;
-  } catch {
+    db = { path, db: new DatabaseSync(path, { readOnly: true }) };
+    missing = null;
+    return db.db;
+  } catch (e) {
+    missing = `Vision Code's threads are at ${path}, but they couldn't be read: ${(e as Error).message}`;
     return null;
   }
 }
@@ -62,9 +70,10 @@ function statusOf(session: string | null, pending: number, error: string | null)
   return "idle";
 }
 
-export async function t3Threads(limit = 24): Promise<{ available: boolean; threads: T3Thread[] }> {
+/** `missing` says, when they can't be read, where Foundation looked and what to set */
+export async function t3Threads(limit = 24): Promise<{ available: boolean; threads: T3Thread[]; missing?: string }> {
   const d = open();
-  if (!d) return { available: false, threads: [] };
+  if (!d) return { available: false, threads: [], missing: missing ?? undefined };
   const env = await environmentId();
   try {
     const rows = d
@@ -91,8 +100,8 @@ export async function t3Threads(limit = 24): Promise<{ available: boolean; threa
         url: env ? `${t3Url()}/${env}/${r.thread_id}` : null,
       })),
     };
-  } catch {
-    return { available: false, threads: [] };
+  } catch (e) {
+    return { available: false, threads: [], missing: `Vision Code's threads couldn't be read (its store may have changed): ${(e as Error).message}` };
   }
 }
 

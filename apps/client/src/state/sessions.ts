@@ -308,20 +308,22 @@ export interface T3Thread {
   url: string | null;
 }
 
-let lists: { sessions: SessionSummary[]; t3: T3Thread[]; t3Available: boolean | null } = { sessions: [], t3: [], t3Available: null };
+/** t3Missing: when Vision Code's threads can't be read, the server's word on where it looked and what to set */
+let lists: { sessions: SessionSummary[]; t3: T3Thread[]; t3Available: boolean | null; t3Missing: string | null } = { sessions: [], t3: [], t3Available: null, t3Missing: null };
 const listListeners = new Set<() => void>();
 
 export async function refreshLists() {
   const board = activeBoard()?.boardId ?? "company";
   const [s, t] = await Promise.allSettled([
     api<{ sessions: SessionSummary[] }>(`/api/agent/sessions?board=${encodeURIComponent(board)}`),
-    api<{ available: boolean; threads: T3Thread[] }>("/api/t3/threads"),
+    api<{ available: boolean; threads: T3Thread[]; missing?: string }>("/api/t3/threads"),
   ]);
   lists = {
     sessions: s.status === "fulfilled" ? s.value.sessions : lists.sessions,
     t3: t.status === "fulfilled" ? t.value.threads : lists.t3,
     // unreachable (offline) isn't "not installed": keep what we last knew
     t3Available: t.status === "fulfilled" ? t.value.available : lists.t3Available,
+    t3Missing: t.status === "fulfilled" ? (t.value.missing ?? null) : lists.t3Missing,
   };
   for (const fn of listListeners) fn();
 }

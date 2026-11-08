@@ -21,7 +21,6 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, extname } from "node:path";
-import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
 import { boardMaps, logActivity, uid, type MediaDoc, type PanelDoc } from "@foundation/protocol";
@@ -30,16 +29,9 @@ import { all, one, run } from "./db.ts";
 import { editBoard } from "./boards.ts";
 import { storeFile, isCad } from "./files.ts";
 import { t3Thread } from "./t3.ts";
+import { findT3Cli, findT3Home, notFoundMessage, t3Command, t3Url } from "./t3paths.ts";
 import { imageSize } from "./construct.ts";
 
-const T3_HOME = process.env.T3CODE_HOME ?? join(homedir(), "Library", "Application Support", "co.normallab.vision", "code");
-/** Read when used, not at import: a test (or a launcher) may set T3_URL after this module loads. */
-const t3Url = () => (process.env.T3_URL ?? "http://localhost:3783").replace(/\/$/, "");
-function t3Cli() {
-  if (process.env.T3_CLI) return process.env.T3_CLI;
-  const vision = join(homedir(), "Development", "Vision", ".tools", "code-server", "t3");
-  return existsSync(vision) ? vision : "t3";
-}
 const HANDOFFS = () => join(config.dataDir, "handoffs");
 
 /** T3's provider for a Claude thread (Vision's own defaults, handoff.ts) */
@@ -47,17 +39,35 @@ const PROVIDER = { instanceId: "claudeAgent", model: process.env.T3_MODEL ?? "cl
 
 // ---------- a session for one hand-off ----------
 
+/**
+ * Where Vision Code's CLI and home are (t3paths.ts), or why not: the message
+ * a person sees on the hand-off card names every place looked and what to set.
+ */
+export function t3Where(): { cli: string; home: string } {
+  const cli = findT3Cli();
+  const home = findT3Home();
+  if (!cli.found || !home.found) throw new Error(notFoundMessage(cli, home));
+  return { cli: cli.found, home: home.found };
+}
+
 function cli(args: string[]): Promise<string> {
   return new Promise((ok, fail) => {
-    // a CLI given as a script runs under this Node: Windows can't start a #! file itself (the tests' stand-in is one)
-    const bin = t3Cli();
-    const [cmd, pre] = /\.[cm]?js$/.test(bin) ? [process.execPath, [bin]] : [bin, []];
-    const child = spawn(cmd, [...pre, ...args, "--base-dir", T3_HOME, "--log-level", "error"], { stdio: ["ignore", "pipe", "pipe"] });
+    let where: { cli: string; home: string };
+    let cmd: string;
+    let pre: string[];
+    try {
+      where = t3Where();
+      ({ cmd, pre } = t3Command(where.cli));
+    } catch (e) {
+      return fail(e as Error);
+    }
+    // no shell: the arguments go to the program as they are
+    const child = spawn(cmd, [...pre, ...args, "--base-dir", where.home, "--log-level", "error"], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     let out = "";
     let err = "";
     child.stdout.on("data", (b: Buffer) => (out += b));
     child.stderr.on("data", (b: Buffer) => (err += b));
-    child.on("error", (e) => fail(new Error(`Vision Code's CLI (${t3Cli()}) isn't here: ${e.message}`)));
+    child.on("error", (e) => fail(new Error(`Vision Code's CLI at ${where.cli} wouldn't start (${e.message}). If it lives elsewhere, set T3_CLI to its t3 program (t3.exe on Windows) where Foundation's server starts.`)));
     child.on("close", (code) => (code === 0 ? ok(out) : fail(new Error(`t3 ${args.slice(0, 3).join(" ")} failed: ${(err || out).slice(-400)}`))));
   });
 }
