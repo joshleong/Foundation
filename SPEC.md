@@ -223,6 +223,7 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | LOD, media residency, viewport culling, iframe snapshots | zoom-gated frames, IO-mounted panels, idle shader, memoised layout | partial (§5) |
 | Gantt / Timeline & tasks | — | **dropped** (as asked) |
 | Digital twin (factory sim, Kapaʻa 3D, mechanical/electrical benches, deployments, demo scenes) | — | **dropped** (as asked). FactoryForm owns the twin |
+| Rooms, room_members, room media (S3) | `flowform-import.ts`, `members.ts`, `files.ts` | imported from Flowform's data backup, re-runnable (`docs/flowform-import.md`). Groups, card arrows, dataflow wires, directives, floor plans, camera feeds and board jumps are counted, not carried |
 | Admin (users, audit, crashes, maintenance) | — | deferred |
 
 ---

@@ -81,6 +81,37 @@ export async function storeFile(body: Buffer, f: { name: string; mime: string; b
   return one<FileRow>("select * from files where id = ?", id)!;
 }
 
+/**
+ * Store bytes that came from elsewhere (the flowform importer) under a known
+ * id. Content-addressed like an upload; an id that already exists is left as
+ * it is (its bytes never change), and an archived source stays archived.
+ */
+export async function storeImportedFile(f: {
+  id: string;
+  boardId: string | null;
+  name: string;
+  mime: string;
+  body: Buffer;
+  uploadedBy: string | null;
+  createdAt: number;
+  archivedAt: number | null;
+}): Promise<{ created: boolean }> {
+  if (one("select id from files where id = ?", f.id)) return { created: false };
+  const sha = createHash("sha256").update(f.body).digest("hex");
+  const dest = filePath(sha);
+  if (!existsSync(dest)) {
+    const tmp = `${dest}.${randomBytes(4).toString("hex")}.part`;
+    await writeFile(tmp, f.body);
+    await rename(tmp, dest);
+  }
+  run(
+    "insert into files (id, board_id, name, mime, size, sha256, uploaded_by, created_at, archived_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    f.id, f.boardId, f.name.slice(0, 240), f.mime, f.body.length, sha, f.uploadedBy, f.createdAt, f.archivedAt,
+  );
+  if (!f.archivedAt) indexDoc("file", f.id, f.boardId, f.name, extractText(f.name, f.mime, f.body));
+  return { created: true };
+}
+
 function extractText(name: string, mime: string, body: Buffer): string {
   const ext = extname(name).toLowerCase();
   if (CAD_EXT.has(ext)) return cadHeaderText(body.subarray(0, 64 * 1024).toString("latin1"));
