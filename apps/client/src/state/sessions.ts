@@ -265,7 +265,19 @@ export function touchedBy(turns: Turn[]): string[] {
     }
   }
   const text = parts.join(" ");
-  return text ? ids.filter((id) => text.includes(id)) : [];
+  const named = text ? ids.filter((id) => text.includes(id)) : [];
+  // and what its agents actually wrote, from the board's own activity (signed by name): a card a tool
+  // changed without naming it still gets its ring
+  const wrote = new Set<string>();
+  const log = activeBoard()?.activity() ?? [];
+  turns.forEach((t, i) => {
+    const names = new Set(t.events.flatMap((e) => (e.type === "crew" || e.type === "helper" ? [e.name] : [])));
+    if (!names.size) return;
+    const until = turns[i + 1]?.at ?? Infinity;
+    for (const a of log) if (a.objectId && names.has(a.who) && a.at >= t.at - 1000 && a.at < until) wrote.add(a.objectId);
+  });
+  const known = new Set(ids);
+  return [...new Set([...named, ...[...wrote].filter((id) => known.has(id))])];
 }
 
 /** the first board object a step names, so a step can be clicked to frame it */

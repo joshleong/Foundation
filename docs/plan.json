@@ -659,7 +659,7 @@
       "kind": "bug",
       "milestone": "crew",
       "area": "agent",
-      "status": "backlog",
+      "status": "done",
       "body": "Rings come from ids in tool inputs and results. Ring from the activity a run wrote instead."
     },
     {
