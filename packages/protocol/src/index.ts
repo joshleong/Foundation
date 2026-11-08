@@ -561,6 +561,10 @@ export function describeBoard(doc: Y.Doc): string {
 export type AgentEvent =
   /** first on every stream: the run it belongs to (reattach with GET /api/agent/runs/:id/events) */
   | { type: "run"; id: string }
+  /** the visible agent doing this run: its generated name, hue (0–5) and, for a helper, who called it in */
+  | { type: "crew"; id: string; name: string; hue: number; lead?: string; leadName?: string }
+  /** a helper this run called in: its own run and session, so its tab can be opened */
+  | { type: "helper"; name: string; runId: string; session: string }
   | { type: "text"; text: string }
   | { type: "tool"; name: string; input: unknown }
   | { type: "tool_result"; name: string; ok: boolean; summary: string }
@@ -573,8 +577,10 @@ export type AgentEvent =
  * - "subscription": Claude Code on this machine (`claude -p`), the T3-style
  *   session mechanism — the user's plan pays, never an API key.
  * - "api": the Anthropic API with the workspace key (credits).
+ * - "script": a fixed playbook for tests and e2e (FOUNDATION_AGENT_SCRIPT=1
+ *   only): the same tools, no model.
  */
-export type AgentRuntime = "subscription" | "api";
+export type AgentRuntime = "subscription" | "api" | "script";
 
 export interface SearchHit {
   source: "board" | "file" | "slack" | "github" | "app" | "activity" | "huddle";
