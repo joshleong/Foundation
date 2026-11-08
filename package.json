@@ -15,7 +15,9 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm test --workspaces --if-present",
     "tauri": "npm run tauri -w @foundation/client --",
-    "services": "node scripts/sibling.mjs all"
+    "services": "node scripts/sibling.mjs all",
+    "kiri": "node scripts/kiri.mjs",
+    "kiri:install": "node scripts/kiri.mjs install"
   },
   "engines": {
     "node": ">=22.16"

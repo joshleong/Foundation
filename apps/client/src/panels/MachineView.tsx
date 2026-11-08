@@ -34,6 +34,8 @@ interface EngineStatus {
   up: boolean;
   version?: string;
   error?: string;
+  /** Kiri installed here but not running: Start wakes it */
+  asleep?: boolean;
 }
 
 const board = () => activeBoard()?.boardId ?? "company";
@@ -63,16 +65,20 @@ export function MachineBody({ panel }: { panel: PanelMeta }) {
   }, [onScreen, panel.id, m.state]);
 
   const up = engines?.filter((e) => e.up) ?? [];
-  const engine = engines?.find((e) => e.id === m.engine && e.up) ?? up[0];
-  const noEngine = engines !== null && up.length === 0;
+  const asleep = engines?.find((e) => e.asleep);
+  // a machine on a sleeping Kiri waits for Kiri, not for whichever engine is up
+  // one with no machine yet (or removed) starts on Kiri when it's installed, awake or not; else the first engine up
+  const first = engines?.find((e) => e.id === "kiri" && (e.up || e.asleep)) ?? up[0];
+  const engine = (m.engine === "kiri" && m.containerId && asleep) || ((m.containerId ? engines?.find((e) => e.id === m.engine && e.up) : undefined) ?? first);
+  const noEngine = engines !== null && up.length === 0 && !asleep;
 
   return (
     <div ref={host} className={`machine-body is-${m.state}`}>
       <div className="machine-head">
-        <StatePill m={m} noEngine={noEngine && m.state !== "running"} />
+        <StatePill m={m} noEngine={noEngine && m.state !== "running"} away={Boolean(engine?.asleep && m.containerId)} />
         {engine && (
-          <span className="machine-engine" data-tip={`${engine.name} ${engine.version ?? ""}: the engine this machine runs on`}>
-            {engine.name} {engine.version}
+          <span className="machine-engine" data-tip={engine.asleep ? `${engine.name} is installed here and asleep: Start wakes it` : `${engine.name} ${engine.version ?? ""}: the engine this machine runs on`}>
+            {engine.name} {engine.asleep ? "· asleep" : engine.version}
           </span>
         )}
         {m.image && <code className="machine-image">{m.image}</code>}
@@ -89,7 +95,7 @@ export function MachineBody({ panel }: { panel: PanelMeta }) {
         </div>
       ) : m.state === "stopped" && m.containerId ? (
         <div className="machine-well">
-          <div className="connector-offline-title">{m.name} is stopped</div>
+          <div className="connector-offline-title">{engine?.asleep ? `${m.name} is out of reach` : `${m.name} is stopped`}</div>
           <div className="connector-offline-reason">{m.detail ?? "Its disk is kept: Start runs it again."}</div>
         </div>
       ) : (
@@ -109,7 +115,14 @@ const STATE_WORD: Record<MachineState["state"], string> = {
   error: "Error",
 };
 
-function StatePill({ m, noEngine }: { m: MachineState; noEngine: boolean }) {
+function StatePill({ m, noEngine, away }: { m: MachineState; noEngine: boolean; away?: boolean }) {
+  if (away)
+    return (
+      <span className="machine-state is-warn">
+        <span className="f-dot is-warn" />
+        Out of reach
+      </span>
+    );
   const tone = noEngine ? "warn" : m.state === "running" ? "ok" : m.state === "error" ? "bad" : m.state === "pulling" || m.state === "starting" ? "warn" : "idle";
   return (
     <span className={`machine-state is-${tone}`}>
@@ -156,7 +169,9 @@ function NoEngine({ engines }: { engines: EngineStatus[] }) {
             {e.error ?? `${e.name}: not answering`}
           </div>
         ))}
-        <div className="connector-offline-reason">Install Kiri (runkiri.com) or Docker Desktop and start it; this card finds it by itself.</div>
+        <div className="connector-offline-reason">
+          Install Kiri (<code>npm run kiri:install</code> in Foundation's folder, or runkiri.com) or Docker Desktop; this card finds it by itself.
+        </div>
       </div>
       <div className="connector-foot">
         <button className="f-pill is-agent" onClick={() => askAgent("The machine card says no container engine is running. Help me set up Kiri or Docker on this computer so Foundation can start machines (SPEC §6).")}>
@@ -282,7 +297,9 @@ function StartButton({ panel, m, image, engine, viewer }: { panel: PanelMeta; m:
       <button className="f-pill is-accent" disabled={busy || !(image || m.image)} onClick={() => void start()}>
         {busy ? "Starting…" : `Start ${image || m.image || ""} on ${engine?.name ?? "the engine"}`}
       </button>
-      <span className="machine-terms">Pulls it if needed · ports on 127.0.0.1 only · nothing from this computer mounted</span>
+      <span className="machine-terms">
+        {engine?.asleep ? `Wakes ${engine.name} first · ` : ""}Pulls it if needed · ports on 127.0.0.1 only · nothing from this computer mounted
+      </span>
     </div>
   );
 }
