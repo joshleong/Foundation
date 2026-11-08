@@ -78,6 +78,51 @@
   ],
   "cards": [
     {
+      "id": "machine-port-stale",
+      "title": "A port opened as a page shows its last load after the machine stops",
+      "kind": "bug",
+      "milestone": "apps",
+      "area": "machines",
+      "status": "doing",
+      "body": "The page's frame isn't told the machine stopped. Show it as stopped (and reload when it starts again)."
+    },
+    {
+      "id": "on-fill-token",
+      "title": "Tokens for text on a solid fill and for highlights",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "design",
+      "status": "next",
+      "body": "Most of the 19 raw colours left in components (`design.test.ts`'s allowlist) are white text on a solid state or person colour and the port bead's white gloss. A `--color-on-fill` and a highlight token in `tokens.css` would clear them; lower the test's ceiling as they go."
+    },
+    {
+      "id": "huddle-state-race",
+      "title": "Moving a huddle card while someone joins can drop who's in it",
+      "kind": "bug",
+      "milestone": "huddles",
+      "area": "huddles",
+      "status": "next",
+      "body": "Huddle state lives on the panel object; a move at the same moment overwrites it until the next join or leave. Keep it in its own map."
+    },
+    {
+      "id": "agent-claude-cmd",
+      "title": "The agent runtime starts an npm-installed claude.cmd safely",
+      "kind": "bug",
+      "milestone": "ship",
+      "area": "agent",
+      "status": "next",
+      "body": "`agent.ts` spawns `config.claudeCli` directly. That works while Claude Code is `claude.exe`, but an npm-installed `claude.cmd` can't be spawned without a shell. Reuse `claudeCommand` from `rea.ts` (found 2026-11-07 while fixing the REA job)."
+    },
+    {
+      "id": "crew-follow",
+      "title": "Follow an agent",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "crew",
+      "status": "next",
+      "body": "Your view rides along with an agent's cursor until you move. From the roster or by clicking its name pill."
+    },
+    {
       "id": "space-typing-race",
       "title": "Keys typed right after a tap of Space can reach the board's shortcuts",
       "kind": "bug",
@@ -130,15 +175,6 @@
       "area": "crew",
       "status": "done",
       "body": "Agents asked from the sheet run without a tab; their sessions are in the side pane, but nothing points there once the roster lets them go 2.4 s after they finish (SPEC §7)."
-    },
-    {
-      "id": "machine-port-stale",
-      "title": "A port opened as a page shows its last load after the machine stops",
-      "kind": "bug",
-      "milestone": "apps",
-      "area": "machines",
-      "status": "doing",
-      "body": "The page's frame isn't told the machine stopped. Show it as stopped (and reload when it starts again)."
     },
     {
       "id": "pane-beside-session",
@@ -328,15 +364,6 @@
       "area": "crew",
       "status": "done",
       "body": "Done 2026-11-07: **Stop all** heads the crew roster when two or more of yours are working, and ⌘K → Stop all my agents does the same. Server-side (`POST /api/agent/runs/stop-all`, `stopAllRuns`): every run of yours on this board, helpers included, and nobody else's."
-    },
-    {
-      "id": "crew-follow",
-      "title": "Follow an agent",
-      "kind": "plan",
-      "milestone": "crew",
-      "area": "crew",
-      "status": "backlog",
-      "body": "Your view rides along with an agent's cursor until you move. From the roster or by clicking its name pill."
     },
     {
       "id": "crew-point",
@@ -537,15 +564,6 @@
       "body": "The mesh strains past about six. LiveKit self-hosted is the step up. Only STUN by default, so strict NATs need `FOUNDATION_ICE_SERVERS`."
     },
     {
-      "id": "huddle-state-race",
-      "title": "Moving a huddle card while someone joins can drop who's in it",
-      "kind": "bug",
-      "milestone": "huddles",
-      "area": "huddles",
-      "status": "backlog",
-      "body": "Huddle state lives on the panel object; a move at the same moment overwrites it until the next join or leave. Keep it in its own map."
-    },
-    {
       "id": "huddle-invite-wait",
       "title": "Inviting a channel to a new huddle waits 400 ms for the card to sync",
       "kind": "bug",
@@ -562,15 +580,6 @@
       "area": "voice",
       "status": "needs-you",
       "body": "Huddle transcripts and the crew's sheet were checked with typed lines and a stand-in recogniser. Talk in a huddle and to the sheet on a real machine."
-    },
-    {
-      "id": "on-fill-token",
-      "title": "Tokens for text on a solid fill and for highlights",
-      "kind": "plan",
-      "milestone": "polish",
-      "area": "design",
-      "status": "backlog",
-      "body": "Most of the 19 raw colours left in components (`design.test.ts`'s allowlist) are white text on a solid state or person colour and the port bead's white gloss. A `--color-on-fill` and a highlight token in `tokens.css` would clear them; lower the test's ceiling as they go."
     },
     {
       "id": "codemirror-notes",
