@@ -24,9 +24,13 @@ dist-ssr
 *.sw?
 
 # Foundation server data (SQLite, uploaded files)
-data/
+/data/
 .env
 apps/server/.env
 
 # Playwright run output (traces, failure contexts); the evidence folders keep the curated shots
 docs/evidence/e2e-results/
+
+# Rust / Tauri build output (anywhere, including a stray src-tauri/ from building at the root)
+target/
+**/gen/schemas/

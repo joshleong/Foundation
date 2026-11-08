@@ -2,7 +2,7 @@
 
 > The company brain of Form Industries: one shared grid where people, the apps we build, and the agents that work with us meet. This document is the plan every session (human or agent) builds from. **DESIGN.md** is its visual contract. Status is honest: _done_ means it ran and was checked; _partial_ and _stub_ say what's missing.
 
-Last updated 2026-11-07 · branch `main` · evidence in `docs/evidence/2026-11-02_foundation-v0/`
+Last updated 2026-11-07 · branch `main` · evidence in `docs/evidence/` (latest: `2026-11-07_machines/`)
 
 ---
 
@@ -63,6 +63,49 @@ The running system:
 
 ---
 
+### 0.2 Machines in a section: Kiri or Docker (Josh, 2026-11-07)
+
+**The ask.** Start and load virtual machines in a section of Foundation, through Docker or through Kiri (github.com/libracoder/kiri), a lightweight VM host.
+
+**1. What a top professional would do that wasn't asked for.**
+- **Not write two drivers.** Kiri is a small Linux VM that serves the **Docker Engine API**, so Kiri and Docker are one wire: the engine's own socket (a named pipe on Windows) and its HTTP API. Shell out to neither CLI, and install nothing.
+- **Make "a machine" mean what Kiri means.** A long-lived container named `machine-<name>`, labelled `dev.kiri.machine`, so `kiri machine shell <name>` reaches what Foundation started. Foundation's own labels tie it to its card. The engine stays the truth: the card shows what the engine says, read back while someone looks at it.
+- **Treat Start as running third-party code**, because it is. Only a person starts, stops, restarts, removes or loads, from a browser session (a cookie). A bearer token (an agent, MCP or the service token) is refused. Agents may propose a machine and read its state and screen.
+- **Remove** destroys the disk, so it needs `confirm`. **Viewers** watch the terminal and can't type in it.
+- **Confine by default.** Nothing from this computer is mounted, nothing is privileged, ports publish on 127.0.0.1 only, and memory, CPU and process caps are set.
+- **One terminal per machine, shared.** Two people at one shell, like the board itself, with the screen replayed to late joiners and to agents.
+- **The machine's ports are the way out.** A published port opens as a page in the section beside it.
+- **"Load" means `docker load`.** An image file someone saved goes into the engine from the archive, and the file stays archived.
+
+**2. The rawest material.** Not Kiri's README but its source:
+- `crates/kiri/src/machine.rs`: what a machine is: distro images, the sleep loop, labels, `machine-<name>`.
+- `crates/kiri/src/daemon/api.rs`: which Engine API routes it serves, its 101 hijack for exec, API 1.47, version-prefix stripping.
+- `crates/kiri/src/client.rs` and `docs/features.md`: its sockets: `\\.\pipe\kiri`, `~/.kiri/run/docker.sock`, `/run/kiri/docker.sock`.
+- `daemon/hostopts.rs`: it doesn't keep `Memory`/`NanoCpus`; Kiri caps its whole VM instead.
+- The Docker Engine API reference: create, start, exec, the hijacked raw stream, resize, load.
+- The live engine on this computer (Docker Desktop 28.3, API 1.51, on `\\.\pipe\docker_engine`).
+
+**3. Methods and tools.**
+- **Engine:** Node's `http` over the engine's socket path (named pipe or unix socket), with no SDK. Label filters find a card's container. The exec stream is taken over with `Connection: Upgrade` (a 101 response), and the server relays it to browsers over `/machines/:board/:panel/tty`.
+- **Terminal:** xterm.js with its fit addon. Its colours come from the tokens through a probe element, so night mixes resolve.
+- **State:** the board's Y.Doc (`PanelDoc.machine`) for state everyone sees.
+- **Tests:** `node:test` with a stand-in Engine API on a named pipe.
+- **Checks in a real browser** with two people, against the real engine.
+- **`npm run machines:smoke`:** the driver against whatever engine is installed.
+
+**4. What, other than you or me, shows it's right.**
+- **The engine itself.** `docker ps` / `docker inspect` (or `kiri machine list`) shows the container the card claims, with its labels, no mounts, the caps, and a port on 127.0.0.1 only. When it's removed, the engine has nothing left.
+- **The machine itself.** `/etc/os-release` typed into the card answers from inside it. A page served on its port opens in the next section, and `curl` gets it.
+- **A second person.** Kai's command shows in Ada's terminal.
+- **The server's refusals.** A bearer token gets 403; a remove without `confirm` gets 400; a viewer's keys never reach the shell.
+- **The tests**, and screenshots day and night on tokens.
+
+**5. The rewritten brief (what this session executed):**
+
+> Add **machines** to Foundation: a section can hold a Linux machine or container that runs on this computer's container engine, **Kiri or Docker**, through the Docker Engine API both serve, over the engine's own socket. A machine is Kiri's kind (`machine-<name>`, `dev.kiri.machine`), labelled with its board and card; the engine is the truth and the card mirrors it. A person picks an image on the card (a distro, one the engine already has, or a `docker save` file loaded from the archive) and presses Start; it pulls with progress, runs confined (no host mounts, not privileged, ports on 127.0.0.1, caps), and opens a terminal shared by everyone on the board (viewers watch). Ports open as pages in the next section. Stop keeps the disk; Remove needs confirm. Agents get `propose_machine` and a read-only `machines` (state, ports, the last screen); every action that runs code needs a person's browser session. Test the invariants against a stand-in engine; check it in a real browser with two people against the real engine on this machine; add a smoke script for Kiri; show it on `#/design` day and night; update SPEC and DESIGN honestly; push to `main`.
+
+Evidence: `docs/evidence/2026-11-07_machines/`.
+
 ## 1. What Foundation is
 
 | | |
@@ -91,6 +134,7 @@ The running system:
                  │                                    ──▶ mcp.ts (/mcp — Claude Code, Codex, Vision attach here)            │
                  │ connectors.ts  FactoryForm (:3001 REST) · BomForm (remote MCP) · Vision (T3 :3783, Archive :63727) …     │
                  │ hermes.ts  asks + nudges (board activity, Slack DM)   jobs.ts  REA reverse-engineering (person presses Run)│
+                 │ machines.ts  Kiri or Docker over the Engine API socket · a shared terminal (a person presses Start)        │
                  └─────────────────────────────────────── SQLite: data/foundation.db · files: data/files/<sha256> ─────────┘
 ```
 
@@ -118,7 +162,7 @@ One Y.Doc per board, with these top-level maps:
 - `meta`: `schema: 2`, name
 - `activity`: bounded array of `{at, who, role, text, objectId}`
 
-**Panel kinds:** `app`, `link`, `file`, `machine`, `agent`, `connector`, `ask`, `stage`, `huddle` (a video portal; `huddle` holds who's in it now and whether it records, kept by the server), `slack` (a channel; `channel` is its id — a huddle opened for a channel carries it too). Each kind has optional `url`, `repo`, `mcp`, `fileId`/`mime`, `ports[]`, `outputs{portId: value}`, `status`, `assignee`, `sessionId`.
+**Panel kinds:** `app`, `link`, `file`, `machine`, `agent`, `connector`, `ask`, `stage`, `huddle` (a video portal; `huddle` holds who's in it now and whether it records, kept by the server), `slack` (a channel; `channel` is its id — a huddle opened for a channel carries it too). A `machine` is a web desktop reached by `url` (noVNC, ttyd, code-server) or, with `machine` set, a Linux machine on Kiri or Docker whose state (`MachineState`: name, image, engine, state, ports, who proposed and started it) the server keeps from what the engine says. Each kind has optional `url`, `repo`, `mcp`, `fileId`/`mime`, `ports[]`, `outputs{portId: value}`, `status`, `assignee`, `sessionId`.
 
 **Rules:**
 - Section scroll is local, never shared.
@@ -202,6 +246,7 @@ An app can also publish `/.well-known/foundation.json` (`{name, description, mcp
 | | Wires: turns are long 45° runs (up to 480 px a side, shortened where they'd enter a card) instead of 14 px chamfers; a height change with room ahead is one diagonal. Port pills centred exactly on the wire's landing (was 1–2 px off: the section border wasn't counted) | done | Measured: 24 of 24 wire ends at 0.00 px from their pill centre. `wires.test.ts` (13) |
 | | **Wire roads, 2026-11-03** (Josh: "the connection in the rim drive is … loose"; longer 45° runs, rounded corners). A wire with both ends in one section is seen through that section's body: clipped to it, steered round that section's cards and walls only (except a wall one of its own cards is scrolled behind), so a wire to a card scrolled out of view stops at the edge instead of looping across the grid. A turn hemmed in by a card takes the longest diagonal that clears it (it used to halve), and a corner takes the part of a run its neighbour can't use. Bends are arcs (radius 20, kept within half a run) | done | `docs/evidence/2026-11-03_wire-roads/`. Rim-drive fan v3: CAD → Simulate went from 34/166/47/24 px diagonals and a loop outside the section to 24/202 px, inside the body. Scrolled to CAD: 57/176/57. `wires.test.ts` (18). Day and night |
 | **Hover chrome pass** (2026-11-02) | Image/video buttons reachable: a ghost rail bridges the 8 px gap between the card and its icons (before, crossing it dropped the hover and the icons slid away), and every hover chrome lingers 140–180 ms after the pointer leaves. Section header has no bar: name, coords and count sit on the section's paper; tools wait in a ghost toolbar top-right, only while the pointer is on the section, grouped add (app ⌘L, table, map, note, upload ⌘U) · arrange (split ◫ ⬓, fill ⤢) · agent ✦ ⌘J · remove; an app section's repo/MCP/open/show-as-card lead it. Every chrome button names itself on roll-over (one screen-space label, `shell/Tip.tsx`, `data-tip`/`data-kbd`). Flicker: no `backdrop-filter` left inside the zoomed world (card bars and media icons were blurred per card), the section selection ring fades on `::after` instead of transitioning a whole section's `box-shadow` and border, and toolbar buttons no longer spring-scale on hover. Radii quieter: paper 3 · card 5 · pane 8 (was 4 · 8 · 14); hard-coded 4–8 px radii moved onto tokens | done | `docs/evidence/2026-11-02_section-chrome/`. Measured: the pointer in the old gap now hits the rail (`.frame-icons`), the card keeps hover, icons stay at 36 px; selecting a section starts 2 opacity fades (was 10 border/shadow transitions + a toolbar fade); 0 in-world `backdrop-filter`s. Day and night checked; flicker itself judged by measurement, not by eye on a real display |
+| **Machines** (2026-11-07) | A section holds a Linux machine or container on this computer's engine, **Kiri or Docker**, over the Docker Engine API both serve (`apps/server/src/machines.ts`; the engine's socket, a named pipe on Windows). Right-click → **Start a machine here**, or an agent's `propose_machine`. On the card: pick a distro (Kiri's seven), an image the engine has, or a saved image from the archive (**Load**, `docker load`); **Start** (a person) pulls with progress and runs it confined (no host mounts, not privileged, ports on 127.0.0.1, 2 GB / 2 CPUs / 1024 processes by default). Running: a terminal (xterm.js) shared by everyone on the board, editors type and viewers watch, the screen replayed to late joiners, reconnecting by itself; ports as pills that open the port as a page in a section beside it. Stop keeps the disk; Remove asks twice and sends `confirm`. The card mirrors the engine (a machine removed outside Foundation shows Not started). Containers are Kiri's `machine-<name>` with `dev.kiri.machine`, so `kiri machine shell <name>` reaches them | done on Docker; Kiri unrun | `machines.test.ts` (7, stand-in engine); `npm run machines:smoke` against Docker Desktop 28.3 on Windows; in the browser two people shared one shell, a port opened as a page, stop/start kept the disk, remove left the engine empty, a bearer token got 403 (`docs/evidence/2026-11-07_machines/`). **Kiri isn't installed here**: checked against its source only (routes, hijack, machine shape). Run `npm run machines:smoke -w @foundation/server -- kiri` once it is |
 | **Huddles** (2026-11-02) | Right-click a section → **Start a huddle here**: a video portal lands where you clicked. **Join** sends camera + mic (WebRTC mesh, perfect negotiation, server relays signalling only). Anyone with the portal on screen sees the people in it (receive-only, *Listen in* for sound). Mute, camera off, leave, and a call chip in the corner that carries the sound and follows you round the board | done (two people, headless test camera) | `docs/evidence/2026-11-02_huddles-slack/` 01–04: two signed-in people, each receiving the other's 640×360 video + audio track (readyState 4). `?fakecam` draws a test camera; a real camera wasn't available headless |
 | | Transcript: each joined browser transcribes its own mic (Web Speech) into speaker-attributed lines; interim words show as live captions (never stored); typed notes join the transcript. **Record** (anyone in it): every participant's browser records itself and uploads to the archive. **Archive**: sessions with people, duration, recordings, transcript; ✦ Summarize (agent, via `huddle_transcript`); Post notes to Slack. Transcripts are searchable in ⌘K | partial | Typed lines, recording (2 × 33 s clips, both decode) and the archive verified in the browser. **Speech transcription not exercised**: the headless test camera has no voice, so no speech lines |
 | **Slack channels** (2026-11-02) | Right-click → **Add a Slack channel**: pick a channel, read it (polled 5 s while on screen, one shared read), post as "Name via Foundation" (joins a public channel on `not_in_channel`). **↗ Link a place**: sends a deep link to the whole board, a section, or any card. **◐ Invite to a huddle**: the channel's huddle, else the section's, else a new one beside the card. A section's right-click sends any channel on the board a link to it. `?focus=` links frame their target on open | done against a stand-in Slack | `docs/evidence/…` 07–10 and `huddle.test.ts`. **Never run against real Slack**: no `SLACK_BOT_TOKEN` here (§6.7). Without one the card says "Slack isn't connected" and how to fix it |
@@ -238,6 +283,7 @@ One definition (`apps/server/src/tools.ts`), three doors: the built-in agent, `/
 | Organizing | `add_section`, `add_note`, `update_card`, `delete_card` (confirm), `focus`, `set_plan` (the goal and steps a session tab shows; writes nothing) |
 | Apps | `add_panel` (app, link, machine, connector, agent), `connect`, `send_to_port`, `call_app_tool` |
 | People and studios | `ask_person` (Hermes), `vision_brief`, `reverse_engineer` (REA, person-run) |
+| Machines | `propose_machine` (a card waiting for a person's Start), `machines` (read: engines, state, ports as URLs, the last screen of each shared terminal). Start, stop, restart, remove and load are a person's, from the card |
 | Huddles and Slack | `open_huddle`, `huddle_transcript` (read), `add_slack_channel`, `slack_read`. Agents read Slack; posting stays with people on the card |
 | Design pipelines | `start_design_pipeline`, `pipeline_status`, `stage_attach`, `stage_choose`, `stage_check`, `stage_settings`, `stage_request` (hand-off), `complete_stage` (Review: approved / changes) |
 
@@ -292,6 +338,7 @@ Every integration is off until its key exists; the server always starts. Copy `.
 | 8 | **GitHub** | Repo discovery across the org | `GITHUB_TOKEN` (falls back to the `gh` login) and `FOUNDATION_GITHUB_ORG` |
 | 10 | **REA** | Reverse engineering | `npx rea-agents setup` once (registers REA's MCP with Claude Code; MIT; verify it's `morluto/rea`). Then use Run on a reverse-engineering card |
 | 11 | **Lufga** | Display face | Install the licensed files locally; the stack falls back to Hanken Grotesk. Don't commit them to a public repo |
+| 13 | **Kiri or Docker** | Machines in sections | Install **Kiri** (runkiri.com: `.msi` for Windows through WSL 2, `.dmg`, `.deb`/`.rpm`) or Docker Desktop, and start it. Foundation finds `\\.\pipe\kiri`, `~/.kiri/run/docker.sock`, `/run/kiri/docker.sock`, then Docker's socket (or `DOCKER_HOST`); `FOUNDATION_ENGINES=kiri=<socket>,docker=<socket>` names them instead. `FOUNDATION_MACHINE_MEMORY_MB` / `FOUNDATION_MACHINE_CPUS` change the caps (Docker honours them; Kiri caps its VM in `~/.kiri/vm.json`). Check with `npm run machines:smoke -w @foundation/server` (it runs alpine) |
 | 12 | **Vision ↔ Foundation** | Hand-offs to Vision Code | Works with Vision Code running on this machine (T3 :3783). Foundation finds its CLI at `~/Development/Vision/.tools/code-server/t3` and its data at Vision's T3CODE_HOME; set `T3_CLI`, `T3CODE_HOME` and `T3_URL` if they live elsewhere. A hosted Foundation needs its own route to Vision Code (a pairing link instead of the local CLI). Approve a thread's file writes in Vision Code |
 
 ---
@@ -346,6 +393,13 @@ Every integration is off until its key exists; the server always starts. Copy `.
 - **A hand-off thread's file writes wait for approval in Vision Code** (Supervised, by design). Nothing comes back until someone approves there.
 - **Exports are found by watching a folder**, every 4 s. A thread that writes elsewhere brings nothing back; the brief tells it where.
 - **Reviews return as asks to people**, not as a verdict from Vision's own review tools.
+- **Machines: Kiri hasn't been run.** The driver was checked against Docker Desktop and Kiri's source, not a running Kiri (§3). Kiri doesn't apply per-container memory/CPU caps (`hostopts.rs` drops them), so on Kiri a machine can use the whole VM.
+- **Machines run on the computer the server runs on.** A hosted Foundation would start machines on the host, which is a different trust question: who may start what, and on whose hardware. Ports are on that computer's 127.0.0.1, so a page opened from a port works only in a browser on the same computer (the desktop app, `npm run dev`).
+- **A machine's terminal is one shell for everyone, and anyone who can edit the board can type into it as root.** Board roles are the only gate; there are no per-machine permissions. The shell lasts 5 minutes after the last person leaves, and is lost when the server restarts (the machine keeps running; the card reconnects to a new shell). Its screen is held in memory only, not archived.
+- **The terminal at zooms other than 100 %**: text renders right (xterm measures cells unscaled), but a mouse selection lands off by the zoom factor. Typing is unaffected.
+- **A port opened as a page shows what it last loaded** after the machine stops (the frame isn't told).
+- **The flowform importer's fixture rooms were never committed** (`apps/server/test/fixtures/flowform/data/rooms`): the root `.gitignore`'s `data/` caught them, so on a fresh clone `flowform-import.test.ts` crashed and `npm test` was red on `main`. Its six tests now skip and say why, and the rule is `/data/`. Whoever has the rooms should commit them. `main` also didn't typecheck: `index.ts` used `requireBoard`/`hiddenBoards`/`canSeeBoard` without importing them from `members.ts` (fixed).
+- **The e2e client port :1450 sits in a block Windows reserves on this machine** (1437–1536). `E2E_CLIENT_PORT` moves it (`E2E_CLIENT_PORT=15450 npm run e2e -w @foundation/client`).
 - **Cards at rest have no title** (by design); a connector shown as a card (not hosted) reads by its body only. Hosted apps and pipeline stages name themselves.
 
 ---
@@ -358,7 +412,7 @@ Every integration is off until its key exists; the server always starts. Copy `.
 | **2 · Vision loop (done 2026-11-03)** | Foundation starts Vision Code (T3) threads for a brief (`orchestration.dispatchCommand` `thread.turn.start`, see Vision `apps/vision/src/code/handoff.ts`). Vision's exports land back as file panels. A CAD 3D preview via Vision's OpenCascade. Reviews return as asks |
 | **3 · Company brain** | BomForm snapshot cached and diffed. FactoryForm SSE (`/api/events`) pushed into the connector live. A daily "what changed" digest note by the agent. Voice: Vision's `@pacific/voice` realtime session for spoken conversations about the company |
 | **4 · Search depth** | flowform's semantic search (e5 text vectors, SigLIP images, RRF k=60). Slack per-user OAuth with visibility that fails closed. Google Drive and Figma connectors |
-| **5 · Apps as first-class** | An app registry UI. `foundation.json` adoption across our vibe-coded apps. Wires that call MCP tools on input. Machines: noVNC/ttyd presets, Docker launch from a card |
+| **5 · Apps as first-class** (machines landed 2026-11-07) | An app registry UI. `foundation.json` adoption across our vibe-coded apps. Wires that call MCP tools on input. ~~Docker launch from a card~~ (Machines, 2026-11-07: Kiri or Docker). Next for machines: run it on Kiri; agents that run commands in a machine a person started (approved per command); `docker compose` stacks as sections; noVNC/ttyd presets for desktops |
 | **Huddles next** | Real-voice transcription check, then a local transcriber. Per-person recording opt-out. Slack Socket Mode (live messages), threads, and posting a summary when a session ends (person-approved). Screen share into the portal. Spatial audio (voices fade with distance from the portal while you roam). SFU past six people |
 | **6 · Ship** | Tauri desktop builds in CI, a hosted server (S3 media, Postgres or libsql), Data Room / Creation / Vision panels sharing `@foundation/ui` (or Vision's `@pacific/ui` directly) |
 

@@ -5,7 +5,7 @@
  */
 
 import { test, expect, type Page } from "@playwright/test";
-import { frame, holes, layoutProblems, person, sectionBox, settle } from "./helpers";
+import { CLIENT, frame, holes, layoutProblems, person, sectionBox, settle } from "./helpers";
 
 const SHOTS = "../../docs/evidence/2026-11-03_sections";
 let page: Page;
@@ -91,7 +91,7 @@ test("dragging onto an empty cell after a split", async () => {
 test("the design page shows the HUD with talk, day and night", async ({ browser }) => {
   for (const scheme of ["dark", "light"] as const) {
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: scheme });
-    await ctx.request.post("http://localhost:1450/auth/dev", { data: { name: "Ada Test", email: "ada@normal.dev" } });
+    await ctx.request.post(`${CLIENT}/auth/dev`, { data: { name: "Ada Test", email: "ada@normal.dev" } });
     const p = await ctx.newPage();
     await p.goto("/#/design");
     const hud = p.locator(".oncall-hud").first();

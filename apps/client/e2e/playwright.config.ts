@@ -13,7 +13,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const data = mkdtempSync(join(tmpdir(), "foundation-e2e-"));
-export const CLIENT = "http://localhost:1450";
+/** :1450 by default; E2E_CLIENT_PORT moves it (Windows can reserve 1437–1536 at boot) */
+export const CLIENT = `http://localhost:${process.env.E2E_CLIENT_PORT ?? 1450}`;
 
 export default defineConfig({
   testDir: ".",
@@ -64,7 +65,7 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
-      command: `npx vite --port 1450 --strictPort`,
+      command: `npx vite --port ${process.env.E2E_CLIENT_PORT ?? 1450} --strictPort`,
       cwd: "..",
       env: { FOUNDATION_SERVER_URL: "http://127.0.0.1:4430" },
       url: CLIENT,

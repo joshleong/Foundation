@@ -763,6 +763,7 @@ export function addSectionAdjacent(
     activeSectionId: fresh.id,
     snapRequest: { kind: "section", id: fresh.id, nonce: Math.random() },
   });
+  return fresh.id;
 }
 
 /**
