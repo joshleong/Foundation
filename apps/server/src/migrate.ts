@@ -7,10 +7,14 @@
  *         way the cards were, each app filling its section, so the wires
  *         between them run section to section. A section holding a single
  *         app is that app's host.
+ *  2 → 3  A note's text moves into its own Y.Text (`noteText`).
+ *  3 → 5  Each table's cells become a Y.Map in `cells`, made with the table.
+ *  5 → 6  A huddle's live state moves off its card into `huddles`, which
+ *         only the server writes, so moving the card can't overwrite it.
  */
 
 import * as Y from "yjs";
-import { BOARD_SCHEMA, boardMaps, isHostable, readTracks, setNoteText, tableCellMap, uid, type GridTracks, type ObjectDoc, type PanelDoc, type SectionDoc } from "@foundation/protocol";
+import { BOARD_SCHEMA, boardMaps, isHostable, readTracks, setHuddleState, setNoteText, tableCellMap, uid, type GridTracks, type ObjectDoc, type PanelDoc, type SectionDoc } from "@foundation/protocol";
 import { editBoard, getBoard, listBoards } from "./boards.ts";
 
 export function migrateAllBoards() {
@@ -25,9 +29,27 @@ export function migrateBoard(id: string) {
     if (schema < 2) hostApps(doc);
     if (schema < 3) noteTextToYText(doc);
     if (schema < 5) cellsToYMaps(doc); // 4: maps for tables with cells; 5: every table, cells or not
+    if (schema < 6) huddleStateToMap(doc);
     boardMaps(doc).meta.set("schema", BOARD_SCHEMA);
   });
   return true;
+}
+
+/**
+ * schema 6: a huddle's live state moves off its card into `huddles`. The
+ * server writes that map alone; the card in `objects` is the person's (they
+ * move and resize it), so a move at the moment someone joins no longer
+ * overwrites who's in it. State already in the map wins (it's the server's
+ * newer word). Idempotent: a second run finds no card carrying `huddle`.
+ */
+export function huddleStateToMap(doc: Y.Doc) {
+  const m = boardMaps(doc);
+  for (const o of [...m.objects.values()]) {
+    if (o.kind !== "panel" || o.huddle === undefined) continue;
+    if (!m.huddles.has(o.id)) setHuddleState(doc, o.id, o.huddle);
+    const { huddle: _moved, ...card } = o;
+    m.objects.set(o.id, card);
+  }
 }
 
 /** schema 4: each table's cells become a Y.Map, so two people editing different cells both land */

@@ -365,6 +365,7 @@ export const TOOLS: BoardTool[] = [
         const m = boardMaps(doc);
         m.objects.delete(id);
         m.noteText.delete(id);
+        m.huddles.delete(id);
         for (const [lid, l] of m.links.entries()) if (l.from.panel === id || l.to.panel === id) m.links.delete(lid);
       });
       touch(ctx, undefined, `removed a card`);

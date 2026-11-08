@@ -22,6 +22,7 @@ export const BOARD = {
   meta: "meta", // name, createdAt, ...
   activity: "activity", // Y.Array<ActivityEntry>
   noteText: "noteText", // noteId → Y.Text (schema 3: typing merges character by character)
+  huddles: "huddles", // huddle panel id → HuddleState (schema 6: kept by the server alone, off the card)
 } as const;
 
 export interface GridTracks {
@@ -49,8 +50,10 @@ export interface SectionDoc {
  * 3: note text is a Y.Text. 4: each table's cells are a Y.Map. 5: every table
  * has its cell map from the start (made with the table, never lazily — two
  * people making it at once would each make one, and one would be lost).
+ * 6: a huddle's live state lives in `huddles`, not on its card, so moving the
+ * card while someone joins can't overwrite who's in it.
  */
-export const BOARD_SCHEMA = 5;
+export const BOARD_SCHEMA = 6;
 
 /** Panel kinds a section can host — whole apps, not artifacts. */
 export const HOSTABLE_KINDS = ["app", "link", "machine", "connector"] as const;
@@ -150,7 +153,12 @@ export interface PanelDoc extends ObjectBaseDoc {
   connector?: string;
   /** Slack channel id — a "slack" card's channel, or the channel a huddle was opened for */
   channel?: string;
-  /** a huddle's live state, kept by the server: who is in it now and whether it records; its sessions are archived */
+  /**
+   * Only on boards older than schema 6. A huddle's live state lives in the
+   * board's `huddles` map, written by the server alone, so a person moving
+   * the card while someone joins can't overwrite it; read it with
+   * huddleStateOf. Readers ignore this field.
+   */
   huddle?: HuddleState;
   /** agent session id for panel === "agent" */
   sessionId?: string;
@@ -371,7 +379,24 @@ export function boardMaps(doc: Y.Doc) {
     meta: doc.getMap<unknown>(BOARD.meta),
     activity: doc.getArray<ActivityEntry>(BOARD.activity),
     noteText: doc.getMap<Y.Text>(BOARD.noteText),
+    huddles: doc.getMap<HuddleState>(BOARD.huddles),
   };
+}
+
+// ---------- huddle state (schema 6) ----------
+
+/** A huddle's live state (who's in it now, whether it records), or none before anyone met there. */
+export function huddleStateOf(doc: Y.Doc, huddleId: string): HuddleState | undefined {
+  return boardMaps(doc).huddles.get(huddleId);
+}
+
+/**
+ * Set a huddle's live state. The server alone calls this (huddles.ts); it
+ * touches only the huddle's entry in `huddles`, never the card in `objects`.
+ * Call inside a transaction.
+ */
+export function setHuddleState(doc: Y.Doc, huddleId: string, state: HuddleState) {
+  boardMaps(doc).huddles.set(huddleId, state);
 }
 
 // ---------- table cells (schema 4) ----------

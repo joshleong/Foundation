@@ -15,6 +15,9 @@
  * words, and the note's card (position, size) is never rewritten by typing.
  * A table's cells are a Y.Map per table (schema 4): an edit writes only the
  * cells it changed, so two people editing one table both land.
+ * A huddle's live state is in `huddles` (schema 6), written by the server
+ * alone: the store shows it on the panel, but it never goes back into the
+ * card, so moving a huddle while someone joins can't overwrite who's in it.
  *
  * Transport: y-protocols over WebSocket at /sync/:board, with backoff
  * reconnect; the session cookie authenticates it.
@@ -32,8 +35,8 @@ import * as awarenessProtocol from "y-protocols/awareness";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import { IndexeddbPersistence } from "y-indexeddb";
-import { BOARD_SCHEMA, boardMaps, noteTextOf, rebaseEdit, setNoteText, setTableCells, tableCellMap, tableCellsOf, type ObjectDoc, type SectionDoc, type UserInfo } from "@foundation/protocol";
-import { applyRemote, getState, setSyncHook, updateNoteText, type AnyObject, type AppState, type Section } from "../state/store";
+import { BOARD_SCHEMA, boardMaps, huddleStateOf, noteTextOf, rebaseEdit, setNoteText, setTableCells, tableCellMap, tableCellsOf, type HuddleState, type ObjectDoc, type SectionDoc, type UserInfo } from "@foundation/protocol";
+import { applyRemote, getState, setSyncHook, updateNoteText, type AnyObject, type AppState, type PanelMeta, type Section } from "../state/store";
 import { workbook } from "../engine/workbook";
 import { api, wsUrl } from "../lib/api";
 import { toast } from "../state/ui";
@@ -170,6 +173,8 @@ class BoardSync {
       }
       this.pullNoteText([...ids]);
     });
+    // the server's word on who's in each huddle: only the server writes it, so every change is remote
+    m.huddles.observe((e) => this.pullHuddles([...e.keysChanged]));
     m.activity.observe(() => this.notify());
     void this.start();
   }
@@ -514,6 +519,23 @@ class BoardSync {
     if (changed) applyRemote({ notes });
   }
 
+  /** a huddle's live state changed: show it on its panel in the store */
+  private pullHuddles(ids: string[]) {
+    const st = getState();
+    const panels = { ...st.panels };
+    let changed = false;
+    for (const id of ids) {
+      const p = panels[id];
+      if (!p) continue;
+      const huddle = huddleStateOf(this.doc, id);
+      if (JSON.stringify(huddle) !== JSON.stringify(p.huddle)) {
+        panels[id] = withHuddle(p, huddle);
+        changed = true;
+      }
+    }
+    if (changed) applyRemote({ panels });
+  }
+
   private pullLinks() {
     applyRemote({ links: Object.fromEntries(boardMaps(this.doc).links.entries()) });
   }
@@ -722,15 +744,23 @@ function sameCard(a: Record<string, unknown>, b: Record<string, unknown>) {
 function toObjectDoc(o: AnyObject): ObjectDoc {
   const doc = { ...o, kind: kindOf(o) } as Record<string, unknown>;
   if (doc.kind === "note") delete doc.text; // in its Y.Text
+  if (doc.kind === "panel") delete doc.huddle; // in `huddles`, the server's alone
   // blob: URLs only live in this tab; never share them
   if (typeof doc.src === "string" && (doc.src as string).startsWith("blob:")) doc.src = "";
   return doc as unknown as ObjectDoc;
+}
+
+function withHuddle(p: PanelMeta, huddle: HuddleState | undefined): PanelMeta {
+  const { huddle: _was, ...rest } = p;
+  return huddle ? { ...rest, huddle } : rest;
 }
 
 function fromObjectDoc(o: ObjectDoc, doc: Y.Doc): AnyObject {
   const { kind: _k, ...rest } = o as ObjectDoc & Record<string, unknown>;
   const local = getState();
   if (_k === "note") rest.text = noteTextOf(doc, o);
+  // a huddle's live state comes from `huddles`; a stale copy on the card (an older build's write) is ignored
+  if (_k === "panel") return withHuddle(rest as unknown as PanelMeta, huddleStateOf(doc, o.id));
   // keep a local blob preview while the shared copy has no URL yet
   if (_k === "media" && !rest.src) {
     const mine = local.media[o.id];
