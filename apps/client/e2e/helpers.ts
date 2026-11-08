@@ -1,6 +1,6 @@
 import type { Browser, BrowserContext, Page } from "@playwright/test";
 
-export const CLIENT = "http://localhost:1450";
+export const CLIENT = `http://localhost:${process.env.E2E_CLIENT_PORT ?? "1450"}`;
 
 /** a signed-in person in their own browser context (cookies apart) */
 export async function person(browser: Browser, name: string, email: string, board = "company"): Promise<{ context: BrowserContext; page: Page }> {

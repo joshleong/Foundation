@@ -473,7 +473,8 @@ function emit() {
 }
 
 // dev: let the browser console (and headless checks) read the live model
-if (import.meta.env?.DEV && typeof window !== "undefined") (window as unknown as { __foundation: unknown }).__foundation = { getState: () => state, setState: (p: Partial<AppState>) => set(p), workbook };
+// the test hooks: the dev server, and a build made for the e2e checks (E2E_BUILD sets VITE_E2E_HOOKS)
+if ((import.meta.env?.DEV || import.meta.env?.VITE_E2E_HOOKS) && typeof window !== "undefined") (window as unknown as { __foundation: unknown }).__foundation = { getState: () => state, setState: (p: Partial<AppState>) => set(p), workbook };
 
 export function getState(): AppState {
   return state;
