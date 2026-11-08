@@ -78,6 +78,78 @@
   ],
   "cards": [
     {
+      "id": "space-typing-race",
+      "title": "Keys typed right after a tap of Space can reach the board's shortcuts",
+      "kind": "bug",
+      "milestone": "crew",
+      "area": "voice",
+      "status": "next",
+      "body": "A tap of Space opens the sheet for typing, but its field takes focus on the next animation frame. Letters typed in that gap go to the board (A toggles the agent layer), seen in a headless check on 2026-11-07. Focus the field in the same frame, and hold keys typed before it's ready."
+    },
+    {
+      "id": "t3-url-runtime",
+      "title": "Read Vision Code's real address from server-runtime.json",
+      "kind": "plan",
+      "milestone": "vision",
+      "area": "vision",
+      "status": "next",
+      "body": "Vision moves to the next port when :3783 is taken, and records where it went in `<T3CODE_HOME>/userdata/server-runtime.json`. Default `T3_URL` from it instead of assuming :3783."
+    },
+    {
+      "id": "signin-memory",
+      "title": "Flowform sign-in attempts are lost on a server restart",
+      "kind": "bug",
+      "milestone": "ship",
+      "area": "auth",
+      "status": "next",
+      "body": "Attempts live in server memory for 10 minutes, so a `tsx watch` restart mid-sign-in makes the person click again. Keep them in SQLite."
+    },
+    {
+      "id": "rea-windows",
+      "title": "The REA job on Windows",
+      "kind": "bug",
+      "milestone": "ship",
+      "area": "rea",
+      "status": "next",
+      "body": "It spawns `npx` without a shell; Windows needs `npx.cmd` resolved safely (its arguments include a target). The REA runner and the Vision brief are also unexercised end to end."
+    },
+    {
+      "id": "created-by-cards",
+      "title": "Notes and tables say which agent made them",
+      "kind": "bug",
+      "milestone": "crew",
+      "area": "crew",
+      "status": "next",
+      "body": "A real turn's cards are signed in the activity, but `createdBy` is set on panels only, so a note or table doesn't say which agent made it."
+    },
+    {
+      "id": "sheet-asks-vanish",
+      "title": "A finished ask from the sheet leaves the roster with nowhere to find it",
+      "kind": "bug",
+      "milestone": "crew",
+      "area": "crew",
+      "status": "next",
+      "body": "Agents asked from the sheet run without a tab; their sessions are in the side pane, but nothing points there once the roster lets them go 2.4 s after they finish (SPEC §7)."
+    },
+    {
+      "id": "machine-port-stale",
+      "title": "A port opened as a page shows its last load after the machine stops",
+      "kind": "bug",
+      "milestone": "apps",
+      "area": "machines",
+      "status": "next",
+      "body": "The page's frame isn't told the machine stopped. Show it as stopped (and reload when it starts again)."
+    },
+    {
+      "id": "pane-beside-session",
+      "title": "Opening the side pane beside a session on a narrow window leaves a sliver",
+      "kind": "bug",
+      "milestone": "polish",
+      "area": "floor",
+      "status": "next",
+      "body": "The floor only gives way on its own. Narrow the session instead when the pane is opened by hand."
+    },
+    {
       "id": "claude-sign-in",
       "title": "The crew driven by a real model",
       "kind": "hookup",
@@ -175,15 +247,6 @@
       "area": "vision",
       "status": "review",
       "body": "Built 2026-11-07 (`t3paths.ts`): Vision Code's CLI and store are found on Windows and Linux, overrides still win, and when nothing is found the side pane and the hand-off card list every path tried. On this machine it found `C:\\Dev\\Vision\\.tools\\code-server\t3.exe` and `%APPDATA%\\co.normallab.vision\\code` and read 4 threads. Left for a person: press Run on a hand-off card on Windows with Vision Code open, and approve the thread there."
-    },
-    {
-      "id": "t3-url-runtime",
-      "title": "Read Vision Code's real address from server-runtime.json",
-      "kind": "plan",
-      "milestone": "vision",
-      "area": "vision",
-      "status": "backlog",
-      "body": "Vision moves to the next port when :3783 is taken, and records where it went in `<T3CODE_HOME>/userdata/server-runtime.json`. Default `T3_URL` from it instead of assuming :3783."
     },
     {
       "id": "release-bomform",
@@ -303,15 +366,6 @@
       "body": "Web Speech sends mic audio to the browser maker's service. Whisper on the server or Vision's `@pacific/voice` would keep it in-house, for the crew's sheet and huddle transcripts alike."
     },
     {
-      "id": "created-by-cards",
-      "title": "Notes and tables say which agent made them",
-      "kind": "bug",
-      "milestone": "crew",
-      "area": "crew",
-      "status": "backlog",
-      "body": "A real turn's cards are signed in the activity, but `createdBy` is set on panels only, so a note or table doesn't say which agent made it."
-    },
-    {
       "id": "kiri-mac-linux",
       "title": "Run npm run kiri:install on a Mac and on Linux",
       "kind": "hookup",
@@ -328,15 +382,6 @@
       "area": "voice",
       "status": "backlog",
       "body": "The level meter's getUserMedia runs beside Web Speech: in the desktop app and some browsers that's a second permission prompt (SPEC §7)."
-    },
-    {
-      "id": "sheet-asks-vanish",
-      "title": "A finished ask from the sheet leaves the roster with nowhere to find it",
-      "kind": "bug",
-      "milestone": "crew",
-      "area": "crew",
-      "status": "backlog",
-      "body": "Agents asked from the sheet run without a tab; their sessions are in the side pane, but nothing points there once the roster lets them go 2.4 s after they finish (SPEC §7)."
     },
     {
       "id": "space-two-things",
@@ -456,15 +501,6 @@
       "body": "xterm measures its cells unscaled, so a mouse selection is off by the zoom factor (and now by a section's fit). Typing is fine."
     },
     {
-      "id": "machine-port-stale",
-      "title": "A port opened as a page shows its last load after the machine stops",
-      "kind": "bug",
-      "milestone": "apps",
-      "area": "machines",
-      "status": "backlog",
-      "body": "The page's frame isn't told the machine stopped. Show it as stopped (and reload when it starts again)."
-    },
-    {
       "id": "recording-opt-out",
       "title": "Per-person recording opt-out",
       "kind": "plan",
@@ -544,15 +580,6 @@
       "area": "perf",
       "status": "backlog",
       "body": "They render on every change on a big board. Narrow them the way `useSection` did."
-    },
-    {
-      "id": "pane-beside-session",
-      "title": "Opening the side pane beside a session on a narrow window leaves a sliver",
-      "kind": "bug",
-      "milestone": "polish",
-      "area": "floor",
-      "status": "backlog",
-      "body": "The floor only gives way on its own. Narrow the session instead when the pane is opened by hand."
     },
     {
       "id": "frame-section-tools",
@@ -636,15 +663,6 @@
       "body": "42 labels in 12 files say ⌘ where Windows takes Ctrl. Fixed on branch `fix/shortcut-labels` (\"Keys: ⌘ on a Mac, Ctrl on Windows and Linux\"); waiting to merge."
     },
     {
-      "id": "rea-windows",
-      "title": "The REA job on Windows",
-      "kind": "bug",
-      "milestone": "ship",
-      "area": "rea",
-      "status": "backlog",
-      "body": "It spawns `npx` without a shell; Windows needs `npx.cmd` resolved safely (its arguments include a target). The REA runner and the Vision brief are also unexercised end to end."
-    },
-    {
       "id": "ws-ticket",
       "title": "A header-capable sync transport (ticket exchange)",
       "kind": "plan",
@@ -697,15 +715,6 @@
       "area": "auth",
       "status": "backlog",
       "body": "Linking two users is `npm run link-accounts`. Admin (users, audit) has no UI yet."
-    },
-    {
-      "id": "signin-memory",
-      "title": "Flowform sign-in attempts are lost on a server restart",
-      "kind": "bug",
-      "milestone": "ship",
-      "area": "auth",
-      "status": "backlog",
-      "body": "Attempts live in server memory for 10 minutes, so a `tsx watch` restart mid-sign-in makes the person click again. Keep them in SQLite."
     },
     {
       "id": "iframe-sandbox",
