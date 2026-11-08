@@ -31,7 +31,7 @@ import { handleMcp } from "./mcp.ts";
 import { seedCompanyBoard } from "./seed.ts";
 import { addLine, attachHuddle, attachRecording, huddleArchive, transcriptText } from "./huddles.ts";
 import { boardLink, channelHistory, channelInfo, inviteText, listChannels, postMessage, shareText, SlackError, slackStatus } from "./slack.ts";
-import { appendSection, boardMaps } from "@foundation/protocol";
+import { appendSection, boardMaps, huddleStateOf } from "@foundation/protocol";
 import { migrateAllBoards } from "./migrate.ts";
 import * as flowform from "./flowform.ts";
 import { canSeeBoard, hiddenBoards, requireBoard } from "./members.ts";
@@ -265,7 +265,7 @@ r.get("/api/huddles/:id", (req) => {
   const board = req.query.get("board") ?? "company";
   requireBoard(u, board);
   const panel = huddleOn(board, req.params.id);
-  return { huddle: { id: panel.id, name: panel.name, channel: panel.channel ?? null, state: panel.huddle ?? { people: [] } }, sessions: huddleArchive(board, panel.id) };
+  return { huddle: { id: panel.id, name: panel.name, channel: panel.channel ?? null, state: huddleStateOf(getBoard(board).doc, panel.id) ?? { people: [] } }, sessions: huddleArchive(board, panel.id) };
 });
 r.post("/api/huddles/:id/lines", async (req) => {
   const u = requireUser(req);
@@ -330,7 +330,7 @@ r.post("/api/slack/channels/:id/invite", async (req) => {
   const b = await readJson<{ board?: string; huddleId?: string }>(req);
   const board = b.board ?? "company";
   const h = huddleOn(board, b.huddleId ?? "");
-  const text = inviteText({ by: u.name, board, huddleId: h.id, huddleName: h.name, live: h.huddle?.people ?? [] });
+  const text = inviteText({ by: u.name, board, huddleId: h.id, huddleName: h.name, live: huddleStateOf(getBoard(board).doc, h.id)?.people ?? [] });
   return slackDo(async () => ({ ...(await postMessage(req.params.id, text, u, { board, huddle: h.id })), url: boardLink(board, h.id) }));
 });
 /** hand a huddle session's notes (transcript + recordings) to a channel */

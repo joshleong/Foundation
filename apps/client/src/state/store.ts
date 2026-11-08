@@ -11,7 +11,7 @@
  */
 
 import { useSyncExternalStore } from "react";
-import { isHostable, type LinkDoc, type PanelDoc } from "@foundation/protocol";
+import { isHostable, type HuddleState, type LinkDoc, type PanelDoc } from "@foundation/protocol";
 import { workbook } from "../engine/workbook";
 
 let idCounter = 0;
@@ -63,7 +63,13 @@ export interface MediaMeta extends ObjectBase {
 }
 
 /** apps, links, files, machines, agents, connectors and asks — see @foundation/protocol */
-export type PanelMeta = Omit<PanelDoc, "kind">;
+export type PanelMeta = Omit<PanelDoc, "kind" | "huddle"> & {
+  /**
+   * A huddle's live state, read from the board's `huddles` map (schema 6) —
+   * never from the card, and never written back: the server alone keeps it.
+   */
+  huddle?: HuddleState;
+};
 
 export type AnyObject = TableMeta | MapMeta | NoteMeta | MediaMeta | PanelMeta;
 
