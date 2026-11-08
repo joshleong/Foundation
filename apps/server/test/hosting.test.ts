@@ -82,8 +82,11 @@ test("an app opened into an empty section becomes the section's app", async () =
   const m = boardMaps(board.doc);
   const sec = [...m.sections.values()].find((s) => s.name === "Tools")!;
   assert.equal(sec.host, a.id);
-  // a second app in the same section is a card beside it, not a second host
+  // a second app isn't a second host, and the first stops filling the section:
+  // a hosted app covers the section's body, so a card beside it would be hidden.
+  // Both are cards in the flow, as "Show as a card" leaves them.
   const b = (await runTool(ctx, "add_panel", { panel: "app", name: "Other", url: "http://localhost:9998", section: "Tools" })) as { id: string };
-  assert.equal(m.sections.get(sec.id)!.host, a.id);
-  assert.notEqual(b.id, a.id);
+  assert.equal(m.sections.get(sec.id)!.host, undefined);
+  assert.equal(m.objects.get(a.id)?.sectionId, sec.id);
+  assert.equal(m.objects.get(b.id)?.sectionId, sec.id);
 });

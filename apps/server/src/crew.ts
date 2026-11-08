@@ -260,8 +260,15 @@ export function canCallHelp(m: CrewMember): string | null {
 }
 
 /** the few words a cursor shows for a tool step */
-export function describeStep(name: string, input: Record<string, unknown>): string {
+export function describeStep(name: string, input: Record<string, unknown>, boardId?: string): string {
   const q = (k: string) => (typeof input[k] === "string" ? String(input[k]).slice(0, 40) : "");
+  /** a card's name, not its id (a real model wires by ids) */
+  const named = (k: string) => {
+    const ref = q(k);
+    if (!boardId || !ref) return ref;
+    const o = boardMaps(getBoard(boardId).doc).objects.get(ref) as { name?: string } | undefined;
+    return o?.name?.slice(0, 40) || ref;
+  };
   switch (name) {
     case "read_board":
       return "reading the board";
@@ -280,7 +287,7 @@ export function describeStep(name: string, input: Record<string, unknown>): stri
     case "add_panel":
       return input.panel === "connector" ? `hooking up ${q("name") || q("connector")}` : `opening ${q("name")}`;
     case "connect":
-      return `wiring ${q("from_port")} → ${q("to_port")}`;
+      return `wiring ${named("from_panel")} → ${named("to_panel")}`;
     case "update_card":
       return input.section ? `moving it to ${q("section")}` : "tidying a card";
     case "arrange_section":

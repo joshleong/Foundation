@@ -79,12 +79,12 @@
   "cards": [
     {
       "id": "claude-sign-in",
-      "title": "Sign Claude Code back in on the Windows machine",
+      "title": "The crew driven by a real model",
       "kind": "hookup",
       "milestone": "crew",
       "area": "agent",
-      "status": "needs-you",
-      "body": "Claude Code's OAuth session on Josh's Windows machine has expired, so every subscription-runtime turn fails. Run `claude` once and sign in. Then hold Space on the board and ask the crew for something: no real model has driven the crew yet (SPEC §6 #4, §7)."
+      "status": "done",
+      "body": "Claude Code signed back in; three real subscription turns drove the crew on 2026-11-07 (`docs/evidence/2026-11-07_crew/` 10–14) and found five faults, fixed the same day: connectors hosting the new section, raw markdown tables, port ids in cursor labels, the helper's brief logged as the person's ask, section ids in activity."
     },
     {
       "id": "repo-visibility",
@@ -124,12 +124,12 @@
     },
     {
       "id": "install-kiri",
-      "title": "Install Kiri and run the machines smoke test on it",
+      "title": "Machines on Kiri (Windows)",
       "kind": "hookup",
       "milestone": "apps",
       "area": "machines",
-      "status": "needs-you",
-      "body": "Machines were checked on Docker Desktop and against Kiri's source only. Install Kiri (runkiri.com) and run `npm run machines:smoke -w @foundation/server -- kiri`. Note Kiri drops per-container memory/CPU caps (SPEC §7)."
+      "status": "done",
+      "body": "Kiri installed by `npm run kiri:install` (MSI checked against a pinned SHA-256), started with `npm run dev`, woken by Start, and launched outside the server's process tree so it outlives Foundation. Still: Kiri's Windows installer is unsigned, and Kiri doesn't apply per-container memory/CPU caps."
     },
     {
       "id": "github-issues",
@@ -205,12 +205,12 @@
     },
     {
       "id": "table-into-app-section",
-      "title": "A table added (⌘K) into an app section hides behind the app",
+      "title": "A person's table (⌘K) added into an app section hides behind the app",
       "kind": "bug",
       "milestone": "polish",
       "area": "sections",
       "status": "next",
-      "body": "Cards added to a section that hosts an app go behind it, where nobody sees them. Put them in the nearest section that isn't an app (SPEC §7)."
+      "body": "Agents' cards no longer do this: since 2026-11-07 a card an agent adds to a hosted section makes the app a card in the flow beside it (`cardSection` in `tools.ts`). The client's own add paths (⌘K, the section toolbar, the empty-section actions) should do the same."
     },
     {
       "id": "add-section-gap-dblclick",
@@ -292,6 +292,24 @@
       "area": "voice",
       "status": "backlog",
       "body": "Web Speech sends mic audio to the browser maker's service. Whisper on the server or Vision's `@pacific/voice` would keep it in-house, for the crew's sheet and huddle transcripts alike."
+    },
+    {
+      "id": "created-by-cards",
+      "title": "Notes and tables say which agent made them",
+      "kind": "bug",
+      "milestone": "crew",
+      "area": "crew",
+      "status": "backlog",
+      "body": "A real turn's cards are signed in the activity, but `createdBy` is set on panels only, so a note or table doesn't say which agent made it."
+    },
+    {
+      "id": "kiri-mac-linux",
+      "title": "Run npm run kiri:install on a Mac and on Linux",
+      "kind": "hookup",
+      "milestone": "apps",
+      "area": "machines",
+      "status": "needs-you",
+      "body": "`scripts/kiri.mjs` has run on Windows only. Its macOS (`.dmg`, `open -a Kiri`) and Linux (`.deb`/`.rpm`, `kiri daemon`) paths are written from Kiri's docs and not yet tried."
     },
     {
       "id": "mic-twice",

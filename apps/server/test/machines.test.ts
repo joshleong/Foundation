@@ -137,6 +137,7 @@ const { setBoardRole } = await import("../src/roles.ts");
 const { runTool } = await import("../src/tools.ts");
 const { editBoard, getBoard, closeBoards } = await import("../src/boards.ts");
 const { boardMaps, appendSection } = await import("@foundation/protocol");
+type PanelDoc = import("@foundation/protocol").PanelDoc;
 const machines = await import("../src/machines.ts");
 
 after(async () => {
@@ -259,6 +260,33 @@ test("stop keeps the disk; remove needs confirm; the engine is the truth", async
   const r = await machines.reconcileMachine(BOARD, card.id);
   assert.equal(r.machine?.state, "absent");
   assert.match(r.machine?.detail ?? "", /removed outside Foundation/);
+});
+
+test("a machine whose engine is down is stopped, not removed: its disk waits on that engine", async () => {
+  const out = (await runTool({ boardId: BOARD, actor: "Ada", userId: ada.id }, "propose_machine", { name: "On Docker", image: "alpine" })) as { card: string };
+  // it ran on Docker, and Docker has quit (Kiri still answers)
+  editBoard(BOARD, "test", (doc) => {
+    const o = boardMaps(doc).objects.get(out.card) as PanelDoc;
+    boardMaps(doc).objects.set(out.card, { ...o, machine: { ...o.machine!, engine: "docker", containerId: "c_on_docker", state: "running", ports: [{ port: 80, host: 41000 }] } });
+  });
+  const r = await machines.reconcileMachine(BOARD, out.card);
+  assert.equal(r.machine?.state, "stopped");
+  assert.equal(r.machine?.containerId, "c_on_docker", "kept: Start finds it once Docker is back");
+  assert.match(r.machine?.detail ?? "", /Docker isn't answering/);
+  assert.doesNotMatch(r.machine?.detail ?? "", /removed outside/);
+});
+
+test("Kiri installed but asleep: found where its installer put it, never when the engines are named", () => {
+  const local = mkdtempSync(join(tmpdir(), "kiri-app-"));
+  const env = { LOCALAPPDATA: local } as NodeJS.ProcessEnv;
+  assert.equal(machines.kiriApp(env, "win32"), null, "not installed");
+  mkdirSync(join(local, "Kiri"));
+  writeFileSync(join(local, "Kiri", "kiri-win.exe"), "");
+  assert.deepEqual(machines.kiriApp(env, "win32")?.args, ["--background", "--distro", "kiri"], "npm run kiri:install's distro");
+  writeFileSync(join(local, "Kiri", "setup.json"), JSON.stringify({ done: true, distro: "Ubuntu" }));
+  assert.deepEqual(machines.kiriApp(env, "win32")?.args, ["--background", "--distro", "Ubuntu"], "the distro Kiri's own setup chose");
+  assert.equal(machines.kiriApp({ ...env, FOUNDATION_ENGINES: "kiri=/x" }, "win32"), null);
+  assert.equal(machines.kiriApp({}, "linux"), null, "Linux runs Kiri as a service");
 });
 
 test("errors are the engine's own words; an image file loads from the archive", async () => {

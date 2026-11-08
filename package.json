@@ -19,7 +19,9 @@
     "plan:push": "node scripts/plan.mjs push",
     "plan:pull": "node scripts/plan.mjs pull",
     "plan:project": "node scripts/plan.mjs project",
-    "plan:check": "node scripts/plan.mjs check"
+    "plan:check": "node scripts/plan.mjs check",
+    "kiri": "node scripts/kiri.mjs",
+    "kiri:install": "node scripts/kiri.mjs install"
   },
   "engines": {
     "node": ">=22.16"

@@ -105,6 +105,20 @@ function sectionOrCreate(doc: Y.Doc, section?: string) {
 }
 
 /**
+ * The section a new card goes into. A hosted app fills its section, so a card
+ * added there would be hidden under it: the app becomes a card in the flow
+ * instead (what "Show as a card" does). A real crew turn hooked a connector up
+ * first, then added a table and two notes that nobody could see (2026-11-07).
+ */
+function cardSection(doc: Y.Doc, section?: string) {
+  const sec = sectionOrCreate(doc, section);
+  if (!sec.host) return sec;
+  const { host: _hosted, ...rest } = sec;
+  boardMaps(doc).sections.set(sec.id, rest);
+  return rest;
+}
+
+/**
  * Starts a helper run for call_in_help. agent.ts registers it (tools can't
  * import the runtime without a cycle).
  */
@@ -165,10 +179,11 @@ export function addPanel(
     };
     for (const k of Object.keys(panel) as Array<keyof PanelDoc>) if (panel[k] === undefined) delete panel[k];
     const m = boardMaps(doc);
-    // an app opened into an empty section becomes that section's app
+    // an app opened into an empty section becomes that section's app; anything else joins the flow
     const empty = ![...m.objects.values()].some((o) => o.sectionId === sec.id);
     m.objects.set(panel.id, panel);
     if (empty && isHostable(panel.panel)) m.sections.set(sec.id, { ...sec, host: panel.id });
+    else if (sec.host) cardSection(doc, sec.id);
     return panel;
   });
 }
@@ -265,7 +280,7 @@ export const TOOLS: BoardTool[] = [
     write: true,
     run: (ctx, { section, title, markdown }) => {
       const note = editBoard(ctx.boardId, "agent", (doc) => {
-        const sec = sectionOrCreate(doc, section);
+        const sec = cardSection(doc, section);
         const n: NoteDoc & { text: string } = { id: uid("note"), kind: "note", sectionId: sec.id, name: title, x: 0, y: 0, float: false, bornAt: Date.now(), w: 420, h: 300, text: markdown };
         putNote(doc, n);
         return n;
@@ -321,7 +336,7 @@ export const TOOLS: BoardTool[] = [
         const next = { ...o } as Record<string, unknown>;
         for (const [k, v] of Object.entries(patch)) if (v !== undefined) next[k] = v;
         if (section) {
-          const sec = sectionOrCreate(doc, section);
+          const sec = cardSection(doc, section);
           next.sectionId = sec.id;
           next.float = false;
         }
@@ -495,7 +510,7 @@ export const TOOLS: BoardTool[] = [
     run: (ctx, i) => {
       const md = `## ${i.title}\n\n**Goal** ${i.goal}\n\n${i.constraints ? `**Constraints** ${i.constraints}\n\n` : ""}${i.simulate ? `**Simulate** ${i.simulate}\n\n` : ""}**Reviewers** ${i.reviewers.join(", ") || "—"}\n\n*Brief written by ${ctx.actor} for Vision.*`;
       const noteId = editBoard(ctx.boardId, "agent", (doc) => {
-        const sec = sectionOrCreate(doc, i.section);
+        const sec = cardSection(doc, i.section);
         const n: NoteDoc & { text: string } = { id: uid("note"), kind: "note", sectionId: sec.id, name: `Brief · ${i.title}`, x: 0, y: 0, float: false, bornAt: Date.now(), w: 440, h: 320, text: md };
         putNote(doc, n);
         return n.id;
@@ -766,7 +781,7 @@ export const TOOLS: BoardTool[] = [
     write: true,
     run: (ctx, { section, name, columns, rows = [] }) => {
       const table = editBoard(ctx.boardId, "agent", (doc) => {
-        const sec = sectionOrCreate(doc, section);
+        const sec = cardSection(doc, section);
         const cols = Math.max(columns.length, ...rows.map((r) => r.length), 3);
         const t: TableDoc = { id: uid("tbl"), kind: "table", sectionId: sec.id, name, x: 0, y: 0, float: false, bornAt: Date.now(), cols, rows: Math.max(rows.length + 1, 6) };
         const raw: Record<string, string> = {};
@@ -820,7 +835,7 @@ export const TOOLS: BoardTool[] = [
         });
         return sorted.length;
       });
-      touch(ctx, undefined, `arranged ${n} cards in “${section}”`);
+      touch(ctx, undefined, `arranged ${n} cards in “${findSection(getBoard(ctx.boardId).doc, section)?.name ?? section}”`);
       const member = crewMember(ctx.crew);
       if (member) aim(member, resolveTarget(ctx.boardId, section));
       return `arranged ${n} cards`;
@@ -855,6 +870,7 @@ export const TOOLS: BoardTool[] = [
       if (!helperStarter) throw new Error("no agent runtime to start a helper");
       member.helpers++;
       const h = helperStarter(member, section ? `${task}\n\n(Work in the section “${section}”.)` : task);
+      touch(ctx, undefined, `called in ${h.name}: ${task.slice(0, 120)}`);
       return `${h.name} is on it`;
     },
   }),
@@ -881,7 +897,7 @@ export async function runTool(ctx: ToolCtx, name: string, rawInput: unknown): Pr
   const member = crewMember(ctx.crew);
   if (member && member.boardId === ctx.boardId) {
     const input = parsed.data as Record<string, unknown>;
-    const doing = describeStep(name, input);
+    const doing = describeStep(name, input, ctx.boardId);
     if (tool.write) await travel(member, stepTarget(ctx.boardId, name, input), doing);
     else setDoing(member, doing);
   }

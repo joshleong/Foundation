@@ -13,6 +13,7 @@ Brief and the four questions: SPEC §0.3. Status: SPEC §3 "The crew".
   - A viewer's agent reads but can't write or call in help.
   - `arrange_section` reorders without new times; `rename_section` renames.
   - An MCP crew id counts only for its own person and board.
+  - (After the real turns) A wiring step names its cards. A connector hooked up first doesn't hide the cards after it. The helper's brief isn't logged as the person's ask. Now 10 tests, plus `apps/client/test/markdown.test.ts` (3) for note tables.
 - **Browser, `npm run e2e -w @foundation/client`**: `e2e/crew.spec.ts`, 5 tests in Chromium, with two people (Ada and Kai) in separate browser contexts. The server ran the `script` runtime (`FOUNDATION_AGENT_SCRIPT=1`: the real board tools, a fixed playbook, no model), so the run is the same every time.
 
 | File | What it shows |
@@ -39,7 +40,42 @@ For every card, a crew cursor was already inside the section when the card first
 
 **Back** returned Ada's camera to within 2 px. Kai's camera stayed within 2 px of where he left it while Ada was brought.
 
+## Real model turns (later the same day)
+
+The first attempt stopped at Claude Code's sign-in ("OAuth session expired"). The agent (Onyx) joined, said that in a toast and left. The Claude desktop app's sign-in doesn't reach the CLI: `claude auth status` showed `loggedIn: false` until `claude auth login` was run.
+
+Then a real Foundation ran on its own ports with a fresh board and **no script runtime**: real `claude -p` turns on Josh's subscription. The desktop app's `CLAUDE*`/`ANTHROPIC*` variables were dropped from the server's environment. Each ask was typed into the sheet after a real tap of Space in the in-app browser. The cursor log is what the asker's page showed, sampled every 100 ms.
+
+**1 · "Make a section called Supply chain with a table of the parts we're short on and a note on who to call, hook up FactoryForm there, then bring me over to it."**
+- The agent was **Swift**.
+- 0–12.9 s: read the ask, planned, read FactoryForm and BomForm, and searched "supplier contact shortage", "supplier" and "low stock inventory".
+- 12.9 s: made the section; 15.6 s the table; 17.7 s the note; 19.2 s hooked up FactoryForm; 23.2 s wired it.
+- 23.8 s: brought Josh to Supply chain (Back offered). Done at 28.9 s.
+- The note said, truthfully, that no supplier contacts were on the board and FactoryForm was offline.
+- `10_real-swift-reading-the-ask.jpg`, `11_real-swift-brought-me-to-supply-chain.jpg`.
+- Two faults:
+  - The note's markdown table showed as raw pipes.
+  - The cursor read "wiring port_mw7… → port_mw7…".
+- Both are fixed. The table now renders: `12_real-note-table-renders.jpg`, `15_note-table-{night,day}.png`.
+
+**2 · "Set up an Ops review section: a table of open work orders, a note on what's blocked, and FactoryForm hooked up. Get a helper to write Monday's standup checklist. Then tidy it and bring me there."**
+- The agent was **Talc**. It made the section, called in **Mica** at 15.8 s, and hooked up FactoryForm *first* (17.1 s).
+- Then it made the table and note. Meanwhile Mica wrote "Monday standup checklist" and finished at 26.2 s.
+- Talc arranged the section, brought Josh there at 29 s, and was done at 34 s.
+- **But the section showed only FactoryForm.** As the first card in an empty section, the connector became the section's host, which covers the body. The table and both notes were in the section, beneath it: `13_real-talc-cards-hidden-under-connector.jpg`.
+- The scripted playbook always made the table first, so it never hit this.
+- Fixed in `tools.ts`: a card an agent adds to a hosted section makes the app a card in the flow.
+
+**3 · The same ask, after the fix.**
+- The agent was **Jasper**, and it again hooked up FactoryForm before anything else (20.1 s).
+- Its helper **Finch** was called in at 18 s and wrote the checklist (done at 30.7 s).
+- Josh was brought to Ops review at 38.9 s; done at 44.4 s.
+- All four cards are visible: table, "Blocked", FactoryForm, and Finch's checklist (`14_real-jasper-and-finch-fixed.jpg`). The section's `host` is empty.
+- The activity log showed two more faults, both fixed with tests:
+  - Finch's brief was logged as "Josh Test: asked the agent: You were called in by Jasper…". The lead now signs "called in Finch: …".
+  - "arranged 4 cards in sec_…" now uses the section's name.
+
 ## Not checked
 
-- **A real model.** A real Claude Code subscription turn was started from the sheet (typed after a real Space tap in the in-app browser). Claude Code answered "Failed to authenticate: OAuth session expired and could not be refreshed". The agent (Onyx) joined, said that in a toast and left. Sign Claude Code in on this machine and ask the crew again.
+- **A real model driven by voice**, or watched by a second person. The real turns were typed, by one person.
 - **A real microphone.** The in-app browser blocks the mic, and Playwright's recogniser is a stand-in. So the mic-level bars were seen breathing, not following a voice.
