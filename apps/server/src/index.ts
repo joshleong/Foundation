@@ -37,6 +37,7 @@ import * as flowform from "./flowform.ts";
 import { canSeeBoard, hiddenBoards, requireBoard } from "./members.ts";
 import { requirePerson } from "./auth.ts";
 import { movePlanCard, readPlan } from "./plan.ts";
+import { startDigest } from "./digest.ts";
 import { attachTerminal, engineImages, engineStatus, loadImage, reconcileMachine, removeMachine, restartMachine, startMachine, stopMachine } from "./machines.ts";
 
 const r = new Router();
@@ -581,6 +582,7 @@ seedCompanyBoard();
 migrateAllBoards();
 settleOrphanRuns();
 startHermes();
+startDigest();
 
 server.listen(config.port, config.host, () => {
   const rt = runtimes();

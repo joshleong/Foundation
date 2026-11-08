@@ -48,6 +48,7 @@ import { stageDef } from "@foundation/protocol";
 import { huddleArchive, transcriptText } from "./huddles.ts";
 import { channelHistory, channelInfo, listChannels } from "./slack.ts";
 import { describeMachines, proposeMachine, validImage } from "./machines.ts";
+import { writeDigest } from "./digest.ts";
 import { aim, canCallHelp, crewMember, describeStep, guide, resolveTarget, setDoing, stepTarget, travel, type CrewMember } from "./crew.ts";
 
 export interface ToolCtx {
@@ -843,6 +844,17 @@ export const TOOLS: BoardTool[] = [
       const member = crewMember(ctx.crew);
       if (member) aim(member, resolveTarget(ctx.boardId, section));
       return `arranged ${n} cards`;
+    },
+  }),
+  def({
+    name: "write_digest",
+    description:
+      "Write today's digest now: a note, newest first in the “Daily digest” section, saying what changed since the last one — on this board (who did what, people and agents; sections and cards added or removed) and in the company's systems (FactoryForm, BomForm … compared with the reading the last digest saw; offline ones say so). One note per day: asking again the same day brings today's note up to date. Built from the board and the connectors, no model. The server also writes one each morning on the company board.",
+    schema: z.object({ request_id: z.string().optional() }),
+    write: true,
+    run: async (ctx) => {
+      const out = await writeDigest(ctx.boardId, { by: ctx.actor });
+      return out && { id: out.id, title: out.title, day: out.day, did: out.did };
     },
   }),
   def({
