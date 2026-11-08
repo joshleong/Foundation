@@ -889,6 +889,12 @@ function CrewDemo() {
             <p className="talk-heard">make a supply section with the parts and hook up FactoryForm</p>
           </div>
           <ul className="crew-roster">
+            <li className="crew-row crew-row-all">
+              <span className="crew-row-doing">2 of yours at work</span>
+              <span className="crew-row-actions">
+                <button className="crew-row-btn is-stop">Stop all</button>
+              </span>
+            </li>
             {row("Wren", 0, "making table “Parts”")}
             {row("Kestrel", 2, "writing “Suppliers to call”", "working", true, "with Wren")}
             {row("Vega", 4, "searching “thermal map”", "working", false, "for Kai")}

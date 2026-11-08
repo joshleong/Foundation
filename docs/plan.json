@@ -254,8 +254,8 @@
       "kind": "plan",
       "milestone": "crew",
       "area": "crew",
-      "status": "next",
-      "body": "Each agent can be stopped from the sheet; there's no way to stop all of yours at once. Add Stop all to the roster (and a key), server-side so helpers stop too (SPEC §8 The crew next)."
+      "status": "done",
+      "body": "Done 2026-11-07: **Stop all** heads the crew roster when two or more of yours are working, and ⌘K → Stop all my agents does the same. Server-side (`POST /api/agent/runs/stop-all`, `stopAllRuns`): every run of yours on this board, helpers included, and nobody else's."
     },
     {
       "id": "crew-follow",

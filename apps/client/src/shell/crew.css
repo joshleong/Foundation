@@ -341,6 +341,17 @@
 .crew-row-btn.is-stop {
   color: var(--color-bad);
 }
+/* the crew-wide stop heads the roster when two or more of yours are working */
+.crew-row-all {
+  height: 26px;
+  border-bottom: 1px dashed var(--color-line);
+  margin-bottom: var(--space-1);
+}
+.crew-row-all .crew-row-doing {
+  color: var(--color-dim);
+  font-size: var(--text-11);
+  font-variant-numeric: tabular-nums;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .crew-spark,

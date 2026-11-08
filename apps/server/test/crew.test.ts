@@ -25,7 +25,7 @@ process.env.FOUNDATION_CREW_TRAVEL_MS = "40";
 const { run } = await import("../src/db.ts");
 const { upsertUser } = await import("../src/auth.ts");
 const { runTool } = await import("../src/tools.ts");
-const { startRun, followRun } = await import("../src/agent.ts");
+const { startRun, followRun, stopAllRuns } = await import("../src/agent.ts");
 const { joinCrew, leaveCrew, crewOn, MAX_HELPERS, _resetCrew, describeStep } = await import("../src/crew.ts");
 const { getBoard, closeBoards } = await import("../src/boards.ts");
 const { crewFor } = await import("../src/mcp.ts");
@@ -214,3 +214,21 @@ test("MCP: a crew id counts only for the person and board it belongs to", () => 
   leaveCrew(m, "done", 0);
   assert.equal(crewFor(m.id, ada, "c8"), undefined, "nor once it has left");
 });
+
+test("the crew-wide stop: all of one person's agents on one board, and nobody else's", async () => {
+  process.env.FOUNDATION_SCRIPT_STEP_MS = "200";
+  const mine = [startRun({ boardId: "s1", user: ada, prompt: "Make a section called “One” with the parts" }), startRun({ boardId: "s1", user: ada, prompt: "Make a section called “Two” with the parts" })];
+  const otherBoard = startRun({ boardId: "s2", user: ada, prompt: "Make a section called “Three”" });
+  const someoneElse = startRun({ boardId: "s1", user: kai, prompt: "Make a section called “Four”" });
+  assert.equal(stopAllRuns("s1", ada.id), 2, "both of Ada's runs on s1");
+  assert.equal(stopAllRuns("s1", ada.id), 0, "already stopping: not counted twice");
+  const ended = await Promise.all([...mine.map((r) => finish(r, ada.id)), finish(otherBoard, ada.id), finish(someoneElse, kai.id)]);
+  process.env.FOUNDATION_SCRIPT_STEP_MS = "0";
+  assert.ok(mine.every((r) => r.ctrl.signal.aborted), "Ada's two on s1 stopped");
+  assert.equal(otherBoard.ctrl.signal.aborted, false, "her run on another board kept going");
+  assert.equal(someoneElse.ctrl.signal.aborted, false, "Kai's kept going");
+  assert.equal(ended.length, 4);
+  await new Promise((res) => setTimeout(res, 2600));
+  assert.equal(crewOn("s1").length, 0, "no cursor left behind");
+});
+

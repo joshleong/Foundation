@@ -21,6 +21,7 @@ import { listen, voiceAvailable, type Listening } from "../lib/voice";
 import { askCrew, crewAsk, sayToAgent, stopSession, titleOf, useSession } from "../state/sessions";
 import { getUi, openTab, toast } from "../state/ui";
 import { crewPeers, type CrewPeer } from "./Crew";
+import { stopAllOnBoard } from "./CommandBar";
 import { useBoardTick } from "./Presence";
 
 type Mode = "idle" | "listening" | "typing";
@@ -229,6 +230,7 @@ export function TalkButton() {
   const crew = crewPeers(board?.peers() ?? []);
   const me = board?.user.id;
   const mine = crew.filter((p) => p.crew.asker === me);
+  const mineWorking = mine.filter((p) => p.crew.status === "working").length;
   const showRoster = open || crew.length > 0;
 
   return (
@@ -254,6 +256,16 @@ export function TalkButton() {
             {open && <TalkInput mode={m} words={words} />}
             {crew.length > 0 && (
               <ul className="crew-roster" aria-label="The crew at work">
+                {mineWorking > 1 && (
+                  <li className="crew-row crew-row-all">
+                    <span className="crew-row-doing">{mineWorking} of yours at work</span>
+                    <span className="crew-row-actions">
+                      <button className="crew-row-btn is-stop" onClick={() => void stopAllOnBoard()} data-tip="Stop every agent of yours on this board, helpers too">
+                        Stop all
+                      </button>
+                    </span>
+                  </li>
+                )}
                 {crew.map((p) => (
                   <RosterRow key={p.clientId} peer={p} mine={p.crew.asker === me} />
                 ))}

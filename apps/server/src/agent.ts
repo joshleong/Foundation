@@ -161,6 +161,7 @@ const newRunId = () => `run_${randomBytes(6).toString("hex")}`;
 interface LiveRun {
   id: string;
   userId: string;
+  boardId: string;
   events: AgentEvent[];
   listeners: Set<(e: AgentEvent) => void>;
   done: boolean;
@@ -169,7 +170,7 @@ interface LiveRun {
 const live = new Map<string, LiveRun>();
 
 export function startRun(opts: Omit<Parameters<typeof runAgent>[0], "emit" | "signal" | "runId" | "crew"> & { lead?: CrewMember }): LiveRun {
-  const r: LiveRun = { id: newRunId(), userId: opts.user.id, events: [], listeners: new Set(), done: false, ctrl: new AbortController() };
+  const r: LiveRun = { id: newRunId(), userId: opts.user.id, boardId: opts.boardId, events: [], listeners: new Set(), done: false, ctrl: new AbortController() };
   live.set(r.id, r);
   const emit = (e: AgentEvent) => {
     const last = r.events[r.events.length - 1];
@@ -248,6 +249,20 @@ export function stopRun(id: string, userId: string) {
   if (!r || r.userId !== userId) return false;
   r.ctrl.abort();
   return true;
+}
+
+/**
+ * The crew-wide stop: every run this person has going on this board, helpers
+ * included (a helper runs as the person who asked). Returns how many stopped.
+ */
+export function stopAllRuns(boardId: string, userId: string): number {
+  let n = 0;
+  for (const r of live.values()) {
+    if (r.done || r.userId !== userId || r.boardId !== boardId || r.ctrl.signal.aborted) continue;
+    r.ctrl.abort();
+    n++;
+  }
+  return n;
 }
 
 /** runs left "running" by a server that stopped can't finish: say so */

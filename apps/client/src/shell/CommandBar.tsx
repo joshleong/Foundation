@@ -13,6 +13,7 @@ import { api, logout, search } from "../lib/api";
 import { addNote, addPanel, appendSectionLocal, createTable, getState, requestSnap, updatePanel } from "../state/store";
 import { askAgent, getUi, setUi, toast, useUi } from "../state/ui";
 import { activeBoard } from "../sync/board";
+import { stopAllCrew } from "../state/sessions";
 
 interface Action {
   id: string;
@@ -159,6 +160,7 @@ export function CommandBar() {
       { id: "cad", glyph: "✉", label: "Ask someone for the latest CAD…", hint: "Hermes keeps following up", run: () => askAgent("Ask ") },
       { id: "pipeline", glyph: "◆", label: "Start a design pipeline…", hint: "design → CAD → simulation → release, panel by panel", run: () => askAgent("Start a design pipeline for ") },
       { id: "vision", glyph: "◈", label: "Design something with Vision…", run: () => askAgent("Brief Vision: design ") },
+      { id: "stop-crew", glyph: "■", label: "Stop all my agents on this board", hint: "the crew-wide stop, helpers too", run: () => void stopAllOnBoard() },
       { id: "connect", glyph: "⌁", label: "Connect Claude Code / Codex to this board", hint: "copies an MCP command", run: copyMcpCommand },
       { id: "design", glyph: "◐", label: "Design language", hint: "tokens, type, motion, effects", run: () => {
           window.location.hash = "#/design";
@@ -308,5 +310,17 @@ export async function copyMcpCommand() {
     toast("Copied — paste it in a terminal to give Claude Code this board", "ok");
   } catch (e) {
     toast((e as Error).message, "bad");
+  }
+}
+
+/** ⌘K → Stop all my agents: the crew-wide stop, said in a toast */
+export async function stopAllOnBoard() {
+  const board = activeBoard()?.boardId;
+  if (!board) return;
+  try {
+    const n = await stopAllCrew(board);
+    toast(n ? `Stopped ${n === 1 ? "your agent" : `all ${n} of your agents`}` : "None of your agents were working here");
+  } catch (e) {
+    toast(`Couldn't stop them: ${(e as Error).message}`, "bad");
   }
 }

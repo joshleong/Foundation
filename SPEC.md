@@ -115,7 +115,7 @@ Evidence: `docs/evidence/2026-11-07_machines/`.
 - **Anticipation.** An agent's cursor goes to where the change will land and waits a beat (`FOUNDATION_CREW_TRAVEL_MS`, 520 ms) before the change lands. A creation aims at the next free slot in its section's flow. People can follow the work instead of watching cards pop in.
 - **Consent over your camera.** Only the person who asked is moved. If they were moving around in the last 1.8 s, the agent asks first (**Go**) instead of yanking the view. **Back** always returns them to where they were.
 - **Space still pans.** If a pointer goes down while Space is held, it's a pan, and the sheet stands down before it has heard anything. A quick tap types instead, for no mic or no recogniser.
-- **Bounded crews.** Helpers come only inside a person's ask: at most two per ask, never a helper's helper, at most six agents on a board. Every agent can be stopped from the sheet, and no cursor outlives its run.
+- **Bounded crews.** Helpers come only inside a person's ask: at most two per ask, never a helper's helper, at most six agents on a board. Every agent can be stopped from the sheet, all of yours at once with **Stop all** (2026-11-07), and no cursor outlives its run.
 
 **2. The rawest material.**
 - The y-protocols awareness wire (client ids, clocks, the 30 s timeout).

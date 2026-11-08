@@ -181,6 +181,13 @@ export function stopSession(id: string) {
   else ctrls.get(id)?.abort();
 }
 
+/** The crew-wide stop: every agent of yours on this board, helpers included (the server finds them) */
+export async function stopAllCrew(board: string): Promise<number> {
+  for (const a of crewAsks.values()) stopped.add(a.session);
+  const r = await api<{ stopped: number }>("/api/agent/runs/stop-all", { method: "POST", json: { board } });
+  return r.stopped;
+}
+
 export function titleOf(prompt: string) {
   const line = prompt.split("\n")[0].trim();
   return line.length > 48 ? `${line.slice(0, 45)}…` : line;

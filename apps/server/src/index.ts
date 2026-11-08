@@ -22,7 +22,7 @@ import { parseRepo, repoCommits, repoInfo, repoReadme } from "./github.ts";
 import { companySnapshot, connectorEvents, readConnector, watchFactoryForm } from "./connectors.ts";
 import { createAsk, listAsks, resolveAsk, startHermes } from "./hermes.ts";
 import { getJob, listJobs, startJob } from "./jobs.ts";
-import { followRun, listSessions, runtimes, sessionTurns, settleOrphanRuns, startRun, stopRun } from "./agent.ts";
+import { followRun, listSessions, runtimes, sessionTurns, settleOrphanRuns, startRun, stopAllRuns, stopRun } from "./agent.ts";
 import { t3Thread, t3Threads } from "./t3.ts";
 import { pollHandoffs } from "./vision.ts";
 import { boardPeople, boardRole, canWrite, requireWriter, setBoardRole } from "./roles.ts";
@@ -466,6 +466,12 @@ r.get("/api/agent/runs/:id/events", async (req, res) => {
     res.on("close", () => (detach(), done()));
   });
   res.end();
+});
+r.post("/api/agent/runs/stop-all", async (req) => {
+  const user = requireUser(req);
+  const { board } = await readJson<{ board?: string }>(req);
+  if (!board) throw new HttpError(400, "board required");
+  return { stopped: stopAllRuns(board, user.id) };
 });
 r.post("/api/agent/runs/:id/stop", (req) => {
   const user = requireUser(req);
