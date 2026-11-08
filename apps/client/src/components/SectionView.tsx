@@ -246,7 +246,6 @@ export const SectionView = memo(function SectionView({
     [ingestFiles],
   );
 
-  const iconSpring = { type: "spring", stiffness: 500, damping: 22 } as const;
 
   // ----- right-click menu on the section's own surface -----
   const onSectionContextMenu = useCallback(
@@ -573,53 +572,68 @@ export const SectionView = memo(function SectionView({
       )}
 
       {/* add-section affordances on all four edges */}
-      <motion.button
-        className="add-btn add-section-right"
-        whileHover={{ scale: 1.15 }}
-        whileTap={{ scale: 0.8 }}
-        transition={iconSpring}
-        data-tip="Add a section to the right"
-        aria-label="Add a section to the right"
-        onClick={() => addSectionAdjacent(section.id, "right")}
-      >
-        +
-      </motion.button>
-      <motion.button
-        className="add-btn add-section-below"
-        whileHover={{ scale: 1.15 }}
-        whileTap={{ scale: 0.8 }}
-        transition={iconSpring}
-        data-tip="Add a section below"
-        aria-label="Add a section below"
-        onClick={() => addSectionAdjacent(section.id, "below")}
-      >
-        +
-      </motion.button>
-      <motion.button
-        className="add-btn add-section-left"
-        whileHover={{ scale: 1.15 }}
-        whileTap={{ scale: 0.8 }}
-        transition={iconSpring}
-        data-tip="Add a section to the left"
-        aria-label="Add a section to the left"
-        onClick={() => addSectionAdjacent(section.id, "left")}
-      >
-        +
-      </motion.button>
-      <motion.button
-        className="add-btn add-section-above"
-        whileHover={{ scale: 1.15 }}
-        whileTap={{ scale: 0.8 }}
-        transition={iconSpring}
-        data-tip="Add a section above"
-        aria-label="Add a section above"
-        onClick={() => addSectionAdjacent(section.id, "above")}
-      >
-        +
-      </motion.button>
+      {ADD_EDGES.map((e) => (
+        <AddSectionButton key={e.side} sectionId={section.id} side={e.side} label={e.label} />
+      ))}
     </motion.div>
   );
 });
+
+const ADD_EDGES: Array<{ side: "right" | "below" | "left" | "above"; label: string }> = [
+  { side: "right", label: "Add a section to the right" },
+  { side: "below", label: "Add a section below" },
+  { side: "left", label: "Add a section to the left" },
+  { side: "above", label: "Add a section above" },
+];
+
+/**
+ * A + in the gap between sections. The gaps are also where people double-click
+ * to zoom, so a press only adds once it's clearly one press: the add waits out
+ * the double-click window and a second click cancels it (the double-click then
+ * zooms as it would on empty paper, GridViewport). The button answers the
+ * press at once (it squeezes and rings), so the wait doesn't read as lag.
+ */
+export const ADD_DELAY_MS = 300;
+const addSpring = { type: "spring", stiffness: 500, damping: 22 } as const;
+function AddSectionButton({ sectionId, side, label }: { sectionId: string; side: "right" | "below" | "left" | "above"; label: string }) {
+  const pending = useRef<number | null>(null);
+  const [armed, setArmed] = useState(false);
+  useEffect(() => () => {
+    if (pending.current) window.clearTimeout(pending.current);
+  }, []);
+  return (
+    <motion.button
+      className={`add-btn add-section-${side}${armed ? " is-armed" : ""}`}
+      whileHover={{ scale: 1.15 }}
+      whileTap={{ scale: 0.8 }}
+      transition={addSpring}
+      data-tip={label}
+      aria-label={label}
+      onClick={(e) => {
+        if (pending.current) window.clearTimeout(pending.current);
+        pending.current = null;
+        // the second click of a double-click: not an add
+        if (e.detail > 1) {
+          setArmed(false);
+          return;
+        }
+        // keyboard presses (detail 0) are deliberate: add at once
+        if (e.detail === 0) {
+          addSectionAdjacent(sectionId, side);
+          return;
+        }
+        setArmed(true);
+        pending.current = window.setTimeout(() => {
+          pending.current = null;
+          setArmed(false);
+          addSectionAdjacent(sectionId, side);
+        }, ADD_DELAY_MS);
+      }}
+    >
+      +
+    </motion.button>
+  );
+}
 
 function colName(col: number): string {
   let s = "";

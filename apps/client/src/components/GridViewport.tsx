@@ -628,10 +628,12 @@ export function GridViewport() {
   const onDoubleClickCapture = useCallback(
     (e: React.MouseEvent) => {
       const t = e.target as HTMLElement;
-      if (t.closest("input, textarea, select, button, [contenteditable='true'], .gutter, .add-btn, .port, .side-pane, .hud")) return;
+      // a double-click in a gap can land on an add-section + (it's in the gap): that's the paper, not a press
+      const onAdd = Boolean(t.closest(".add-btn"));
+      if (!onAdd && t.closest("input, textarea, select, button, [contenteditable='true'], .gutter, .port, .side-pane, .hud")) return;
       const st = getState();
-      const objEl = t.closest<HTMLElement>("[data-obj-id]");
-      const secEl = t.closest<HTMLElement>("[data-section-id]");
+      const objEl = onAdd ? null : t.closest<HTMLElement>("[data-obj-id]");
+      const secEl = onAdd ? null : t.closest<HTMLElement>("[data-section-id]");
       let target: SnapTarget | null = null;
       let rect: Rect | null = null;
       let cap = 1.05;

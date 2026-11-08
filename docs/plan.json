@@ -173,7 +173,7 @@
       "kind": "bug",
       "milestone": "vision",
       "area": "vision",
-      "status": "next",
+      "status": "doing",
       "body": "T3's CLI and data are looked for under macOS paths (`~/Development/Vision/.tools/code-server/t3`, T3CODE_HOME under ~/Library). Find them on Windows too (and say which it looked for when it can't), so Run on a hand-off card works here (SPEC §7 Windows runs)."
     },
     {
@@ -209,7 +209,7 @@
       "kind": "bug",
       "milestone": "polish",
       "area": "sections",
-      "status": "next",
+      "status": "doing",
       "body": "Agents' cards no longer do this: since 2026-11-07 a card an agent adds to a hosted section makes the app a card in the flow beside it (`cardSection` in `tools.ts`). The client's own add paths (⌘K, the section toolbar, the empty-section actions) should do the same."
     },
     {
@@ -236,7 +236,7 @@
       "kind": "bug",
       "milestone": "polish",
       "area": "design",
-      "status": "next",
+      "status": "doing",
       "body": "`.app-bar` is still in App.css; a few `rgba()` and hex colours and hover transitions on `background` remain and lag the night fade. Prune them and add a `check-design` test that ratchets raw colours down (Phase 1 leftover, DESIGN §2)."
     },
     {
@@ -245,7 +245,7 @@
       "kind": "bug",
       "milestone": "huddles",
       "area": "huddles",
-      "status": "next",
+      "status": "doing",
       "body": "MediaRecorder's WebM carries no duration, so the archive's player can't seek until it has played through. Write the duration into the file before it uploads (SPEC §7)."
     },
     {
@@ -614,7 +614,7 @@
       "kind": "bug",
       "milestone": "ship",
       "area": "desktop",
-      "status": "next",
+      "status": "doing",
       "body": "A hard kill of `scripts/dev.mjs` (an IDE stop button, Task Manager) never reaches its `taskkill /T`, so the server, Vite and the window keep their ports. Tie the children to the launcher."
     },
     {

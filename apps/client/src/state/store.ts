@@ -1246,6 +1246,17 @@ export function placeAtWorld(id: string, wx: number, wy: number) {
 
 // ---------- note actions ----------
 
+/**
+ * A hosted app fills its section, so a card added there would be hidden under
+ * it: the app becomes a card in the flow beside it instead ("Show as a card"),
+ * as an agent's add does (cardSection in the server's tools.ts).
+ */
+function unhostFor(sectionId: string): Partial<AppState> {
+  const sec = state.sections[sectionId];
+  if (!sec?.host) return {};
+  return { sections: { ...state.sections, [sectionId]: { ...sec, host: undefined } } };
+}
+
 let noteCount = 0;
 
 export function addNote(sectionId: string, text?: string, opts: { focus?: boolean } = {}): NoteMeta {
@@ -1264,6 +1275,7 @@ export function addNote(sectionId: string, text?: string, opts: { focus?: boolea
   };
   set({
     notes: { ...state.notes, [meta.id]: meta },
+    ...unhostFor(sectionId),
     activeSectionId: sectionId,
     ...(opts.focus === false ? {} : { snapRequest: { kind: "object" as const, id: meta.id, nonce: Math.random() } }),
   });
@@ -1331,6 +1343,7 @@ export function addMedia(
   };
   set({
     media: { ...state.media, [meta.id]: meta },
+    ...unhostFor(sectionId),
     activeSectionId: sectionId,
     ...(opts.focus === false ? {} : { snapRequest: { kind: "object" as const, id: meta.id, nonce: Math.random() } }),
   });
@@ -1405,6 +1418,7 @@ export function createTable(sectionId: string, atX?: number, atY?: number): Tabl
   workbook.addTable(id, name, cols, rows);
   set({
     tables: { ...state.tables, [id]: meta },
+    ...unhostFor(sectionId),
     activeSectionId: sectionId,
     snapRequest: { kind: "object", id, nonce: Math.random() },
   });
@@ -1509,6 +1523,7 @@ export function createMap(sectionId: string, atX?: number, atY?: number): MapMet
   };
   set({
     maps: { ...state.maps, [id]: meta },
+    ...unhostFor(sectionId),
     activeSectionId: sectionId,
     snapRequest: { kind: "object", id, nonce: Math.random() },
   });
@@ -1588,7 +1603,7 @@ export function addPanel(
   };
   set({
     panels: { ...state.panels, [meta.id]: meta },
-    ...(hosts ? { sections: { ...state.sections, [sectionId]: { ...sec, host: meta.id, name: meta.name } } } : {}),
+    ...(hosts ? { sections: { ...state.sections, [sectionId]: { ...sec, host: meta.id, name: meta.name } } } : unhostFor(sectionId)),
     activeSectionId: sectionId,
     ...(opts.focus === false ? {} : { snapRequest: { kind: "object" as const, id: meta.id, nonce: Math.random() } }),
   });

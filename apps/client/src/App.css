@@ -1708,6 +1708,15 @@ body.is-connecting .frame-header {
   border-color: var(--ink);
 }
 
+/* pressed once: the add waits out the double-click window (SectionView AddSectionButton) */
+.add-btn.is-armed {
+  opacity: 1;
+  background: var(--color-pulse);
+  border-color: var(--color-pulse);
+  color: var(--color-void);
+  box-shadow: 0 0 0 4px var(--color-pulse-dim);
+}
+
 .add-col {
   right: -13px;
   top: 50%;
