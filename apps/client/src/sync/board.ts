@@ -431,7 +431,7 @@ class BoardSync {
     const st = getState();
     const sections: Record<string, Section> = {};
     for (const s of boardMaps(this.doc).sections.values()) {
-      sections[s.id] = { ...s, scroll: st.sections[s.id]?.scroll ?? { x: 0, y: 0 } };
+      sections[s.id] = { ...s };
     }
     const partial: Partial<AppState> = { sections };
     if (!sections[st.activeSectionId]) {

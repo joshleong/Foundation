@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fillHole, type Section } from "../src/state/store";
 
-const sec = (id: string, c0: number, r0: number, c1 = c0, r1 = r0): Section => ({ id, name: id, c0, r0, c1, r1, scroll: { x: 0, y: 0 } });
+const sec = (id: string, c0: number, r0: number, c1 = c0, r1 = r0): Section => ({ id, name: id, c0, r0, c1, r1 });
 const board = (...list: Section[]) => Object.fromEntries(list.map((s) => [s.id, s]));
 
 test("one aligned neighbour takes the hole", () => {

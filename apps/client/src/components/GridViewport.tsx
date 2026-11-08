@@ -25,6 +25,7 @@ import {
   setFocusGrid,
   trackOffsets,
   useAppState,
+  expandSection,
 } from "../state/store";
 import { SectionView } from "./SectionView";
 import { WireLayer } from "./WireLayer";
@@ -63,9 +64,11 @@ export const FLOOR_FADE = 56;
  */
 function sectionFocusRect(grid: Parameters<typeof sectionCardRect>[0], s: Parameters<typeof sectionCardRect>[1]): Rect {
   const card = sectionCardRect(grid, s);
+  // an open section is framed by its width from the top; the wheel reads on down
+  if (getState().expandedSection === s.id) return { ...card, h: Math.min(card.h, card.w * 0.7) };
   const objs = objectsInSection(s.id)
     .map((o) => objectWorldRect(o))
-    .filter((r): r is Rect => Boolean(r));
+    .filter((r): r is NonNullable<typeof r> => Boolean(r));
   if (objs.length === 0) {
     const w = Math.min(card.w, 1000);
     const h = Math.min(card.h, 700);
@@ -363,6 +366,12 @@ export function GridViewport() {
         return;
       if (e.key === "Escape") {
         el?.blur(); // release e.g. a table sheet so section arrows take over
+        // an open section closes first (unless a card in it has the keys)
+        const st0 = getState();
+        if (st0.expandedSection && st0.focusLevel !== "object") {
+          expandSection(null);
+          return;
+        }
         focusUp();
         return;
       }
@@ -748,7 +757,7 @@ export function GridViewport() {
     >
       {/* the cards live above the paper but under the floor: masked out where the floor is */}
       <div className="world-mask">
-      <div ref={worldRef} className="world">
+      <div ref={worldRef} className={"world" + (state.expandedSection && state.sections[state.expandedSection] ? " has-expanded" : "")}>
         {/* ----- grid chrome: track lines + spreadsheet labels ----- */}
         <div className="grid-frame" style={{ width: size.w, height: size.h }} />
         {/* track lines only where they divide sections — never across a merged one */}

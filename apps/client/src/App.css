@@ -538,17 +538,81 @@ body.is-connecting .section-tools,
   font: 700 11px / 1 var(--font-display);
 }
 
-.scroll-hint {
+/* A section never scrolls: it fits its cards to its body (store: sectionFlow).
+   When they'd shrink past legibility it stops, says how many don't fit, and
+   offers to open the section as its own grid. Solid paper (no blur in the world). */
+.section-content {
+  transform-origin: 0 0;
+}
+
+.section-more,
+.section-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--h-pill);
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-line);
+  background: var(--color-raise);
+  color: var(--color-frost);
+  font: 500 var(--text-12) / 1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    transform var(--dur-press) var(--ease-out-soft),
+    border-color var(--dur-quick) var(--ease-out-soft);
+}
+.section-more:hover,
+.section-back:hover {
+  border-color: var(--color-pulse);
+}
+.section-more:active,
+.section-back:active {
+  transform: scale(0.97);
+}
+.section-more span,
+.section-back span {
+  color: var(--color-pulse);
+}
+
+.section-more {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
+  right: 12px;
+  bottom: 12px;
+  z-index: 2;
+  box-shadow: var(--shadow-sheet);
+}
+
+.section-back {
+  margin-left: 4px;
+}
+
+/* Expanded: the section is its own grid. It grows from its corner over its
+   neighbours (they step back and stop taking the pointer), solid so they don't
+   show through. Esc, ⤡ or Back to the board closes it. */
+.section-card.expanded {
+  z-index: 8;
+  background: var(--color-abyss);
+  box-shadow: var(--shadow-lift);
+}
+.section-card.expanded .section-body {
+  background-color: var(--color-abyss);
+}
+/* an open section has no neighbours to add: its edges are the board's again once it closes */
+.section-card.expanded .add-btn {
+  display: none;
+}
+.world.has-expanded .section-card:not(.expanded) {
+  /* !important: the section's arrival animation leaves an inline opacity: 1 */
+  opacity: 0.12 !important;
   pointer-events: none;
-  background:
-    radial-gradient(circle at center, color-mix(in srgb, var(--color-frost) 16%, transparent) 2px, transparent 2.6px);
-  opacity: 0.7;
+}
+.section-card {
+  /* stepping back for an expanded neighbour fades; geometry keeps its own settle */
+  transition-property: left, top, width, height, opacity;
+  transition-duration: 0.5s, 0.5s, 0.5s, 0.5s, var(--dur-pane);
+  transition-timing-function: var(--ease-settle), var(--ease-settle), var(--ease-settle), var(--ease-settle), var(--ease-out-soft);
 }
 
 /* ============ track gutters — spreadsheet row/column edges ============ */

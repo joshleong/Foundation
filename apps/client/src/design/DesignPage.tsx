@@ -386,6 +386,43 @@ export function DesignPage() {
             </div>
             <div className="effect-label">Section, hovered: no bar — tools wait top-right (add · arrange · agent · remove), each names itself on roll-over</div>
           </div>
+          <div className="oncall-cell">
+            <div className="section-card oncall-static oncall-section" style={{ width: 420, height: 220 }}>
+              <div className="section-header" style={{ height: 42 }}>
+                <span className="section-name">Research</span>
+                <span className="section-coords">C2</span>
+                <span className="section-count">14</span>
+              </div>
+              <div className="section-body">
+                <div className="section-content" style={{ transform: "scale(0.4)" }}>
+                  {Array.from({ length: 12 }, (_, i) => (
+                    <div
+                      key={i}
+                      className="frame-card"
+                      style={{ position: "absolute", left: 28 + (i % 4) * 236, top: 28 + Math.floor(i / 4) * 156, width: 210, height: 130 }}
+                    />
+                  ))}
+                </div>
+                <span className="section-more">
+                  2 more <span aria-hidden>⤢</span> Expand
+                </span>
+              </div>
+            </div>
+            <div className="effect-label">A section never takes the wheel: it lays its cards out at the width that shows them largest and fits them to its body, down to 40%. Past that it says what doesn't fit and offers Expand</div>
+          </div>
+          <div className="oncall-cell" style={{ paddingBottom: 72 }}>
+            <div className="section-card oncall-static oncall-section expanded" style={{ width: 420, height: 64 }}>
+              <div className="section-header" style={{ height: 42 }}>
+                <span className="section-name">Research</span>
+                <span className="section-coords">C2</span>
+                <span className="section-count">14</span>
+                <span className="section-back">
+                  <span aria-hidden>⤡</span> Back to the board
+                </span>
+              </div>
+            </div>
+            <div className="effect-label">Expanded: the section opens as its own grid, at full size and its own width, as long as it needs; neighbours step back to 12%, the wheel pans down through it, Esc or ⤡ closes it</div>
+          </div>
         </div>
       </Section>
 

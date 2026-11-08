@@ -72,7 +72,9 @@ export function layoutProblems(page: Page): Promise<Problems> {
       if (!sec) continue;
       const s = sec.getBoundingClientRect(), c = card.getBoundingClientRect();
       if (c.width < 2) continue;
-      // a docked card should sit inside its section's width (vertical overflow scrolls)
+      // a section fits its cards to its body; only one that has stopped shrinking (it says "n more") hides any
+      if (sec.querySelector(".section-more")) continue;
+      // a docked card should sit inside its section's width
       if (c.left < s.left - 2 || c.right > s.right + 2) out.spill.push(`${o.name} in ${st.sections[o.sectionId]?.name}: card ${Math.round(c.left)}–${Math.round(c.right)} vs section ${Math.round(s.left)}–${Math.round(s.right)}`);
     }
     // an empty section's welcome must fit inside it
