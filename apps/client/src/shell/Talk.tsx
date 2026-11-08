@@ -18,7 +18,7 @@
 import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { listen, voiceAvailable, type Listening } from "../lib/voice";
-import { askCrew, crewAsk, sayToAgent, stopSession, titleOf, useSession } from "../state/sessions";
+import { askCrew, crewAsk, sayToAgent, stopSession, titleOf, useRecentCrewAsks, useSession } from "../state/sessions";
 import { getUi, openTab, toast } from "../state/ui";
 import { crewPeers, type CrewPeer } from "./Crew";
 import { stopAllOnBoard } from "./CommandBar";
@@ -265,6 +265,7 @@ export function TalkButton() {
   const me = board?.user.id;
   const mine = crew.filter((p) => p.crew.asker === me);
   const mineWorking = mine.filter((p) => p.crew.status === "working").length;
+  const recent = useRecentCrewAsks(new Set(crew.map((p) => p.crew.id)));
   const showRoster = open || crew.length > 0;
 
   return (
@@ -302,6 +303,25 @@ export function TalkButton() {
                 )}
                 {crew.map((p) => (
                   <RosterRow key={p.clientId} peer={p} mine={p.crew.asker === me} />
+                ))}
+              </ul>
+            )}
+            {open && recent.length > 0 && (
+              <ul className="crew-roster is-recent" aria-label="Your recent asks">
+                {recent.map((a) => (
+                  <li key={a.session} className={`crew-row is-mine is-${a.status === "running" ? "done" : a.status}`} style={{ ["--crew" as string]: `var(--color-crew-${a.hue % 6})` }}>
+                    <span className="crew-row-dot" />
+                    <span className="crew-row-name">{a.name}</span>
+                    <span className="crew-row-doing">
+                      {a.status === "error" ? "hit a problem" : a.status === "stopped" ? "stopped" : "done"}
+                      <span className="crew-row-for"> · {titleOf(a.prompt)}</span>
+                    </span>
+                    <span className="crew-row-actions">
+                      <button className="crew-row-btn" onClick={() => openTab({ id: a.session, kind: "agent", title: titleOf(a.prompt) })} data-tip="Open its session: what it did, step by step">
+                        Open
+                      </button>
+                    </span>
+                  </li>
                 ))}
               </ul>
             )}

@@ -133,13 +133,33 @@ export interface CrewAsk {
   name: string;
   hue: number;
   prompt: string;
+  /** when its agent joined */
+  at: number;
 }
 const crewAsks = new Map<string, CrewAsk>();
 
 function noteCrew(crew: string, session: string, name: string, hue: number, prompt: string) {
   if (crewAsks.get(crew)?.session === session) return;
-  crewAsks.set(crew, { crew, session, name, hue, prompt });
+  crewAsks.set(crew, { crew, session, name, hue, prompt, at: Date.now() });
   emit();
+}
+
+/** how long a finished ask stays findable in the sheet after its agent has left */
+export const RECENT_ASK_MS = 15 * 60_000;
+
+/**
+ * Your asks whose agents have left the board (done, stopped or failed) in
+ * the last 15 minutes, newest first, at most three: the sheet lists them under
+ * the crew at work, so a finished ask can still be opened (it ran without a tab).
+ */
+export function useRecentCrewAsks(present: ReadonlySet<string>): Array<CrewAsk & { status: string }> {
+  useSyncExternalStore(subscribe, () => version);
+  const now = Date.now();
+  return [...crewAsks.values()]
+    .filter((a) => !present.has(a.crew) && now - a.at < RECENT_ASK_MS && !runs.get(a.session)?.busy)
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 3)
+    .map((a) => ({ ...a, status: runs.get(a.session)?.turns.at(-1)?.status ?? "done" }));
 }
 
 /** which session a crew member's work is in (to stop it, or open its tab) */
