@@ -101,7 +101,7 @@
       "kind": "bug",
       "milestone": "ship",
       "area": "auth",
-      "status": "next",
+      "status": "done",
       "body": "Attempts live in server memory for 10 minutes, so a `tsx watch` restart mid-sign-in makes the person click again. Keep them in SQLite."
     },
     {
@@ -110,7 +110,7 @@
       "kind": "bug",
       "milestone": "ship",
       "area": "rea",
-      "status": "next",
+      "status": "done",
       "body": "It spawns `npx` without a shell; Windows needs `npx.cmd` resolved safely (its arguments include a target). The REA runner and the Vision brief are also unexercised end to end."
     },
     {
@@ -119,7 +119,7 @@
       "kind": "bug",
       "milestone": "crew",
       "area": "crew",
-      "status": "next",
+      "status": "done",
       "body": "A real turn's cards are signed in the activity, but `createdBy` is set on panels only, so a note or table doesn't say which agent made it."
     },
     {
@@ -128,7 +128,7 @@
       "kind": "bug",
       "milestone": "crew",
       "area": "crew",
-      "status": "next",
+      "status": "done",
       "body": "Agents asked from the sheet run without a tab; their sessions are in the side pane, but nothing points there once the roster lets them go 2.4 s after they finish (SPEC §7)."
     },
     {
