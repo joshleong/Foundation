@@ -5,7 +5,8 @@
  *
  * REA (github.com/morluto/rea, npm `rea-agents`, MIT) analyses websites,
  * JavaScript/Electron apps, binaries, APKs and more through MCP. Foundation
- * runs it in one of two ways:
+ * runs it in one of two ways (rea.ts checks the target and works out the
+ * command per platform; never through a shell):
  *  - a local directory or .asar → `rea-agents analyze-javascript-application <path> --json`
  *  - anything else (a URL, a binary, a repo) → a Claude Code session on this
  *    machine with REA's MCP server, told the goal and to report findings
@@ -14,13 +15,13 @@
  */
 
 import { startHandoff } from "./vision.ts";
-import { spawn } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { boardMaps, logActivity } from "@foundation/protocol";
 import { all, one, run } from "./db.ts";
 import { editBoard } from "./boards.ts";
 import { config } from "./config.ts";
+import { here, reaCommand } from "./rea.ts";
 import type { ToolCtx } from "./tools.ts";
 
 export interface JobRow {
@@ -67,31 +68,26 @@ export function startJob(id: string, boardId: string, by: string) {
   if (!job) throw new Error("no such job");
   if (job.status === "running") return job;
   if (job.kind === "vision") return startVisionJob(job, boardId, by);
-  const goal = job.goal || "Map how it works: structure, data flow, APIs, and anything we can reuse.";
-  const local = existsSync(job.target);
-  const args = local && (statSync(job.target).isDirectory() || job.target.endsWith(".asar"))
-    ? { cmd: "npx", argv: ["-y", "rea-agents@latest", "analyze-javascript-application", job.target, "--json"] }
-    : {
-        cmd: config.claudeCli,
-        argv: [
-          "-p",
-          `Reverse-engineer ${job.target} for Form Industries (we own it or are authorized to examine it). Goal: ${goal}\nUse the REA MCP tools (rea) if available. Report findings with evidence as concise markdown: architecture, key modules, data flow, APIs/IPC, and what we could reuse.`,
-          "--output-format",
-          "text",
-        ],
-      };
+  // the target is checked and the program resolved before anything runs: no shell, the target is one argument (rea.ts)
+  const plan = reaCommand(job, config.claudeCli, here());
+  if (!plan.ok) return refuseJob(job, boardId, by, plan.reason);
   run("update jobs set status = 'running', output = '' where id = ?", id);
   setCard(boardId, id, "running");
   editBoard(boardId, "jobs", (doc) => logActivity(doc, { who: by, role: "human", text: `started reverse-engineering ${job.target}` }));
 
-  const child = spawn(args.cmd, args.argv, { cwd: config.dataDir, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+  let child: ChildProcess;
+  try {
+    child = spawn(plan.cmd, plan.argv, { cwd: config.dataDir, env: process.env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  } catch (e) {
+    return failJob(job, boardId, `couldn't start ${plan.cmd}: ${(e as Error).message}`);
+  }
   let out = "";
   const append = (b: Buffer) => {
     out += b.toString("utf8");
     if (out.length > 400_000) out = out.slice(-400_000);
   };
-  child.stdout.on("data", append);
-  child.stderr.on("data", append);
+  child.stdout!.on("data", append);
+  child.stderr!.on("data", append);
   const flush = setInterval(() => run("update jobs set output = ? where id = ?", out, id), 1500);
   child.on("error", (e) => {
     out += `\n${e.message}`;
@@ -103,6 +99,20 @@ export function startJob(id: string, boardId: string, by: string) {
     setCard(boardId, id, ok ? "done" : "error", ok ? out.slice(0, 4000) : `failed (${code}): ${out.slice(-800)}`);
   });
   return getJob(id)!;
+}
+
+/** a job that didn't start: the card says why, and nothing ran */
+function refuseJob(job: JobRow, boardId: string, by: string, reason: string) {
+  run("update jobs set status = 'error', output = ?, finished_at = ? where id = ?", reason, Date.now(), job.id);
+  setCard(boardId, job.id, "error", `Didn't start: ${reason}`);
+  editBoard(boardId, "jobs", (doc) => logActivity(doc, { who: by, role: "human", text: `pressed Run on reverse-engineering ${job.target}; it didn't start` }));
+  return getJob(job.id)!;
+}
+
+function failJob(job: JobRow, boardId: string, reason: string) {
+  run("update jobs set status = 'error', output = ?, finished_at = ? where id = ?", reason, Date.now(), job.id);
+  setCard(boardId, job.id, "error", `failed: ${reason}`);
+  return getJob(job.id)!;
 }
 
 /** a Vision hand-off: a person pressed Run, so the Supervised Vision Code thread starts (vision.ts) */
