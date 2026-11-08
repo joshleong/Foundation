@@ -583,12 +583,12 @@
     },
     {
       "id": "fitted-frames-posters",
-      "title": "A live page in a heavily fitted section never mounts",
+      "title": "Live pages and section fit: the mount gate ignores the fit",
       "kind": "bug",
       "milestone": "polish",
       "area": "panels",
       "status": "backlog",
-      "body": "Frames mount only at zoom ≥ 0.3; a section fitted to about 27 % keeps its pages as posters even when the person zooms to them. Count the section's fit in the gate, or mount on Expand."
+      "body": "Frames mount when on screen and the camera's zoom is ≥ 0.3 (`useOnScreen`), whatever the section's fit. So a page fitted to 27 % in a section at 100 % zoom mounts at an effective 27 % (costly, unreadable), while one reported on the crowded company board stayed a poster (not reproduced: likely the board was zoomed out below 0.3). Decide the rule on the effective scale (zoom × fit) and reproduce the report first."
     },
     {
       "id": "hover-bar-ports",
