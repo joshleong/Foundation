@@ -151,7 +151,7 @@ Durations: press 80 · quick 160 · pane 280 · lift 350 · rise 800 (ms). Conti
 
 ## 8. Layers (z-order)
 
-grid paper (WebGL) → grid chrome → sections (hosted apps) → cards → formula wires → **app wires + agent rings** → peer cursors → crew cursors → *(the floor mask)* → search pill and the voice sheet → crew guide → call chip → the floor (session, side pane, search, top bar) → repo drawer → presentation → ⌘K → the update card → toast.
+grid paper (WebGL) → grid chrome → sections (hosted apps) → cards → formula wires → **app wires + agent rings** → peer cursors → crew cursors → *(the floor mask)* → search pill and the voice sheet → crew guide → call chip → the floor (session, side pane, search, top bar) → repo drawer → presentation → ⌘K → toast → the sign-in page → the update card (it floats over sign-in too: an update can be what fixes signing in).
 
 ## 9. Checklist for any new UI
 

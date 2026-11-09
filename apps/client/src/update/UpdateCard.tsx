@@ -190,15 +190,18 @@ export function UpdateCard(p: UpdateCardProps) {
   );
 }
 
-/** The floating card, top right under the bar, while the store says it's shown. Mounted once by the shell. */
-export function UpdateShelf() {
+/**
+ * The floating card, top right under the bar, while the store says it's shown. Mounted once by the app.
+ * `day` pins it to day tokens over the sign-in page, which is always paper whatever the room.
+ */
+export function UpdateShelf({ day = false }: { day?: boolean }) {
   const u = useUpdate();
   const show = u.shown && u.phase !== "idle";
   return (
     <AnimatePresence>
       {show && (
         <motion.div
-          className="update-shelf"
+          className={`update-shelf${day ? " f-day" : ""}`}
           initial={{ opacity: 0, y: -12, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -8, scale: 0.98, transition: { duration: 0.16 } }}

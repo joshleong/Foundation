@@ -88,7 +88,8 @@ function App() {
           }}
         />
       )}
-      <UpdateShelf />
+      {/* over the sign-in page (always day), the card wears day too */}
+      <UpdateShelf day={preview || !user || veil} />
       <Tip />
     </>
   );

@@ -896,6 +896,24 @@
       "status": "done",
       "body": "`docs/plan.json` is the plan; `npm run plan:push` / `plan:pull` keep it and GitHub issues in step; Settings → Plan shows it as a board, and admins move cards there. SPEC §8 points here instead of a phase table. Built and checked in the browser; waiting on the first push to GitHub (see \"Turn on issues and push the plan to GitHub\").",
       "issue": 84
+    },
+    {
+      "id": "desktop-updates",
+      "title": "The desktop app updates itself (signed feed, a card, one press)",
+      "kind": "plan",
+      "milestone": "ship",
+      "area": "desktop",
+      "status": "done",
+      "body": "Like Vision (ADR-055): tauri-plugin-updater reads latest.json on the newest GitHub release, checks the installer against Foundation’s key, a person presses Update. npm run release builds and publishes. Checked on a real install (docs/evidence/2026-11-08_desktop-updates/)."
+    },
+    {
+      "id": "app-icon",
+      "title": "A new app icon: an F laid in masonry",
+      "kind": "plan",
+      "milestone": "ship",
+      "area": "desktop",
+      "status": "done",
+      "body": "apps/client/assets/foundation-icon.svg; the desktop icons and the browser tab use it."
     }
   ]
 }

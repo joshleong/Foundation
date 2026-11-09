@@ -4,7 +4,8 @@
 
 .update-shelf {
   position: fixed;
-  z-index: 110; /* over ⌘K (100), under the toast (120): DESIGN §8 */
+  /* over everything, the sign-in page (900) included: an update can be what fixes signing in (DESIGN §8) */
+  z-index: 910;
   top: calc(var(--h-bar) + var(--space-3));
   right: var(--space-4);
   width: min(360px, calc(100vw - 2 * var(--space-4)));
