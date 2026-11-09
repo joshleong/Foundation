@@ -29,7 +29,7 @@ import { runTool, TOOLS, type ToolCtx } from "./tools.ts";
 import { canWrite } from "./roles.ts";
 import { createSession, revokeSession } from "./auth.ts";
 import { logActivity } from "@foundation/protocol";
-import { joinCrew, leaveCrew, setDoing, type CrewMember } from "./crew.ts";
+import { describeCrewWork, joinCrew, leaveCrew, setDoing, type CrewMember } from "./crew.ts";
 import { setHelperStarter } from "./tools.ts";
 import { runScript } from "./script.ts";
 import { claudeCommand, here, type Runtime } from "./rea.ts";
@@ -55,7 +55,8 @@ You are one of the crew: people see you on the board as a named cursor (your nam
 - Make the primitives the ask needs: sections (add_section, rename_section), notes, tables with real data (add_table), live panels and company connectors as data sources (add_panel, connect), and organize what's there (update_card to move a card, arrange_section to tidy a section's order).
 - When what you made is somewhere the person isn't looking, finish with bring_view on it (once, at the end; not for every step).
 - When you explain something precise (a number in a table, where a wire plugs in), point_at that cell or port as you say it.
-- If the ask has parts that can run at the same time in different places (a second data source, a separate section), call_in_help with exact instructions for one part, and do the rest yourself. Most asks need no helper.`;
+- If the ask has parts that can run at the same time in different places (a second data source, a separate section), call_in_help with exact instructions for one part, and do the rest yourself. Most asks need no helper. Set your plan before you call one in: your helpers get it.
+- Called in as a helper (your <you> says by whom), you start with your part, the lead's plan and what the crew has made so far. Call crew_work before you make each thing, and don't make what a teammate has made or is making: build on it, or say it's there.`;
 
 const histories = new Map<string, Anthropic.MessageParam[]>();
 const claudeSessions = new Map<string, string>();
@@ -224,7 +225,11 @@ export function startRun(opts: Omit<Parameters<typeof runAgent>[0], "emit" | "si
   }
   crewUsers.set(crew.id, opts.user);
   emit({ type: "crew", id: crew.id, name: crew.name, hue: crew.hue, lead: crew.lead?.id, leadName: crew.lead?.name });
-  const prompt = `${opts.lead ? `You were called in by ${opts.lead.name} to help with ${opts.user.name}'s ask. Your part:\n\n` : ""}${opts.prompt}`;
+  // a helper starts with the lead's plan and what the crew has made so far (crew_work keeps it current)
+  const sofar = opts.lead ? describeCrewWork(crew) : "";
+  const prompt = opts.lead
+    ? `You were called in by ${opts.lead.name} to help with ${opts.user.name}'s ask. Your part:\n\n${opts.prompt}\n\n<crew>\n${sofar || "Nothing made yet."}\n</crew>\nDon't make what a teammate has made or is making: call crew_work before you make each thing, and build on what's there.`
+    : opts.prompt;
   let failed = false;
   const watch = (e: AgentEvent) => {
     if (e.type === "error") failed = true;

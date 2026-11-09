@@ -51,7 +51,7 @@ import { channelHistory, channelInfo, listChannels } from "./slack.ts";
 import { describeMachines, proposeMachine, validImage } from "./machines.ts";
 import { askToRun } from "./machineasks.ts";
 import { writeDigest } from "./digest.ts";
-import { aim, canCallHelp, crewMember, describeStep, guide, resolveTarget, setDoing, stepTarget, travel, type CrewMember } from "./crew.ts";
+import { aim, canCallHelp, crewMember, crewWork, describeStep, guide, resolveTarget, setDoing, stepTarget, travel, type CrewMember } from "./crew.ts";
 
 export interface ToolCtx {
   boardId: string;
@@ -160,6 +160,7 @@ function touch(ctx: ToolCtx, objectId: string | undefined, text: string) {
   if (member) {
     // a crew member: its own cursor lands on what it touched, and the board says who, and for whom
     aim(member, objectId ? resolveTarget(ctx.boardId, objectId) : null);
+    if (objectId && (boardMaps(board.doc).objects.get(objectId) as { createdBy?: string } | undefined)?.createdBy === member.name) member.made.add(objectId);
     editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: member.name, role: "agent", text, objectId, for: member.userName }));
     return;
   }
@@ -262,7 +263,12 @@ export const TOOLS: BoardTool[] = [
       goal: z.string().describe("one sentence: what done looks like"),
       steps: z.array(z.object({ text: z.string(), status: z.enum(["pending", "active", "done"]) })).max(12),
     }),
-    run: (_ctx, { steps }) => `plan set: ${steps.filter((x) => x.status === "done").length}/${steps.length} done`,
+    run: (ctx, { goal, steps }) => {
+      // a lead's plan goes to the helpers it calls in (crew_work)
+      const member = crewMember(ctx.crew);
+      if (member) member.plan = { goal, steps };
+      return `plan set: ${steps.filter((x) => x.status === "done").length}/${steps.length} done`;
+    },
   }),
   def({
     name: "find_images",
@@ -301,7 +307,11 @@ export const TOOLS: BoardTool[] = [
     schema: z.object({ name: z.string(), request_id: z.string().optional() }),
     write: true,
     run: (ctx, { name }) => {
+      const had = findSection(getBoard(ctx.boardId).doc, name);
       const sec = editBoard(ctx.boardId, "agent", (doc) => findSection(doc, name) ?? appendSection(doc, name));
+      // a crew member's own section: its teammates see it in crew_work
+      const member = crewMember(ctx.crew);
+      if (member && !had && !member.sections.includes(sec.id)) member.sections.push(sec.id);
       touch(ctx, undefined, `added section “${name}”`);
       return sec;
     },
@@ -942,6 +952,17 @@ export const TOOLS: BoardTool[] = [
       const spot = cell ? `cell ${cell.toUpperCase()}` : port ? `port “${port}”` : (o?.name ?? target);
       aim(member, { ...t, ...(cell ? { cell: cell.toUpperCase() } : {}), ...(port ? { port } : {}) }, note ?? `pointing at ${spot}`);
       return `pointing at ${spot}`;
+    },
+  }),
+  def({
+    name: "crew_work",
+    description:
+      "What the crew on this ask has done so far: the ask, the lead's plan, and for each agent on it (the lead and every helper) what it's doing now and the sections and cards it has made. A helper reads it before making each thing, so two agents don't make the same card; build on what's there instead.",
+    schema: z.object({}),
+    run: (ctx) => {
+      const member = crewMember(ctx.crew);
+      if (!member) return "only Foundation's own agents work in a crew";
+      return crewWork(member);
     },
   }),
   def({
