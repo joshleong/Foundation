@@ -81,6 +81,13 @@ function bodyFromIssue(body) {
   const end = cut >= 0 ? cut : text.indexOf(FOOT) >= 0 ? text.indexOf(FOOT) : text.length;
   return text.slice(0, end).replace(/<!-- plan:[a-z0-9-]+ -->/g, "").trim();
 }
+/** an issue form's "### Area" answer (.github/ISSUE_TEMPLATE), as an area id: "Sections" → "sections" */
+export function formArea(body) {
+  const m = /^###\s*Area\s*\r?\n+([^\r\n]+)/im.exec(body ?? "");
+  const word = m?.[1].trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+  return word && word !== "no-response" ? word : undefined;
+}
+
 function labelsFor(card) {
   return ["plan", `kind: ${card.kind}`, `status: ${card.status}`, `area: ${card.area}`];
 }
@@ -198,7 +205,7 @@ function pull() {
       title: issue.title,
       kind: KINDS[kind] ? kind : "plan",
       milestone: (issue.milestone && milestoneByName.get(issue.milestone.title)) ?? "polish",
-      area: names.find((n) => n.startsWith("area: "))?.slice(6) ?? "general",
+      area: names.find((n) => n.startsWith("area: "))?.slice(6) ?? formArea(issue.body) ?? "general",
       status: statusOf(issue, "backlog"),
       body: bodyFromIssue(issue.body) || "(no description on GitHub)",
       issue: issue.number,

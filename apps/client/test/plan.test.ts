@@ -40,3 +40,12 @@ test("the board says when it synced and what's waiting, in plain words", () => {
   assert.equal(waitingWords(2, 0), "2 moved here");
   assert.equal(waitingWords(1, 3), "1 moved and 3 new here");
 });
+
+test("an issue filed with the GitHub form brings its area", async () => {
+  // @ts-expect-error a plain .mjs script with no types
+  const { formArea } = await import("../../../scripts/plan.mjs");
+  assert.equal(formArea("### What happened\n\nWires jump.\n\n### Area\n\nWires\n"), "wires");
+  assert.equal(formArea("### Area\r\n\r\nCrew Sheet\r\n"), "crew-sheet");
+  assert.equal(formArea("### Area\n\n_No response_\n"), undefined);
+  assert.equal(formArea("no form here"), undefined);
+});
