@@ -12,7 +12,8 @@ import { Mark } from "../login/Login";
 import { NightOrb } from "../shell/NightOrb";
 import { pipeCrossings, polyline, route, routeSides, sideToward, type Side } from "../shell/wireGeometry";
 import { tunnelGeometry } from "../shell/wireGeometry";
-import { PlanBoard, type NewCardInput, type SyncState } from "../settings/SettingsPage";
+import { PlanBoard, ReleasesTab, type NewCardInput, type SyncState } from "../settings/SettingsPage";
+import type { ReleasePost } from "../settings/releases";
 import { syncSentence } from "../settings/plan";
 import type { Plan } from "../settings/plan";
 import { SectionEmpty } from "../panels/SectionEmpty";
@@ -823,8 +824,14 @@ export function DesignPage() {
         </div>
       </Section>
 
-      <Section title="Plan board" note="Settings → Plan: Foundation's own kanban, the local copy of the issues on GitHub. Columns sit on the panel well; cards are raised paper with the title in 13/600 and a meta line in dim 11: a kind dot (red bug, blue plan, amber when it waits on a person), the milestone, the area in code type and the issue number. Needs you reads amber, Done green. An admin drags a card to another column (the column rings blue) or picks Move to… on the opened card; a moved card keeps an amber hairline and says who moved it until it's pushed. Cards travel on the camera spring. Under 720 px the columns stack.">
+      <Section title="Plan board" note="Settings → Plan: Foundation's own kanban, the local copy of the issues on GitHub. Columns sit on the panel well; cards are raised paper with the title in 13/600 and a meta line in dim 11: a kind dot (red bug, blue plan, amber when it waits on a person), the milestone, the area in code type and the issue number, which links to the issue (a card made here says new in amber until it's synced). Needs you reads amber, Done green. An admin drags a card to another column (the column rings blue) or picks Move to… on the opened card; a moved card keeps an amber hairline and says who moved it until it's synced. Beside the title, + New card opens a form on the panel well, and Sync with GitHub turns while it works, then says what it sent in ok green. Every column's hint takes two lines so the cards start level. Cards travel on the camera spring. Under 720 px the columns stack.">
         <PlanBoardDemo />
+      </Section>
+
+      <Section title="Release notes" note="Settings → Releases: docs/blog/<version>.md, newest first. The versions run down a sticky list on the left (the current one raised paper, the one this app is built as tagged in blue); the post reads on the right at 720 px: an eyebrow with the version and date, the title in display 24, the body in mist 14/1.6 with frost headings and bold. Under 720 px the list runs across the top.">
+        <div className="design-releases">
+          <ReleasesTab posts={DEMO_POSTS} route="" />
+        </div>
       </Section>
 
       <Section title="Panels that adapt" note="Design for the narrowest width first; container queries, never the window. Check 260, 400 and 560 px.">
@@ -1089,6 +1096,20 @@ function AppSectionsDemo() {
     </svg>
   );
 }
+
+const DEMO_POSTS: ReleasePost[] = [
+  { version: "0.3.0", date: "2026-11-09", title: "The plan syncs with GitHub, and the board says what it means", body: `0.3.0 is a polish release.
+
+## The plan, synced with GitHub
+
+- **Sync with GitHub.** It reads every issue first, then sends only what changed here.
+- **New card.** A bug, a plan, or something that waits on a person.
+
+## Fixed
+
+- **Wires keep to their edge** at both ends.` },
+  { version: "0.2.0", date: "2026-11-08", title: "The crew you can see, sections that fit, and Foundation on Windows", body: "The first release that runs as a desktop app on Windows." },
+];
 
 /** The plan board with a small sample plan, moving locally. */
 function PlanBoardDemo() {

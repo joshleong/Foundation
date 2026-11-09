@@ -1,5 +1,5 @@
 /**
- * Settings (#/settings). Two tabs:
+ * Settings (#/settings). Three tabs:
  *
  *  - **Plan** — Foundation's own kanban (docs/plan.json): the local copy of the
  *    issues on GitHub, as columns from Needs you to Done. Filters by kind and
@@ -8,6 +8,8 @@
  *    and the card says so until it's pushed to GitHub.
  *  - **Services** — what this server is connected to (Slack, GitHub, Google,
  *    the agent's runtimes), so a missing key reads as a fact, not a mystery.
+ *  - **Releases** — what each version changed (docs/blog/<version>.md),
+ *    newest first, bundled with the app so they open offline.
  *
  * The night orb sits in the head, as on #/design.
  */
@@ -18,16 +20,22 @@ import { isNight, setNight, springs } from "@foundation/ui";
 import { api } from "../lib/api";
 import { NightOrb } from "../shell/NightOrb";
 import { renderMarkdown } from "../utils/markdown";
+import clientPackage from "../../package.json";
+import { longDate, releasesFrom, type ReleasePost } from "./releases";
 import { ago, boardColumns, counts, issueUrl, PLAN, syncSentence, waitingWords, type CardKind, type Plan, type PlanCard, type PlanFilter } from "./plan";
 
-type Tab = "plan" | "services";
+type Tab = "plan" | "services" | "releases";
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "plan", label: "Plan" },
   { id: "services", label: "Services" },
+  { id: "releases", label: "Releases" },
 ];
 
+/** the release notes, bundled: every docs/blog/<version>.md, read as text at build time */
+const POSTS = releasesFrom(import.meta.glob("../../../../docs/blog/*.md", { query: "?raw", import: "default", eager: true }) as Record<string, string>);
+
 export function SettingsPage({ route }: { route: string }) {
-  const tab: Tab = route.startsWith("#/settings/services") ? "services" : "plan";
+  const tab: Tab = route.startsWith("#/settings/services") ? "services" : route.startsWith("#/settings/releases") ? "releases" : "plan";
   return (
     <div className="settings-page">
       <header className="design-head settings-head">
@@ -48,7 +56,7 @@ export function SettingsPage({ route }: { route: string }) {
           ← Back to the board
         </a>
       </header>
-      {tab === "plan" ? <PlanTab /> : <ServicesTab />}
+      {tab === "plan" ? <PlanTab /> : tab === "releases" ? <ReleasesTab posts={POSTS} route={route} /> : <ServicesTab />}
     </div>
   );
 }
@@ -512,6 +520,41 @@ function NewCardForm({ plan, onCreate, onDone }: { plan: Plan; onCreate(input: N
       </div>
       {err && <div className="kb-error">{err}</div>}
     </form>
+  );
+}
+
+// ---------------------------------------------------------------- releases
+
+/** the version this app was built as, so its post can say "this app" */
+const RUNNING = clientPackage.version;
+
+export function ReleasesTab({ posts, route }: { posts: ReleasePost[]; route: string }) {
+  // #/settings/releases/0.2.0 opens that post; otherwise the newest
+  const asked = /#\/settings\/releases\/([\w.-]+)/.exec(route)?.[1];
+  const current = posts.find((p) => p.version === asked) ?? posts[0];
+  const body = useMemo(() => (current ? renderMarkdown(current.body) : ""), [current]);
+  if (!current) return <p className="design-lede">No release notes yet: they go in docs/blog/&lt;version&gt;.md.</p>;
+  return (
+    <section className="releases">
+      <nav className="releases-list" aria-label="Releases">
+        {posts.map((p) => (
+          <a key={p.version} href={`#/settings/releases/${p.version}`} className={`releases-item${p === current ? " is-current" : ""}`} aria-current={p === current ? "page" : undefined}>
+            <span className="releases-version">
+              {p.version}
+              {p.version === RUNNING && <span className="releases-running">this app</span>}
+            </span>
+            <span className="releases-date">{longDate(p.date)}</span>
+          </a>
+        ))}
+      </nav>
+      <article className="releases-post">
+        <div className="f-eyebrow">
+          Foundation {current.version} · {longDate(current.date)}
+        </div>
+        <h2>{current.title}</h2>
+        <div className="note-rendered releases-body" dangerouslySetInnerHTML={{ __html: body }} />
+      </article>
+    </section>
   );
 }
 
