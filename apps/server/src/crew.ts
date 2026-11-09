@@ -312,6 +312,8 @@ export function describeStep(name: string, input: Record<string, unknown>, board
       return "laying out a page";
     case "write_digest":
       return "writing the daily digest";
+    case "machine_run":
+      return `asking to run ${q("command")}`;
     default:
       return name.replace(/_/g, " ");
   }
@@ -322,6 +324,12 @@ export function stepTarget(boardId: string, name: string, input: Record<string, 
   const s = (k: string) => (typeof input[k] === "string" ? (input[k] as string) : undefined);
   if (name === "connect") return resolveTarget(boardId, s("to_panel"));
   if (name === "bring_view") return null; // the tool aims itself
+  if (name === "machine_run") {
+    // by card id, or by the machine's name
+    const ref = s("machine");
+    const card = ref ? [...boardMaps(getBoard(boardId).doc).objects.values()].find((o) => o.kind === "panel" && o.panel === "machine" && (o.id === ref || o.machine?.name === ref.toLowerCase() || o.name.toLowerCase() === ref.toLowerCase())) : undefined;
+    return card ? { id: card.id, kind: "object" } : null;
+  }
   return resolveTarget(boardId, s("id") ?? s("object_id") ?? s("panel") ?? s("section") ?? null);
 }
 

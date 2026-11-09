@@ -49,6 +49,7 @@ import { stageDef } from "@foundation/protocol";
 import { huddleArchive, transcriptText } from "./huddles.ts";
 import { channelHistory, channelInfo, listChannels } from "./slack.ts";
 import { describeMachines, proposeMachine, validImage } from "./machines.ts";
+import { askToRun } from "./machineasks.ts";
 import { writeDigest } from "./digest.ts";
 import { aim, canCallHelp, crewMember, describeStep, guide, resolveTarget, setDoing, stepTarget, travel, type CrewMember } from "./crew.ts";
 
@@ -611,6 +612,25 @@ export const TOOLS: BoardTool[] = [
       "Read the machine cards on this board: which engines (Kiri, Docker) answer here, each machine's image, state (absent, pulling, starting, running, stopped, error), published ports as URLs, and the last screen of its shared terminal (what people ran and saw).",
     schema: z.object({}),
     run: (ctx) => describeMachines(ctx.boardId),
+  }),
+  def({
+    name: "machine_run",
+    description:
+      "Ask to run one shell command in a machine on this board that a person has started (its card id or machine name; `machines` lists them). It goes on the machine's card, and runs only when a person who can edit the board presses Run there; they may Decline. This call waits for them (wait_s, 120 s by default), then returns the exit code and output, or says it was declined or nobody answered, in which case nothing ran: don't try another way, tell the person. It runs as the machine's user (root), without a terminal or prompts (use -y and the like), stopped after timeout_s (120 s by default). One waiting command per agent per machine; say why in a few words.",
+    schema: z.object({
+      machine: z.string().describe("the machine card's id, or the machine's name"),
+      command: z.string().min(1).max(2000).describe("a /bin/sh command line"),
+      why: z.string().max(160).optional().describe("why, in a few words, for the person deciding"),
+      wait_s: z.number().int().min(5).max(600).optional(),
+      timeout_s: z.number().int().min(1).max(600).optional(),
+      request_id: z.string().optional(),
+    }),
+    write: true,
+    run: (ctx, { machine, command, why, wait_s, timeout_s }) => {
+      const member = crewMember(ctx.crew);
+      const forName = member ? member.userName : ctx.person || ctx.userId === "agent" ? undefined : userName(ctx.userId);
+      return askToRun({ boardId: ctx.boardId, actor: ctx.actor, userId: ctx.userId, crew: ctx.crew, forName }, machine, command, { why, waitS: wait_s, timeoutS: timeout_s });
+    },
   }),
   // ---------- design pipelines: design → CAD → simulation → release ----------
   def({
