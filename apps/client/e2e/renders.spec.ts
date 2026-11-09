@@ -94,7 +94,9 @@ test("renders per gesture: the whole-board layers stay still while one card chan
   const typed = await idOf("Notes A 3");
   await frame(typed);
   await page.locator(`[data-obj-id="${typed}"] .note-rendered`).dblclick();
-  await page.locator(`[data-obj-id="${typed}"] textarea.note-editor`).waitFor();
+  // the note editor is CodeMirror (feat/codemirror-notes): wait for it to mount and take the caret
+  await page.locator(`[data-obj-id="${typed}"] .cm-editor .cm-content`).waitFor();
+  await page.waitForFunction((i) => document.activeElement?.closest(`[data-obj-id="${i}"]`) !== null, typed);
   await count("type 30 characters in a note", async () => {
     await page.keyboard.press("End");
     await page.keyboard.type(" and thirty characters more ok", { delay: 30 });
