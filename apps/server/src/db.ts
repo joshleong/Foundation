@@ -236,6 +236,14 @@ for (const sql of [
   "alter table agent_runs add column session_id text",
   "alter table agent_runs add column claude_session text",
   "create index if not exists agent_runs_session on agent_runs(session_id, created_at)",
+  // files: what an import said about where it came from (kept so a re-index keeps it), and the text
+  // read out of documents, by content (filetext.ts)
+  "alter table files add column about text",
+  "create index if not exists files_sha on files(sha256)",
+  `create table if not exists file_text (
+     sha256 text primary key, v integer not null, status text not null,
+     text text not null default '', error text, at integer not null
+   )`,
 ]) {
   try {
     db.exec(sql);

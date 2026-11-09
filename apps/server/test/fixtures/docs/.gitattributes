@@ -1,0 +1,3 @@
+# hand-made documents: byte offsets matter (the PDF xref), never convert line endings
+* binary
+make.mjs text eol=lf

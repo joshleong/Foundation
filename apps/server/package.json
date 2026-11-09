@@ -16,6 +16,7 @@
     "@foundation/protocol": "*",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "lib0": "^0.2.99",
+    "unpdf": "1.9.1",
     "ws": "^8.18.0",
     "y-protocols": "^1.0.6",
     "yjs": "^13.6.20",
