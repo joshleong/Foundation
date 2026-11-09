@@ -82,6 +82,7 @@ export function SidePane({ user, boards, current, onSwitch, onNew, onUpload }: P
               <div className="pane-eyebrow">Release & plan</div>
               <PaneRow glyph="⌗" label="App floorplan" onClick={openFloorplan} />
               <PaneRow glyph="◇" label="The plan" onClick={() => (window.location.hash = "#/settings/plan")} />
+              <PaneRow glyph="¶" label="What's new" onClick={() => (window.location.hash = "#/settings/releases")} />
             </section>
 
             <section className="pane-group">
