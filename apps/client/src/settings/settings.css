@@ -499,7 +499,8 @@ a.kb-card-issue:hover {
 }
 .services-row {
   display: grid;
-  grid-template-columns: 8px minmax(160px, 220px) 1fr;
+  /* one width for every row's name, so the details line up down the list */
+  grid-template-columns: 8px 220px 1fr;
   align-items: baseline;
   gap: var(--space-2) var(--space-4);
   padding: var(--space-4) var(--space-2);
@@ -519,6 +520,17 @@ a.kb-card-issue:hover {
   grid-column: 3;
   color: var(--color-dim);
   font-size: var(--text-12);
+}
+/* narrow: the detail and how-to sit under the name, full width */
+@container (max-width: 560px) {
+  .services-row {
+    grid-template-columns: 8px 1fr;
+    row-gap: var(--space-1);
+  }
+  .services-detail,
+  .services-how {
+    grid-column: 2;
+  }
 }
 
 /* scrollbars on tokens, so night doesn't show light rails */
