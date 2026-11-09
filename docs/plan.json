@@ -793,8 +793,8 @@
       "kind": "plan",
       "milestone": "ship",
       "area": "auth",
-      "status": "backlog",
-      "body": "WebSocket auth uses the cookie, so a packaged app can't use a hosted server (cross-site). A short-lived ticket, like T3's `websocket-ticket`, fixes it.",
+      "status": "done",
+      "body": "Done 2026-11-08 (`feat/ws-ticket`): a page on another origin (the packaged app, a hosted server) signs in for an `app` bearer, sends it only as Authorization, reads SSE with fetch, and opens each socket (sync, huddle, terminal) with a one-time 30 s ticket bound to that path (`sockets.ts`). Same-origin web keeps the cookie. `test/tickets.test.ts`; a browser on :16430 synced live through a server on 127.0.0.1:16410 (`docs/evidence/2026-11-08_ws-ticket/`). Not yet run in the packaged exe against a hosted server.",
       "issue": 74
     },
     {

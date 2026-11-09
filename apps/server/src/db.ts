@@ -38,6 +38,21 @@ create table if not exists sessions (
   expires_at integer not null
 );
 
+-- One-time WebSocket tickets (sockets.ts): a client that can't send its
+-- session on a socket (the desktop app on a hosted server, where the cookie is
+-- cross-site and a WebSocket can't carry a header) trades its bearer for one
+-- of these and puts it in the socket's URL. It is never the session: only its
+-- sha256 is kept, it lives 30 seconds, it opens the one socket path it was
+-- issued for, and it is deleted as it is read.
+create table if not exists ws_tickets (
+  ticket_hash text primary key,
+  session_hash text not null,
+  user_id text not null references users(id) on delete cascade,
+  path text not null,
+  created_at integer not null,
+  expires_at integer not null
+);
+
 create table if not exists boards (
   id text primary key,
   name text not null,
@@ -236,6 +251,8 @@ for (const sql of [
   "alter table agent_runs add column session_id text",
   "alter table agent_runs add column claude_session text",
   "create index if not exists agent_runs_session on agent_runs(session_id, created_at)",
+  // what a session is for: 'browser' (the sign-in cookie), 'app' (a person's app holding a bearer), 'agent' (/api/agent/token); null = before kinds
+  "alter table sessions add column kind text",
 ]) {
   try {
     db.exec(sql);

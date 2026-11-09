@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import { isNight } from "@foundation/ui";
 import { loadModel, stage, type Model } from "./model";
+import { fetchFile } from "../lib/api";
 
 let liveOwner: (() => void) | null = null; // the one card turning right now
 
@@ -24,7 +25,7 @@ export function CadPreview({ url, name }: { url: string; name: string }) {
     let alive = true;
     (async () => {
       try {
-        const bytes = new Uint8Array(await (await fetch(url, { credentials: "include" })).arrayBuffer());
+        const bytes = new Uint8Array(await (await fetchFile(url)).arrayBuffer());
         const m = await loadModel(name, bytes);
         if (!alive) return;
         model.current = m;

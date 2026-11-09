@@ -12,7 +12,8 @@
 import { useState } from "react";
 import { STAGES, stageDef, type Artifact } from "@foundation/protocol";
 import type { PanelMeta } from "../state/store";
-import { api, serverUrl, uploadFile } from "../lib/api";
+import { api, uploadFile } from "../lib/api";
+import { fileLink, useFileSrc } from "../lib/fileSrc";
 import { activeBoard } from "../sync/board";
 import { askAgent, toast } from "../state/ui";
 
@@ -236,12 +237,13 @@ export function StageBody({ panel }: { panel: PanelMeta }) {
 }
 
 function ArtifactTile({ a, onChoose }: { a: Artifact; onChoose(): void }) {
-  const href = a.fileId ? serverUrl(`/files/${a.fileId}`) : a.url;
+  const href = a.fileId ? `/files/${a.fileId}` : a.url;
+  const img = useFileSrc(a.kind === "image" ? href : undefined);
   return (
     <div className={`artifact kind-${a.kind}${a.chosen ? " is-chosen" : ""}`} title={`${a.name}${a.note ? ` — ${a.note}` : ""} · ${a.by}`}>
-      <a className="artifact-face" href={href} target="_blank" rel="noreferrer">
+      <a className="artifact-face" {...(href ? fileLink(href) : {})} target="_blank" rel="noreferrer">
         {a.kind === "image" && href ? (
-          <img src={href} alt={a.name} loading="lazy" decoding="async" />
+          <img src={img} alt={a.name} loading="lazy" decoding="async" />
         ) : (
           <span className="artifact-glyph">{a.kind === "cad" ? "⬡" : a.kind === "decision" ? "◎" : a.kind === "data" ? "≋" : "▤"}</span>
         )}

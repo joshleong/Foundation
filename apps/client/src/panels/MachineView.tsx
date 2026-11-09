@@ -22,7 +22,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { MACHINE_DISTROS, type MachineState } from "@foundation/protocol";
 import { onNight } from "@foundation/ui";
 import { addPanel, addSectionAdjacent, getState, type PanelMeta } from "../state/store";
-import { api, wsUrl } from "../lib/api";
+import { api, openSocket } from "../lib/api";
 import { activeBoard } from "../sync/board";
 import { askAgent, toast, useUi } from "../state/ui";
 import { useOnScreen } from "./PanelView";
@@ -433,8 +433,17 @@ const Terminal = memo(function Terminal({ panelId, canType }: { panelId: string;
       sendSize();
     };
     // a dropped socket (the server restarted, the network blinked) comes back on its own; the screen is replayed
-    const connect = () => {
-      const s = new WebSocket(wsUrl(`/machines/${encodeURIComponent(boardId)}/${encodeURIComponent(panelId)}/tty`));
+    const connect = async () => {
+      let s: WebSocket;
+      try {
+        s = await openSocket(`/machines/${encodeURIComponent(boardId)}/${encodeURIComponent(panelId)}/tty`);
+      } catch {
+        if (done || tries >= 6) return setNote((n) => n ?? "The terminal closed.");
+        setNote("Reconnecting…");
+        retry = setTimeout(connect, 600 * 2 ** tries++);
+        return;
+      }
+      if (done) return void s.close();
       ws = s;
       s.binaryType = "arraybuffer";
       let fresh = true;
@@ -465,7 +474,7 @@ const Terminal = memo(function Terminal({ panelId, canType }: { panelId: string;
         retry = setTimeout(connect, 600 * 2 ** tries++);
       };
     };
-    connect();
+    void connect();
     const enc = new TextEncoder();
     const data = term.onData((d) => {
       if (canType && ws?.readyState === WebSocket.OPEN) ws.send(enc.encode(d));
@@ -482,6 +491,7 @@ const Terminal = memo(function Terminal({ panelId, canType }: { panelId: string;
       setTimeout(() => (term.options.theme = themeFromTokens(node)), 1500);
     });
     return () => {
+      done = true; // a ticket still on its way opens nothing
       clearTimeout(t);
       clearTimeout(retry);
       ro.disconnect();

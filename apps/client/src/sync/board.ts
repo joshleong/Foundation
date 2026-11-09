@@ -38,7 +38,7 @@ import { IndexeddbPersistence } from "y-indexeddb";
 import { BOARD_SCHEMA, boardMaps, huddleStateOf, noteTextOf, rebaseEdit, setNoteText, setTableCells, tableCellMap, tableCellsOf, type HuddleState, type ObjectDoc, type SectionDoc, type UserInfo } from "@foundation/protocol";
 import { applyRemote, getState, setSyncHook, updateNoteText, type AnyObject, type AppState, type PanelMeta, type Section } from "../state/store";
 import { workbook } from "../engine/workbook";
-import { api, wsUrl } from "../lib/api";
+import { api, openSocket } from "../lib/api";
 import { toast } from "../state/ui";
 
 const LOCAL = Symbol("local");
@@ -247,7 +247,18 @@ class BoardSync {
       if (theirs && theirs !== mine) return this.setAside();
     }
     // say which board we hold (empty: none yet); the server refuses a copy of a board it has since made again
-    const ws = new WebSocket(wsUrl(`/sync/${encodeURIComponent(this.boardId)}?epoch=${encodeURIComponent(mine ?? "")}`));
+    let ws: WebSocket;
+    try {
+      // with a bearer (the app on another site's server) this first fetches a one-time ticket for the socket
+      ws = await openSocket(`/sync/${encodeURIComponent(this.boardId)}`, `epoch=${encodeURIComponent(mine ?? "")}`);
+    } catch {
+      // no ticket (offline, or the server is restarting): as if the socket dropped
+      if (this.closed) return;
+      this.setStatus("offline");
+      setTimeout(() => void this.connect(), this.backoff());
+      return;
+    }
+    if (this.closed) return void ws.close();
     ws.binaryType = "arraybuffer";
     this.ws = ws;
     ws.onopen = () => {
@@ -288,9 +299,12 @@ class BoardSync {
       // the server's board was made again since ours: don't keep offering the old one
       if (ev.code === 4002) return void this.setAside();
       this.setStatus("offline");
-      const delay = Math.min(15_000, 400 * 2 ** this.retry++) * (0.75 + Math.random() * 0.5);
-      setTimeout(() => void this.connect(), delay);
+      setTimeout(() => void this.connect(), this.backoff());
     };
+  }
+
+  private backoff() {
+    return Math.min(15_000, 400 * 2 ** this.retry++) * (0.75 + Math.random() * 0.5);
   }
 
   private send(data: Uint8Array) {
