@@ -318,3 +318,51 @@ export function huddleRoster(boardId: string, huddleId: string) {
   const room = rooms.get(`${boardId}/${huddleId}`);
   return room ? [...room.conns.values()].map((c) => ({ id: c.id, name: c.user.name, sending: c.sending })) : [];
 }
+
+export interface NewHuddle {
+  /** the card's id, made by the client, so a retried invite finds the same card */
+  id: string;
+  sectionId: string;
+  name: string;
+  channel: string;
+  x: number;
+  y: number;
+}
+
+/**
+ * The huddle a channel is invited to, made here when it's new, so the invite
+ * names a card the server already holds (the client used to add the card,
+ * wait 400 ms for it to sync, then ask). A second call with the same id finds
+ * the same card. The caller has checked the person can write the board.
+ */
+export function huddleForInvite(boardId: string, by: Pick<UserInfo, "name">, h: NewHuddle): PanelDoc {
+  if (!/^[\w-]{4,64}$/.test(h.id)) throw new Error("a huddle needs an id");
+  return editBoard(boardId, "system", (doc) => {
+    const m = boardMaps(doc);
+    const had = m.objects.get(h.id);
+    if (had) {
+      if (had.kind !== "panel" || had.panel !== "huddle") throw new Error("that id is taken by another card");
+      return had;
+    }
+    if (!m.sections.get(h.sectionId)) throw new Error("no such section");
+    const panel: PanelDoc = {
+      id: h.id,
+      kind: "panel",
+      panel: "huddle",
+      sectionId: h.sectionId,
+      name: h.name.slice(0, 120) || "Huddle",
+      channel: h.channel,
+      x: Math.round(h.x),
+      y: Math.round(h.y),
+      float: true,
+      bornAt: Date.now(),
+      w: 560,
+      h: 420,
+      ports: [],
+      createdBy: by.name,
+    };
+    m.objects.set(panel.id, panel);
+    logActivity(doc, { who: by.name, role: "human", text: `opened “${panel.name}” and invited its channel`, objectId: panel.id });
+    return panel;
+  });
+}

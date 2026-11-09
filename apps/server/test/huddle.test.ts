@@ -406,3 +406,21 @@ test("Slack: read a channel, post as a person, share a board place, invite to a 
   assert.match(String(await runTool(ctx, "slack_read", { channel: "C0DESIGN1" })), /Kai: morning/);
   await assert.rejects(runTool(ctx, "add_slack_channel", { channel: "#nope" }), /no Slack channel/);
 });
+
+test("inviting a channel to a new huddle makes the card on the server, once", async () => {
+  const { huddleForInvite } = await import("../src/huddles.ts");
+  const board = "invite-board";
+  const sec = editBoard(board, "test", (doc) => appendSection(doc, "Design"));
+  const want = { id: "pnl_inv1", sectionId: sec.id, name: "Huddle · #design", channel: "C0DESIGN1", x: 612.4, y: 40 };
+  const h = huddleForInvite(board, { name: "Noa" }, want);
+  assert.deepEqual([h.panel, h.channel, h.x, h.float, h.createdBy], ["huddle", "C0DESIGN1", 612, true, "Noa"]);
+  assert.ok(boardMaps(getBoard(board).doc).objects.get("pnl_inv1"), "the card is on the board before the invite is sent");
+  // a retried invite (same id) finds the same card
+  const again = huddleForInvite(board, { name: "Noa" }, { ...want, name: "renamed" });
+  assert.equal(again.name, "Huddle · #design");
+  assert.equal([...boardMaps(getBoard(board).doc).objects.values()].filter((o) => o.id === "pnl_inv1").length, 1);
+  const log = boardMaps(getBoard(board).doc).activity.toArray().filter((e) => /invited its channel/.test(e.text));
+  assert.equal(log.length, 1);
+  assert.throws(() => huddleForInvite(board, { name: "Noa" }, { ...want, id: "pnl_inv2", sectionId: "sec_nope" }), /no such section/);
+  assert.throws(() => huddleForInvite(board, { name: "Noa" }, { ...want, id: "x" }), /needs an id/);
+});
