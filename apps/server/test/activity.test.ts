@@ -49,6 +49,10 @@ test("the HTTP door: a person's browser is the person; a bearer is their agent; 
   assert.equal(isPerson(fakeReq({ cookie: `foundation_session=${token}` })), true);
   assert.equal(isPerson(fakeReq({ authorization: `Bearer ${token}` })), false);
   assert.equal(isPerson(fakeReq({ authorization: `Bearer ${token}`, cookie: `foundation_session=${token}` })), false);
+  // the desktop app (a page on another origin) signs in for an app bearer: that is the person too,
+  // while an agent's bearer stays an agent (feat/ws-ticket's session kinds meet this door here)
+  assert.equal(isPerson(fakeReq({ authorization: `Bearer ${createSession(ada.id, undefined, "app")}` })), true);
+  assert.equal(isPerson(fakeReq({ authorization: `Bearer ${createSession(ada.id, undefined, "agent")}` })), false);
 
   const board = getBoard("h1");
   await runTool(httpToolCtx("h1", ada, true), "add_section", { name: "By hand" });
