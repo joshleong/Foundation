@@ -27,6 +27,7 @@ import { activeBoard } from "../sync/board";
 import { askAgent, toast, useUi } from "../state/ui";
 import { useOnScreen } from "./PanelView";
 import { MACHINE_STATE_WORD, machineTone, portUrl } from "./machinePage";
+import { unscaleMouse } from "./scaledMouse";
 
 interface EngineStatus {
   id: "kiri" | "docker";
@@ -530,6 +531,8 @@ const Terminal = memo(function Terminal({ panelId, canType }: { panelId: string;
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(node);
+    // xterm measures in its own pixels; the board draws it scaled, so a selection landed off by the zoom (#53)
+    const offMouse = unscaleMouse(node);
     let ws: WebSocket | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let tries = 0;
@@ -608,6 +611,7 @@ const Terminal = memo(function Terminal({ panelId, canType }: { panelId: string;
       clearTimeout(t);
       clearTimeout(retry);
       ro.disconnect();
+      offMouse();
       offNight();
       data.dispose();
       // this socket is done: its late close mustn't say "closed" over the next one (StrictMode mounts twice)
