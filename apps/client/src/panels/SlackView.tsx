@@ -169,9 +169,8 @@ function Channel({ panel, live }: { panel: PanelMeta; live: boolean }) {
     }
     if (!huddle) {
       const pos = { x: panel.x + panel.w + 32, y: panel.y };
+      // the new card goes over sync; the server waits for it to arrive before it names it in the invite
       huddle = addPanel(panel.sectionId, { panel: "huddle", name: `Huddle · ${panel.name}`, channel: panel.channel, float: true, ...pos }, { focus: false });
-      // the new card reaches the server through sync before the invite names it
-      await new Promise((r) => setTimeout(r, 400));
     }
     void post("invite", { board: boardId, huddleId: huddle.id }, `Invited ${panel.name} to ${huddle.name}`);
   };

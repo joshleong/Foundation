@@ -623,7 +623,7 @@
       "kind": "bug",
       "milestone": "huddles",
       "area": "slack",
-      "status": "backlog",
+      "status": "done",
       "body": "A server-side create-and-invite would remove the wait.",
       "issue": 58
     },
