@@ -1321,6 +1321,10 @@ function UpdateDemo() {
           />
         </div>
       ))}
+    </div>
+  );
+}
+
 const MB = 1024 * 1024;
 const TRAY_SENDING: UploadItem[] = [
   { id: 1, name: "front.png", path: "Renders/front.png", size: 2.4 * MB, loaded: 2.4 * MB, state: "done" },
