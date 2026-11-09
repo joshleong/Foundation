@@ -250,7 +250,7 @@ export function PortWires() {
     if (!selected) return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
         e.stopPropagation();

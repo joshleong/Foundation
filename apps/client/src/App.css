@@ -1349,24 +1349,56 @@ body.is-connecting .frame-header {
 }
 .note-rendered td:empty::after { content: "\00a0"; }
 
-.note-editor {
-  width: 100%;
+/* the open note: CodeMirror on the note's shared text (components/noteEditor.ts) */
+.note-cm {
   height: 100%;
-  border: none;
-  outline: none;
-  resize: none;
-  padding: 14px 18px;
+  background: var(--color-abyss);
+}
+.note-cm .cm-editor {
+  height: 100%;
+  background: var(--color-abyss);
+  color: var(--ink);
+}
+.note-cm .cm-editor.cm-focused { outline: none; }
+.note-cm .cm-editor .cm-scroller,
+.note-cm-waiting {
   font-family: var(--mono);
   font-size: 12.5px;
   line-height: 1.6;
-  color: var(--ink);
-  background: var(--color-abyss);
+  font-variant-ligatures: none; /* markdown source: |---| stays dashes, -> stays two characters */
+  scrollbar-gutter: stable;
 }
 /* while writing, the card's bar sits over the top edge: start the text below it */
-.note-editor {
-  padding-top: 42px;
-  scroll-padding-top: 42px;
+.note-cm .cm-editor .cm-content {
+  padding: 42px 0 14px;
+  caret-color: var(--ink);
 }
+.note-cm .cm-editor .cm-line { padding: 0 18px; }
+.note-cm .cm-editor .cm-content ::selection {
+  background: color-mix(in srgb, var(--color-pulse) 24%, transparent);
+}
+/* the moment before the editor's code has loaded: the same text, laid out the same */
+.note-cm-waiting {
+  height: 100%;
+  overflow: hidden;
+  padding: 42px 18px 14px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  color: var(--ink);
+}
+/* markdown while you write: weight and tone, no colour of its own */
+.note-cm .md-h { font-weight: 700; }
+.note-cm .md-strong { font-weight: 700; }
+.note-cm .md-em { font-style: italic; }
+.note-cm .md-strike { text-decoration: line-through; color: var(--ink-soft); }
+.note-cm .md-link { color: var(--select); }
+.note-cm .md-code {
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--color-frost) 6%, transparent);
+  border-radius: var(--radius-paper);
+}
+.note-cm .md-quote { color: var(--ink-soft); font-style: italic; }
+.note-cm .md-mark { color: var(--color-dim); }
 
 /* media cards */
 
@@ -1992,23 +2024,8 @@ body.is-connecting .frame-header {
   opacity: 0.7;
 }
 
-/* other people writing in a note (live, from awareness) */
-.note-caret-mirror {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  overflow: hidden;
-  pointer-events: none;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-  color: transparent;
-  background: none;
-}
-.note-editor {
-  scrollbar-gutter: stable; /* the mirror wraps at the same width whether or not the editor scrolls */
-}
+/* other people writing in a note (live, from awareness; drawn by the editor as decorations) */
 .note-peer-sel {
-  color: transparent;
   background: color-mix(in srgb, var(--peer) 22%, transparent);
   border-radius: var(--radius-paper);
 }

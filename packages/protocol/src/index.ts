@@ -460,36 +460,6 @@ export function textDiff(a: string, b: string): { at: number; remove: number; in
 }
 const isLowSurrogate = (c: number) => c >= 0xdc00 && c <= 0xdfff;
 
-/**
- * A keystroke as an edit of the shared text: `base` is what the editor showed,
- * `next` what it shows after the key, `current` what the shared text holds
- * now (someone else may have typed in between). The person's edit, moved past
- * the other change so neither loses characters; null when nothing changed.
- */
-export function rebaseEdit(base: string, next: string, current: string): { at: number; remove: number; insert: string } | null {
-  const mine = textDiff(base, next);
-  if (!mine) return null;
-  const theirs = textDiff(base, current);
-  let { at, remove } = mine;
-  if (theirs) {
-    const theirEnd = theirs.at + theirs.remove;
-    const before = at + remove <= theirs.at && !(at === theirs.at && remove === 0 && theirs.remove === 0);
-    if (before) {
-      // mine is wholly before theirs: positions hold
-    } else if (at >= theirEnd) {
-      at += theirs.insert.length - theirs.remove; // after theirs (or both typing at one spot): slide past it
-    } else {
-      // overlapping: theirs stands, mine goes in just after it, deleting only what's left of my range
-      const myEnd = at + remove;
-      at = theirs.at + theirs.insert.length;
-      remove = Math.max(0, myEnd - theirEnd);
-    }
-  }
-  at = Math.min(at, current.length);
-  remove = Math.min(remove, current.length - at);
-  return { at, remove, insert: mine.insert };
-}
-
 /** A note's text: its Y.Text, or the legacy field on a board that hasn't migrated. */
 export function noteTextOf(doc: Y.Doc, note: { id: string; text?: string }): string {
   return boardMaps(doc).noteText.get(note.id)?.toString() ?? note.text ?? "";
