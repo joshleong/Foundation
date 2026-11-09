@@ -117,6 +117,16 @@ export function requirePerson(req: Req, what = "This"): UserInfo {
   return u;
 }
 
+/** is this request a person at a browser (requirePerson's test), without refusing it */
+export function isPerson(req: Req): boolean {
+  try {
+    requirePerson(req);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ---------- Google OAuth ----------
 
 const pendingStates = new Map<string, number>();

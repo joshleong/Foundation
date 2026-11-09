@@ -36,6 +36,7 @@ import {
   type Port,
 } from "@foundation/protocol";
 import { editBoard, getBoard } from "./boards.ts";
+import { one } from "./db.ts";
 import { searchAll } from "./search.ts";
 import { discoverRepo, parseRepo, repoCommits, repoInfo, repoReadme } from "./github.ts";
 import { callMcpTool, listMcpTools } from "./mcpclient.ts";
@@ -57,6 +58,22 @@ export interface ToolCtx {
   userId: string;
   /** the crew member (a visible agent) acting, when it's one of Foundation's own runs */
   crew?: string;
+  /**
+   * A person at their browser (the HTTP door with a session cookie and no
+   * bearer), not an agent: their writes are logged as theirs. Everything else
+   * (the built-in agent, MCP, a bearer token) is an agent.
+   */
+  person?: boolean;
+}
+
+/**
+ * Who is acting at the HTTP door. A person's browser (cookie, no bearer) acts
+ * as themselves; a bearer token is an agent acting for its person (or the
+ * service token, Foundation's own agent).
+ */
+export function httpToolCtx(boardId: string, user: { id: string; name: string }, person: boolean): ToolCtx {
+  if (person) return { boardId, actor: user.name, userId: user.id, person: true };
+  return { boardId, actor: user.id === "agent" ? user.name : `${user.name}'s agent`, userId: user.id };
 }
 
 export interface BoardTool<S extends z.ZodTypeAny = z.ZodTypeAny> {
@@ -65,6 +82,11 @@ export interface BoardTool<S extends z.ZodTypeAny = z.ZodTypeAny> {
   schema: S;
   write?: boolean;
   run: (ctx: ToolCtx, input: z.infer<S>) => Promise<unknown> | unknown;
+}
+
+/** a person's display name, for "Ada's agent" lines */
+function userName(id: string) {
+  return one<{ name: string }>("select name from users where id = ?", id)?.name;
 }
 
 /** the crew agent making a card, when one is (people's cards leave createdBy unset) */
@@ -135,18 +157,24 @@ function touch(ctx: ToolCtx, objectId: string | undefined, text: string) {
   const board = getBoard(ctx.boardId);
   const member = crewMember(ctx.crew);
   if (member) {
-    // a crew member: its own cursor lands on what it touched, and the board says who
+    // a crew member: its own cursor lands on what it touched, and the board says who, and for whom
     aim(member, objectId ? resolveTarget(ctx.boardId, objectId) : null);
-    editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: member.name, role: "agent", text, objectId }));
+    editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: member.name, role: "agent", text, objectId, for: member.userName }));
     return;
   }
-  // the agent's presence: a ring on whatever it's touching
+  if (ctx.person) {
+    // a person's own call (a card's button, ⌘K): theirs in the log, and no agent ring
+    editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: ctx.actor, role: "human", text, objectId }));
+    return;
+  }
+  // an agent without a cursor of its own (MCP, a bearer token): the shared presence rings what it's touching
   board.awareness.setLocalState({
     user: { name: `${ctx.actor}`, color: "#6b5bd6", agent: true },
     focus: objectId ?? null,
     at: Date.now(),
   });
-  editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: ctx.actor, role: "agent", text, objectId }));
+  const forWhom = ctx.userId === "agent" ? undefined : userName(ctx.userId);
+  editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: ctx.actor, role: "agent", text, objectId, ...(forWhom ? { for: forWhom } : {}) }));
 }
 
 export function addPanel(

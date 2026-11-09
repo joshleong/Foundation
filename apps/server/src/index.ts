@@ -26,7 +26,7 @@ import { followRun, listSessions, runtimes, sessionTurns, settleOrphanRuns, star
 import { t3Thread, t3Threads } from "./t3.ts";
 import { pollHandoffs } from "./vision.ts";
 import { boardPeople, boardRole, canWrite, requireWriter, setBoardRole } from "./roles.ts";
-import { runTool, TOOLS } from "./tools.ts";
+import { httpToolCtx, runTool, TOOLS } from "./tools.ts";
 import { handleMcp } from "./mcp.ts";
 import { seedCompanyBoard } from "./seed.ts";
 import { addLine, attachHuddle, attachRecording, huddleArchive, transcriptText } from "./huddles.ts";
@@ -35,10 +35,14 @@ import { appendSection, boardMaps, huddleStateOf } from "@foundation/protocol";
 import { migrateAllBoards } from "./migrate.ts";
 import * as flowform from "./flowform.ts";
 import { canSeeBoard, hiddenBoards, requireBoard } from "./members.ts";
-import { requirePerson } from "./auth.ts";
+import { isPerson, requirePerson } from "./auth.ts";
+import { startGridLog } from "./gridlog.ts";
 import { movePlanCard, readPlan } from "./plan.ts";
 import { startDigest } from "./digest.ts";
 import { attachTerminal, engineImages, engineStatus, loadImage, reconcileMachine, removeMachine, restartMachine, startMachine, stopMachine } from "./machines.ts";
+
+// people's grid edits go in the activity log, from the first board loaded
+startGridLog();
 
 const r = new Router();
 
@@ -135,7 +139,8 @@ r.post("/api/boards/:id/tools/:name", async (req) => {
   const u = requireUser(req);
   requireBoard(u, req.params.id);
   const input = await readJson(req);
-  return { result: await runTool({ boardId: req.params.id, actor: u.name, userId: u.id }, req.params.name, input) };
+  // a person's browser acts as them; a bearer token is an agent acting for them (the activity log says which)
+  return { result: await runTool(httpToolCtx(req.params.id, u, isPerson(req)), req.params.name, input) };
 });
 
 // ---------- files ----------

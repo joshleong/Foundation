@@ -38,6 +38,12 @@ export function onBoardChange(fn: (boardId: string, doc: Y.Doc) => void) {
   boardListeners.add(fn);
 }
 
+const openListeners = new Set<(board: Board) => void>();
+/** a board is loaded into memory (each time: closeBoards forgets them) */
+export function onBoardOpen(fn: (board: Board) => void) {
+  openListeners.add(fn);
+}
+
 export function listBoards() {
   return all<{ id: string; name: string; updated_at: number }>("select id, name, updated_at from boards order by updated_at desc");
 }
@@ -95,6 +101,7 @@ export function getBoard(id: string): Board {
   });
 
   boards.set(id, board);
+  for (const fn of openListeners) fn(board);
   // the board's lineage: a device's offline copy only merges into the board it came from
   if (!boardMaps(doc).meta.get("epoch")) doc.transact(() => boardMaps(doc).meta.set("epoch", `ep_${randomUUID()}`), "system");
   scheduleIndex(board);
@@ -161,6 +168,11 @@ function send(ws: WebSocket, data: Uint8Array) {
 
 /** who each sync socket belongs to, so a role change can make them reconnect */
 const socketUser = new WeakMap<WebSocket, string>();
+
+/** the person behind a sync socket (a change's transaction origin), if it is one */
+export function socketUserId(origin: unknown): string | undefined {
+  return origin && typeof origin === "object" ? socketUser.get(origin as WebSocket) : undefined;
+}
 
 /** `readOnly`: a viewer — they get the board and send presence, but their updates are dropped */
 export function attachConnection(boardId: string, ws: WebSocket, readOnly = false, userId?: string) {
