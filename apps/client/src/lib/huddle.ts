@@ -24,7 +24,7 @@
 
 import { useSyncExternalStore } from "react";
 import type { HuddleLine, HuddleWire } from "@foundation/protocol";
-import { api, uploadFile, wsUrl } from "./api";
+import { api, openSocket, uploadFile } from "./api";
 import { withWebmDuration } from "../utils/webmDuration";
 
 export interface PeerView {
@@ -156,15 +156,22 @@ export class HuddleRoom {
         this.emit({ lines: [...live.filter((l) => !seen.has(l.id)), ...this.view.lines].sort((a, b) => a.at - b.at) });
       })
       .catch(() => {});
-    this.connect();
+    void this.connect();
     if (this.sending) {
       this.startSpeech();
       if (opts.recording) this.startRecorder();
     }
   }
 
-  private connect() {
-    const ws = new WebSocket(wsUrl(`/huddle/${encodeURIComponent(this.board)}/${encodeURIComponent(this.huddleId)}?send=${this.sending ? 1 : 0}`));
+  private async connect() {
+    let ws: WebSocket;
+    try {
+      ws = await openSocket(`/huddle/${encodeURIComponent(this.board)}/${encodeURIComponent(this.huddleId)}`, `send=${this.sending ? 1 : 0}`);
+    } catch {
+      if (!this.closed) this.emit({ status: "error", error: "Couldn't reach the server" });
+      return;
+    }
+    if (this.closed) return void ws.close();
     this.ws = ws;
     ws.onmessage = (e) => void this.onWire(JSON.parse(String(e.data)) as HuddleWire);
     ws.onclose = (e) => {

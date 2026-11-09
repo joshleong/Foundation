@@ -378,7 +378,7 @@ async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: A
   if (!c.ok) throw new Error(`The subscription runtime can't start: ${c.reason}`);
   const key = convKey(opts);
   // a short-lived session for this person, so the agent's writes are theirs
-  const token = createSession(opts.user.id, 2 * 3600_000);
+  const token = createSession(opts.user.id, 2 * 3600_000, "agent");
   const mcpFile = join(config.dataDir, `mcp-${randomBytes(6).toString("hex")}.json`);
   writeFileSync(
     mcpFile,

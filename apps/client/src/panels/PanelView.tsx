@@ -17,7 +17,8 @@ import { isHosted, MINI_HEADER, emitPort, getState, inputValue, movePanel, remov
 import { ObjectFrame } from "../components/ObjectFrame";
 import { beginConnect, beginDetach, usePortLayout } from "../shell/AgentLayer";
 import { describeValue, landingsOf, toneOf } from "../shell/ports";
-import { api, serverUrl, uploadFile } from "../lib/api";
+import { api, fetchFile, uploadFile } from "../lib/api";
+import { fileLink, useFileSrc } from "../lib/fileSrc";
 import { askAgent, setUi, toast, useUi } from "../state/ui";
 import { onCamera } from "../state/camera";
 import { activeBoard } from "../sync/board";
@@ -466,7 +467,8 @@ const CAD = /\.(step|stp|iges|igs|stl|obj|3mf|glb|gltf|f3d|sldprt|sldasm|x_t|dxf
 const TEXTY = /\.(txt|md|markdown|csv|tsv|json|ya?ml|toml|xml|log|js|ts|tsx|py|rs|go)$/i;
 
 function FilePreview({ panel }: { panel: PanelMeta }) {
-  const url = panel.fileId ? serverUrl(`/files/${panel.fileId}`) : panel.url;
+  // the file's own path (`/files/…`): fetched with this device's session, wherever the server is (lib/fileSrc.ts)
+  const url = panel.fileId ? `/files/${panel.fileId}` : panel.url;
   const mime = panel.mime ?? "";
   const name = panel.name;
   const [text, setText] = useState<string | null>(null);
@@ -477,6 +479,8 @@ function FilePreview({ panel }: { panel: PanelMeta }) {
   useEffect(() => {
     if (live) setSeenLive(true);
   }, [live]);
+  // what an <img>, <video> or <iframe> loads: the server URL, or (bearer) a blob once it's been on screen
+  const shown = useFileSrc(url, (live || seenLive) && (mime.startsWith("image/") || mime.startsWith("video/") || mime === "application/pdf"));
 
   useEffect(() => {
     if (!live || text !== null || !url) return;
@@ -486,7 +490,7 @@ function FilePreview({ panel }: { panel: PanelMeta }) {
           .then((r) => setText(r.result))
           .catch(() => setText(""));
       } else {
-        fetch(url, { credentials: "include", headers: { range: "bytes=0-8191" } })
+        fetchFile(url, { headers: { range: "bytes=0-8191" } })
           .then((r) => r.text())
           .then(setText)
           .catch(() => setText(""));
@@ -503,11 +507,11 @@ function FilePreview({ panel }: { panel: PanelMeta }) {
           <span>Uploading {name}…</span>
         </div>
       ) : mime.startsWith("image/") ? (
-        <img src={url} alt={name} loading="lazy" decoding="async" />
+        <img src={shown} alt={name} loading="lazy" decoding="async" />
       ) : mime.startsWith("video/") ? (
-        <video src={url} muted loop playsInline controls preload="metadata" />
+        <video src={shown} muted loop playsInline controls preload="metadata" />
       ) : mime === "application/pdf" ? (
-        live ? <iframe src={url} title={name} /> : <div className="file-card-glyph">PDF</div>
+        live && shown ? <iframe src={shown} title={name} /> : <div className="file-card-glyph">PDF</div>
       ) : CAD.test(name) ? (
         <div className="cad-card">
           {MODEL_EXT.test(name) && url && (live || seenLive) ? (
@@ -523,7 +527,7 @@ function FilePreview({ panel }: { panel: PanelMeta }) {
             </>
           )}
           <div className="cad-actions">
-            <a className="f-pill" href={url} download={name}>
+            <a className="f-pill" {...fileLink(url ?? "", name)} download={name}>
               Download
             </a>
             <button className="f-pill is-agent" onClick={() => askAgent(`Brief Vision on “${name}”: review this CAD, simulate what matters, and ask the right people to review.`)}>
@@ -692,7 +696,7 @@ function AskBody({ panel }: { panel: PanelMeta }) {
       <div className="ask-prompt">{panel.text}</div>
       {done ? (
         panel.fileId ? (
-          <a className="f-pill" href={serverUrl(`/files/${panel.fileId}`)} target="_blank" rel="noreferrer">
+          <a className="f-pill" {...fileLink(`/files/${panel.fileId}`)} target="_blank" rel="noreferrer">
             Open the file
           </a>
         ) : (
