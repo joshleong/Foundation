@@ -14,6 +14,7 @@ import { api, logout, search } from "../lib/api";
 import { addNote, addPanel, appendSectionLocal, createTable, getState, requestSnap, updatePanel } from "../state/store";
 import { askAgent, getUi, setUi, toast, useUi } from "../state/ui";
 import { activeBoard } from "../sync/board";
+import { snippetHtml } from "../lib/snippet";
 import { stopAllCrew } from "../state/sessions";
 
 interface Action {
@@ -250,7 +251,7 @@ export function CommandBar() {
                   <button key={r.h.id + i} className={`cmd-row is-hit${i === sel ? " is-sel" : ""}`} onMouseEnter={() => setSel(i)} onClick={() => choose(i)}>
                     <span className={`cmd-src src-${r.h.source}`}>{SOURCE_LABEL[r.h.source]}</span>
                     <span className="cmd-row-label">{r.h.title}</span>
-                    <span className="cmd-row-hint" dangerouslySetInnerHTML={{ __html: highlight(r.h.snippet) }} />
+                    <span className="cmd-row-hint" dangerouslySetInnerHTML={{ __html: snippetHtml(r.h.snippet) }} />
                   </button>
                 ),
               )}
@@ -263,10 +264,6 @@ export function CommandBar() {
   );
 }
 
-function highlight(snippet: string) {
-  const esc = snippet.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return esc.replace(/«/g, "<mark>").replace(/»/g, "</mark>");
-}
 
 export function openHit(h: SearchHit) {
   if (h.objectId && (getState().panels[h.objectId] || getState().notes[h.objectId] || getState().tables[h.objectId] || getState().media[h.objectId] || getState().maps[h.objectId])) {

@@ -7,10 +7,7 @@ import {
   setMediaFlag,
 } from "../state/store";
 import { ObjectFrame } from "./ObjectFrame";
-import { serverUrl } from "../lib/api";
-
-/** shared media lives on the server (/files/…); resolve it against the configured server */
-const mediaUrl = (src: string) => (src.startsWith("/files/") ? serverUrl(src) : src);
+import { useFileSrc } from "../lib/fileSrc";
 
 interface Props {
   item: MediaMeta;
@@ -21,6 +18,8 @@ interface Props {
 
 export const MediaView = memo(function MediaView({ item, pos, isActive, getScale }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  // shared media lives on the server (/files/…): loaded from the configured server, with this device's session
+  const src = useFileSrc(item.src);
 
   // keep the <video> element in line with the autoplay/mute flags
   useEffect(() => {
@@ -66,7 +65,7 @@ export const MediaView = memo(function MediaView({ item, pos, isActive, getScale
     >
       {item.media === "image" ? (
         <img
-          src={mediaUrl(item.src)}
+          src={src}
           alt={item.name}
           style={{ width: item.w, height: item.h }}
           draggable={false}
@@ -74,7 +73,7 @@ export const MediaView = memo(function MediaView({ item, pos, isActive, getScale
       ) : (
         <video
           ref={videoRef}
-          src={mediaUrl(item.src)}
+          src={src}
           style={{ width: item.w, height: item.h }}
           muted={item.muted}
           autoPlay={item.autoplay}

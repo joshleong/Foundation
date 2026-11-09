@@ -38,6 +38,12 @@ export function onBoardChange(fn: (boardId: string, doc: Y.Doc) => void) {
   boardListeners.add(fn);
 }
 
+const openListeners = new Set<(board: Board) => void>();
+/** a board is loaded into memory (each time: closeBoards forgets them) */
+export function onBoardOpen(fn: (board: Board) => void) {
+  openListeners.add(fn);
+}
+
 export function listBoards() {
   return all<{ id: string; name: string; updated_at: number }>("select id, name, updated_at from boards order by updated_at desc");
 }
@@ -94,97 +100,13 @@ export function getBoard(id: string): Board {
     for (const ws of board.conns.keys()) send(ws, data);
   });
 
-  watchPeopleEdits(board);
   boards.set(id, board);
+  guardServerMaps(board);
+  for (const fn of openListeners) fn(board);
   // the board's lineage: a device's offline copy only merges into the board it came from
   if (!boardMaps(doc).meta.get("epoch")) doc.transact(() => boardMaps(doc).meta.set("epoch", `ep_${randomUUID()}`), "system");
   scheduleIndex(board);
   return board;
-}
-
-// ---------- a person's structural edits, in the activity log ----------
-
-/** what one person added and removed, gathered for a moment so a burst reads as one line */
-export interface EditTally {
-  sectionsAdded: string[];
-  sectionsRemoved: string[];
-  cardsAdded: Array<{ kind: string; name?: string; id: string }>;
-  cardsRemoved: number;
-}
-
-const KIND_WORD: Record<string, string> = { note: "note", table: "table", panel: "card", media: "file", map: "map" };
-
-/** "added the section “Supply” and a note “Parts”; removed 2 cards" */
-export function describeEdits(t: EditTally): string {
-  const q = (s: string) => `“${s}”`;
-  const list = (xs: string[]) => (xs.length <= 2 ? xs.join(" and ") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
-  const added: string[] = [];
-  if (t.sectionsAdded.length === 1) added.push(`the section ${q(t.sectionsAdded[0])}`);
-  else if (t.sectionsAdded.length > 1) added.push(`${t.sectionsAdded.length} sections`);
-  if (t.cardsAdded.length === 1) {
-    const c = t.cardsAdded[0];
-    const word = KIND_WORD[c.kind] ?? "card";
-    added.push(`a${/^[aeiou]/.test(word) ? "n" : ""} ${word}${c.name ? ` ${q(c.name)}` : ""}`);
-  } else if (t.cardsAdded.length > 1) added.push(`${t.cardsAdded.length} cards`);
-  const removed: string[] = [];
-  if (t.sectionsRemoved.length === 1) removed.push(`the section ${q(t.sectionsRemoved[0])}`);
-  else if (t.sectionsRemoved.length > 1) removed.push(`${t.sectionsRemoved.length} sections`);
-  if (t.cardsRemoved === 1) removed.push("a card");
-  else if (t.cardsRemoved > 1) removed.push(`${t.cardsRemoved} cards`);
-  return [added.length ? `added ${list(added)}` : "", removed.length ? `removed ${list(removed)}` : ""].filter(Boolean).join("; ");
-}
-
-const EDIT_SETTLE_MS = 1500;
-
-/**
- * Sections and cards a person adds or removes on the grid (their own socket's
- * updates) go in the activity log under their name, a burst at a time. Moves,
- * resizes and typing don't: the log is for what changed shape, not every drag.
- */
-function watchPeopleEdits(board: Board) {
-  const m = boardMaps(board.doc);
-  const pending = new Map<string, { tally: EditTally; timer: ReturnType<typeof setTimeout> }>();
-  const tallyFor = (ws: WebSocket) => {
-    const who = socketName.get(ws);
-    if (!who) return null;
-    let p = pending.get(who);
-    if (!p) {
-      const tally: EditTally = { sectionsAdded: [], sectionsRemoved: [], cardsAdded: [], cardsRemoved: 0 };
-      p = {
-        tally,
-        timer: setTimeout(() => {
-          pending.delete(who);
-          const text = describeEdits(tally);
-          if (!text) return;
-          const objectId = tally.cardsAdded.length === 1 ? tally.cardsAdded[0].id : undefined;
-          board.doc.transact(() => logActivity(board.doc, { who, role: "human", text, objectId }), "system");
-        }, EDIT_SETTLE_MS),
-      };
-      pending.set(who, p);
-    }
-    return p.tally;
-  };
-  const fromPerson = (origin: unknown) => (origin && board.conns.has(origin as WebSocket) ? (origin as WebSocket) : null);
-  m.sections.observe((e) => {
-    const ws = fromPerson(e.transaction.origin);
-    const tally = ws && tallyFor(ws);
-    if (!tally) return;
-    for (const [key, change] of e.changes.keys) {
-      if (change.action === "add") tally.sectionsAdded.push(m.sections.get(key)?.name ?? "untitled");
-      else if (change.action === "delete") tally.sectionsRemoved.push((change.oldValue as { name?: string } | undefined)?.name ?? "untitled");
-    }
-  });
-  m.objects.observe((e) => {
-    const ws = fromPerson(e.transaction.origin);
-    const tally = ws && tallyFor(ws);
-    if (!tally) return;
-    for (const [key, change] of e.changes.keys) {
-      if (change.action === "add") {
-        const o = m.objects.get(key);
-        if (o) tally.cardsAdded.push({ kind: o.kind, name: o.name, id: o.id });
-      } else if (change.action === "delete") tally.cardsRemoved++;
-    }
-  });
 }
 
 /** which board this is, across deletes and re-creations (see getBoard) */
@@ -248,13 +170,16 @@ function send(ws: WebSocket, data: Uint8Array) {
 /** who each sync socket belongs to, so a role change can make them reconnect */
 const socketUser = new WeakMap<WebSocket, string>();
 /** and their name, for the activity log */
-const socketName = new WeakMap<WebSocket, string>();
+
+/** the person behind a sync socket (a change's transaction origin), if it is one */
+export function socketUserId(origin: unknown): string | undefined {
+  return origin && typeof origin === "object" ? socketUser.get(origin as WebSocket) : undefined;
+}
 
 /** `readOnly`: a viewer — they get the board and send presence, but their updates are dropped */
-export function attachConnection(boardId: string, ws: WebSocket, readOnly = false, userId?: string, userName?: string) {
+export function attachConnection(boardId: string, ws: WebSocket, readOnly = false, userId?: string) {
   const board = getBoard(boardId);
   if (userId) socketUser.set(ws, userId);
-  if (userName) socketName.set(ws, userName);
   board.conns.set(ws, new Set());
   ws.binaryType = "arraybuffer";
 
@@ -293,6 +218,38 @@ export function attachConnection(boardId: string, ws: WebSocket, readOnly = fals
     encoding.writeVarUint(aw, MSG_AWARENESS);
     encoding.writeVarUint8Array(aw, awarenessProtocol.encodeAwarenessUpdate(board.awareness, [...states.keys()]));
     send(ws, encoding.toUint8Array(aw));
+  }
+}
+
+/**
+ * Maps only the server writes (`huddles`: who's in a portal; `machineAsks`: commands agents asked
+ * to run). A person's sync socket can still send a change to them (the Yjs wire has no per-map
+ * permissions), so a change that came from a socket is put back the way the server left it, and
+ * everyone, the sender included, gets the correction. Without this, someone with edit rights could
+ * make a fake ask appear on a machine card or rewrite who is in a huddle.
+ */
+export const SERVER_MAPS = ["huddles", "machineAsks"] as const;
+function guardServerMaps(board: Board) {
+  for (const name of SERVER_MAPS) {
+    const map = board.doc.getMap<unknown>(name);
+    const kept = new Map<string, unknown>();
+    for (const [k, v] of map.entries()) kept.set(k, structuredClone(v));
+    map.observe((e) => {
+      const fromSocket = e.transaction.origin && board.conns.has(e.transaction.origin as WebSocket);
+      if (!fromSocket) {
+        for (const k of e.keysChanged) {
+          if (map.has(k)) kept.set(k, structuredClone(map.get(k)));
+          else kept.delete(k);
+        }
+        return;
+      }
+      board.doc.transact(() => {
+        for (const k of e.keysChanged) {
+          if (kept.has(k)) map.set(k, structuredClone(kept.get(k)));
+          else map.delete(k);
+        }
+      }, "server-map-guard");
+    });
   }
 }
 

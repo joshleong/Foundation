@@ -14,7 +14,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { HuddleLine } from "@foundation/protocol";
 import type { PanelMeta } from "../state/store";
 import { HuddleRoom, joinHuddle, leaveHuddle, useJoinedRoom, useRoom, type RoomView } from "../lib/huddle";
-import { api, serverUrl } from "../lib/api";
+import { api } from "../lib/api";
+import { useFileSrc } from "../lib/fileSrc";
 import { activeBoard } from "../sync/board";
 import { askAgent, toast } from "../state/ui";
 import { useOnScreen } from "./PanelView";
@@ -339,7 +340,7 @@ function Archive({ panel, boardId }: { panel: PanelMeta; boardId: string }) {
                 <div className="huddle-recordings">
                   {s.media.map((m) => (
                     <figure key={m.fileId}>
-                      <video src={serverUrl(m.url)} controls preload="metadata" />
+                      <FileVideo src={m.url} />
                       <figcaption>
                         {m.person} · {duration(m.endedAt - m.startedAt)}
                       </figcaption>
@@ -423,4 +424,9 @@ function CamOff() {
       <path d="M10.5 9.5V12h-7.5a1.5 1.5 0 0 1-1.5-1.5v-5A1.5 1.5 0 0 1 3 4M6 4h3a1.5 1.5 0 0 1 1.5 1.5V7l4-2.2v6.4M2 2l12 12" />
     </svg>
   );
+}
+
+/** a recording on the server, loaded with this device's session wherever the server is */
+function FileVideo({ src }: { src: string }) {
+  return <video src={useFileSrc(src)} controls preload="metadata" />;
 }

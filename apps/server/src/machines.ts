@@ -700,6 +700,118 @@ export async function describeMachines(boardId: string) {
   };
 }
 
+// ---------- one command, approved by a person (machineasks.ts) ----------
+
+export interface ExecResult {
+  /** null: it didn't finish in time and its exit code is unknown */
+  exitCode: number | null;
+  /** stdout and stderr as they came, escape codes stripped, the end kept */
+  output: string;
+  /** earlier output was cut to keep the end */
+  cut: boolean;
+  timedOut: boolean;
+  ms: number;
+}
+
+const EXEC_KEEP = 16 * 1024;
+
+/** a non-TTY exec's stream is framed: 8-byte headers [stream (0-2), 0, 0, 0, size (u32 BE)], stdout and stderr interleaved */
+const looksFramed = (b: Buffer) => b.length >= 8 && b[0] <= 2 && b[1] === 0 && b[2] === 0 && b[3] === 0;
+
+/**
+ * Run one command in a running machine, without a terminal, and return what
+ * it printed and its exit code. Only machineasks.ts calls this, after a person
+ * pressed Run on the card. It never wakes an engine or starts a machine: a
+ * machine that isn't running is an error. The command runs under `timeout`
+ * where the image has one (busybox and coreutils do), and the stream is cut
+ * a few seconds after that either way.
+ */
+export async function execOnce(boardId: string, panelId: string, command: string, timeoutS: number): Promise<ExecResult> {
+  const panel = machinePanel(boardId, panelId);
+  const found = await findContainer(boardId, panelId, panel.machine?.engine);
+  if (!found || found.c.State !== "running") throw new HttpError(409, `${panel.machine?.name ?? panel.name} isn't running, so nothing ran`);
+  const { engine, c } = found;
+  const secs = Math.max(1, Math.min(600, Math.round(timeoutS)));
+  const exec = await engineJson<{ Id: string }>(engine, "POST", `/containers/${c.Id}/exec`, {
+    AttachStdin: false,
+    AttachStdout: true,
+    AttachStderr: true,
+    Tty: false,
+    Env: ["TERM=dumb", "PAGER=cat", "GIT_PAGER=cat", "DEBIAN_FRONTEND=noninteractive"],
+    Cmd: ["/bin/sh", "-c", 'if command -v timeout >/dev/null 2>&1; then exec timeout -s KILL "$1" /bin/sh -c "$2"; else exec /bin/sh -c "$2"; fi', "foundation", String(secs), command],
+  });
+  const t0 = Date.now();
+  const { sock, head, type } = await hijack(engine, `/exec/${exec.Id}/start`, { Detach: false, Tty: false });
+  // the output, unframed as it streams; only a bounded window of the end is kept
+  const kept: Buffer[] = [];
+  let keptBytes = 0;
+  let dropped = false;
+  const keep = (b: Buffer) => {
+    if (!b.length) return;
+    kept.push(b);
+    keptBytes += b.length;
+    while (keptBytes > 4 * EXEC_KEEP && kept.length > 1) {
+      keptBytes -= kept.shift()!.length;
+      dropped = true;
+    }
+  };
+  // framed (stdout/stderr headers) unless the engine says raw; decided on the first bytes
+  let framed: boolean | null = /multiplexed/.test(type ?? "") ? true : /raw-stream/.test(type ?? "") ? false : null;
+  let pending: Buffer = Buffer.alloc(0);
+  const take = (b: Buffer) => {
+    pending = pending.length ? Buffer.concat([pending, b]) : b;
+    if (framed === null) {
+      if (pending.length < 8) return;
+      framed = looksFramed(pending);
+    }
+    if (!framed) {
+      keep(pending);
+      pending = Buffer.alloc(0);
+      return;
+    }
+    let i = 0;
+    while (i + 8 <= pending.length) {
+      const size = pending.readUInt32BE(i + 4);
+      if (i + 8 + size > pending.length) break;
+      keep(pending.subarray(i + 8, i + 8 + size));
+      i += 8 + size;
+    }
+    pending = pending.subarray(i);
+  };
+  take(head);
+  const timedOut = await new Promise<boolean>((resolve) => {
+    const cut = setTimeout(() => {
+      sock.destroy();
+      resolve(true);
+    }, (secs + 5) * 1000);
+    sock.on("data", take);
+    const done = () => {
+      clearTimeout(cut);
+      resolve(false);
+    };
+    sock.on("end", done);
+    sock.on("close", done);
+    sock.on("error", () => sock.destroy());
+  });
+  sock.destroy();
+  if (pending.length && !framed) keep(pending);
+  let text = Buffer.concat(kept)
+    .toString("utf8")
+    .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")
+    .replace(/\u001b\][^\u0007\u001b]*(\u0007|\u001b\\)/g, "")
+    .replace(/\r\n?/g, "\n");
+  let cutText = dropped;
+  if (text.length > EXEC_KEEP) {
+    text = text.slice(-EXEC_KEEP);
+    cutText = true;
+  }
+  const info = await engineJson<{ ExitCode?: number; Running?: boolean }>(engine, "GET", `/exec/${exec.Id}/json`).catch(() => ({ Running: true }) as { ExitCode?: number; Running?: boolean });
+  const ms = Date.now() - t0;
+  const exitCode = info.Running || typeof info.ExitCode !== "number" ? null : info.ExitCode;
+  // `timeout -s KILL` ends it with 137 when time is up
+  return { exitCode, output: text, cut: cutText, timedOut: timedOut || (exitCode === 137 && ms >= secs * 1000 - 250), ms };
+}
+
 // ---------- the shared terminal ----------
 
 interface Tty {
@@ -732,7 +844,7 @@ function screenText(boardId: string, panelId: string) {
     .slice(-4000);
 }
 
-function hijack(e: Engine, path: string, body: unknown): Promise<{ sock: Socket; head: Buffer }> {
+function hijack(e: Engine, path: string, body: unknown): Promise<{ sock: Socket; head: Buffer; type?: string }> {
   return new Promise((resolve, reject) => {
     const payload = Buffer.from(JSON.stringify(body));
     const req = httpRequest({
@@ -741,7 +853,7 @@ function hijack(e: Engine, path: string, body: unknown): Promise<{ sock: Socket;
       path,
       headers: { host: "docker", "content-type": "application/json", "content-length": payload.length, connection: "Upgrade", upgrade: "tcp" },
     });
-    req.on("upgrade", (_res, sock, head) => resolve({ sock, head }));
+    req.on("upgrade", (res, sock, head) => resolve({ sock, head, type: res.headers["content-type"] }));
     req.on("response", (res) => {
       let text = "";
       res.on("data", (c: Buffer) => (text += c.toString("utf8")));

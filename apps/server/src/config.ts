@@ -27,6 +27,11 @@ export const config = {
   host: env("FOUNDATION_HOST", "127.0.0.1"),
   publicUrl: env("FOUNDATION_PUBLIC_URL", `http://localhost:${port}`),
   clientUrl: env("FOUNDATION_CLIENT_URL", "http://localhost:1430"),
+  /** more page origins that may call this server with credentials (comma-separated), beyond the client, localhost and the desktop app */
+  corsOrigins: env("FOUNDATION_CORS_ORIGINS")
+    .split(",")
+    .map((s) => s.trim().replace(/\/$/, ""))
+    .filter(Boolean),
   dataDir: resolve(root, env("FOUNDATION_DATA_DIR", "data")),
   /** comma-separated emails or @domain entries allowed to sign in */
   allowlist: env("FOUNDATION_ALLOWLIST", "@formindustries.com,@normal.dev,josh.leong@gmail.com")

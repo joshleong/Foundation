@@ -27,7 +27,7 @@ import type { UserInfo } from "@foundation/protocol";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { initAsciiWind2 } from "./asciiWind2";
 import { activeBoard } from "../sync/board";
-import { authConfig, devLogin, flowformBegin, flowformPoll, serverUrl } from "../lib/api";
+import { authConfig, BEARER, chooseServer, devLogin, flowformBegin, flowformPoll, SERVER, serverUrl } from "../lib/api";
 
 const inDesktop = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -114,6 +114,9 @@ export function Login({
   const [waiting, setWaiting] = useState(false);
   /** the email sign-in, folded away until asked for */
   const [byEmail, setByEmail] = useState(false);
+  /** the app (or a page on another site) can be pointed at another server: the Server line, folded until asked for */
+  const [pickServer, setPickServer] = useState(false);
+  const [serverDraft, setServerDraft] = useState(SERVER);
   /** 0 → 1 as the outlines come up out of the wind */
   const [open, setOpen] = useState(0);
   const [leave, setLeave] = useState<{ ox: number; oy: number; radius: number } | null>(null);
@@ -305,9 +308,12 @@ export function Login({
   const googleDesktop = async (e: React.MouseEvent) => {
     ripple(e.currentTarget);
     setError(null);
+    // a page on another site's server (not the app) finishes the same way: Google in its own tab, this page polls
+    const tab = inDesktop ? null : window.open("", "_blank");
     try {
       const { url, poll, expiresIn } = await flowformBegin();
-      await openUrl(url);
+      if (tab) tab.location.href = url;
+      else await openUrl(url);
       setWaiting(true);
       let live = true;
       cancelWait.current = () => {
@@ -424,7 +430,7 @@ export function Login({
             ) : (
               google && (
                 <>
-                  {inDesktop && cfg?.flowform ? (
+                  {(inDesktop || BEARER) && cfg?.flowform ? (
                     <motion.button type="button" className="f-pill login-btn" data-shape="control" whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} transition={press} onClick={googleDesktop}>
                       Connect with Google
                     </motion.button>
@@ -487,6 +493,37 @@ export function Login({
                 {error}
               </motion.div>
             )}
+            {(inDesktop || BEARER) && !waiting && !pickServer && (
+              <button type="button" className="login-or" data-shape="text" data-tip="The Foundation server this device signs in to" onClick={() => setPickServer(true)}>
+                Server · {(SERVER || window.location.origin).replace(/^https?:\/\//, "")}
+              </button>
+            )}
+            {pickServer && !waiting && (
+              <motion.form
+                className="login-fields"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  chooseServer(serverDraft);
+                }}
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              >
+                <input
+                  className="f-input"
+                  data-shape="control"
+                  placeholder="https://foundation.example.com"
+                  type="url"
+                  value={serverDraft}
+                  autoFocus
+                  aria-label="Server"
+                  onChange={(e) => setServerDraft(e.target.value)}
+                />
+                <motion.button className="f-pill login-btn" data-shape="control" whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} transition={press}>
+                  Use this server
+                </motion.button>
+              </motion.form>
+            )}
           </motion.div>
         </div>
       )}
@@ -494,17 +531,5 @@ export function Login({
         Move the cursor — it's the wind.
       </div>
     </div>
-  );
-}
-
-export function Mark({ size = 30 }: { size?: number }) {
-  // the Foundation mark: a grid cell lifting off the paper
-  return (
-    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden>
-      <rect x="4" y="4" width="10" height="10" rx="2" fill="currentColor" opacity=".9" />
-      <rect x="18" y="4" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.6" opacity=".55" />
-      <rect x="4" y="18" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.6" opacity=".55" />
-      <rect x="18" y="18" width="10" height="10" rx="2" fill="var(--color-pulse)" />
-    </svg>
   );
 }

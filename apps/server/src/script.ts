@@ -9,11 +9,17 @@
  * the parts and hook up FactoryForm, and get help”:
  *   plan → read the board → section → table of parts → (connector) →
  *   (a helper writes a note) → a note → arrange → bring the person there.
- * A helper writes one note in the section it was given.
+ * A helper reads what its crew has made (crew_work: the lead's plan, each
+ * agent's cards) and writes one note in the section it was given: the
+ * supplier list, or, when a teammate already wrote that, only the lead times.
+ * "…get two helpers" calls in a second one, after the first has written.
  */
 
 import type { AgentEvent } from "@foundation/protocol";
 import { runTool, type ToolCtx } from "./tools.ts";
+import { crewMember, crewWork } from "./crew.ts";
+
+type CrewWork = ReturnType<typeof crewWork>;
 
 function stepMs() {
   const v = Number(process.env.FOUNDATION_SCRIPT_STEP_MS ?? "300");
@@ -41,13 +47,23 @@ export async function runScript(opts: { prompt: string; signal: AbortSignal }, e
   };
   emit({ type: "status", status: "thinking" });
 
-  // a helper: one note where it was sent
+  // a helper: it reads what the crew has made (and the lead's plan), then writes one note where it was sent,
+  // or, when a teammate already wrote the supplier list, only the part that isn't there yet
   const helperSection = /\(Work in the section “([^”]+)”\.\)/.exec(opts.prompt)?.[1];
   if (/^You were called in by /.test(opts.prompt)) {
     const section = helperSection ?? "Workspace";
-    const note = (await step("add_note", { section, title: "Suppliers to call", markdown: "- Kapaʻa Metals: lead time 3 weeks\n- Pacific Fasteners: on stock\n\n_Written by a helper the lead called in._" })) as { id: string };
-    await step("focus", { object_id: note.id, note: "the supplier list" });
-    emit({ type: "text", text: "Wrote the supplier list." });
+    const work = (await step("crew_work", {})) as CrewWork | string;
+    const crew = typeof work === "string" ? null : work;
+    const theirs = (crew?.crew ?? []).filter((c) => c.name !== crew?.you).flatMap((c) => c.made.map((x) => ({ ...x, by: c.name })));
+    const already = theirs.find((x) => x.name === "Suppliers to call");
+    const forPlan = crew?.plan ? `For ${crew.lead}'s plan: ${crew.plan.goal}.` : "";
+    const note = (
+      already
+        ? await step("add_note", { section, title: "Lead times", markdown: `- Kapaʻa Metals: 3 weeks\n- Pacific Fasteners: on stock\n\n*${already.by} already wrote “Suppliers to call”, so this is only the lead times. ${forPlan}*` })
+        : await step("add_note", { section, title: "Suppliers to call", markdown: `- Kapaʻa Metals: lead time 3 weeks\n- Pacific Fasteners: on stock\n\n*Written by a helper the lead called in. ${forPlan}*` })
+    ) as { id: string };
+    await step("focus", { object_id: note.id, note: already ? "the lead times" : "the supplier list" });
+    emit({ type: "text", text: already ? `${already.by} already wrote the supplier list, so I added only the lead times.` : "Wrote the supplier list." });
     emit({ type: "done", runtime: "script" });
     return;
   }
@@ -84,6 +100,12 @@ export async function runScript(opts: { prompt: string; signal: AbortSignal }, e
   }
   if (/\bhelp|crew|together\b/i.test(opts.prompt)) {
     await step("call_in_help", { task: "Write the list of suppliers to call for these parts.", section });
+    // two helpers: the second part overlaps the first, so its helper has to see what the first one made
+    if (/\btwo helpers\b/i.test(opts.prompt)) {
+      const me = crewMember(ctx.crew);
+      for (let i = 0; i < 100 && me && !crewWork(me).crew.some((c) => c.role === "helper" && c.made.length); i++) await new Promise((r) => setTimeout(r, 100));
+      await step("call_in_help", { task: "Write the suppliers to call for these parts, with their lead times.", section });
+    }
   }
   await step("add_note", { section, title: "What's here", markdown: `## ${section}\n\nThe parts and what they cost, made by the crew.` });
   await step("set_plan", {

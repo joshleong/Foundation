@@ -15,9 +15,10 @@ import {
   setActiveObject,
   setObjectFloat,
   toggleMapPitch,
-  useAppState,
 } from "../state/store";
+import { parsePairs, tableOptionsSlice, useStoreSlice } from "../state/slices";
 import { Spring, Spring2D, presets } from "../physics/spring";
+import { countRender } from "../state/renders";
 
 interface Props {
   map: MapMeta;
@@ -110,7 +111,9 @@ function escapeHtml(s: string): string {
 }
 
 export const MapView = memo(function MapView({ map: meta, framePos, isActive, getScale, zoomSpring }: Props) {
-  const state = useAppState();
+  countRender("MapView");
+  // the table picker's ids and names only: a keystroke or a drag elsewhere doesn't render the map
+  const tableOptions = useStoreSlice(tableOptionsSlice);
   const rootRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -300,7 +303,7 @@ export const MapView = memo(function MapView({ map: meta, framePos, isActive, ge
     [meta.id],
   );
 
-  const tables = Object.values(state.tables);
+  const tables = useMemo(() => parsePairs(tableOptions).map(([id, name]) => ({ id, name })), [tableOptions]);
 
   return (
     <div ref={rootRef} className="map-anchor" style={{ width: meta.w }}>

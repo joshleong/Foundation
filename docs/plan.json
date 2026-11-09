@@ -408,6 +408,15 @@
       "issue": 36
     },
     {
+      "id": "crew-shared-work",
+      "title": "Helpers see the lead's plan and each other's work",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "crew",
+      "status": "done",
+      "body": "Done 2026-11-08: a helper's brief carries the lead's plan (`set_plan`) and what the crew has made so far, and `crew_work` (read) keeps it current: the ask, the plan, each agent's state, sections and cards, finished helpers included. On the script runtime, a second helper saw the first one's “Suppliers to call” and wrote only the lead times (`crew.test.ts`, `e2e/crew.spec.ts`). Not yet seen with a real model."
+    },
+    {
       "id": "crew-spatial-voice",
       "title": "Spatial voice: ask the agent nearest your pointer",
       "kind": "plan",
@@ -553,8 +562,8 @@
       "kind": "plan",
       "milestone": "apps",
       "area": "machines",
-      "status": "backlog",
-      "body": "Agents can read a machine's last screen; let them propose a command that runs once a person approves it on the card.",
+      "status": "done",
+      "body": "Done 2026-11-08: `machine_run` asks to run one command in a running machine; the ask waits on the card (violet, Run / Decline) and only a person with edit rights, from a browser session, answers it. Run executes it through the Engine API (no TTY, under `timeout`) and the agent gets the output and exit code; declined, unanswered or withdrawn, nothing runs. The ask and its outcome land in activity. Checked against the stand-in engine and against Docker Desktop with three browsers (`docs/evidence/2026-11-08_crew-next/`).",
       "issue": 51
     },
     {
@@ -623,7 +632,7 @@
       "kind": "bug",
       "milestone": "huddles",
       "area": "slack",
-      "status": "backlog",
+      "status": "done",
       "body": "A server-side create-and-invite would remove the wait.",
       "issue": 58
     },
@@ -643,8 +652,8 @@
       "kind": "bug",
       "milestone": "polish",
       "area": "panels",
-      "status": "backlog",
-      "body": "Frames mount when on screen and the camera's zoom is ≥ 0.3 (`useOnScreen`), whatever the section's fit. So a page fitted to 27 % in a section at 100 % zoom mounts at an effective 27 % (costly, unreadable), while one reported on the crowded company board stayed a poster (not reproduced: likely the board was zoomed out below 0.3). Decide the rule on the effective scale (zoom × fit) and reproduce the report first.",
+      "status": "done",
+      "body": "Live bodies mount when drawn at their line or more: zoom × the section's fit (`store.drawnScale`), checked at mount too (it used to start live until the camera moved). A page fitted to 49 % at zoom 0.52 is a poster now, and live from zoom ≈ 0.62 (2026-11-08, `e2e/fitted-frames.spec.ts`). The company-board report wasn't reproduced (its data isn't on this machine); under the new rule a page fitted to 27 % stays a poster below zoom 1.1.",
       "issue": 60
     },
     {
@@ -663,8 +672,8 @@
       "kind": "bug",
       "milestone": "company",
       "area": "company",
-      "status": "backlog",
-      "body": "`touch()` in `tools.ts` logs every tool call with role `agent`, including a person's HTTP call, so the daily digest counts people as agents. A person's own edits on the grid write no activity at all. Log the actor's real role, and log a person's structural edits (sections and cards added or removed).",
+      "status": "done",
+      "body": "Done 2026-11-08: the HTTP tools door acts as the person only from their browser (cookie, no bearer); a bearer is “Name's agent”, role agent. Every agent line says whom it worked for (`for`). A person's own grid edits (sections and cards added, removed, renamed, moved) are logged under their name from their sync socket, coalesced: one line per thing after a 2.5 s pause, a repeat replaces the line before it, three or more at once are one summary (`gridlog.ts`, `test/activity.test.ts`, `e2e/crew.spec.ts`).",
       "issue": 62
     },
     {
@@ -683,8 +692,8 @@
       "kind": "plan",
       "milestone": "polish",
       "area": "notes",
-      "status": "backlog",
-      "body": "Two people editing the very same word can interleave letters (each edit rebases as one change). A CodeMirror binding fixes that and brings syntax-aware editing; undo would last across reloads.",
+      "status": "done",
+      "body": "Done 2026-11-08 (branch `feat/codemirror-notes`): the open note is CodeMirror 6 bound to the note's Y.Text through y-codemirror.next, loaded only when a note is opened (~100 kB gzipped, its own chunk). Two people typing into one word keep two whole runs (`e2e/together.spec.ts`, `notes.test.ts`). Carets and selections keep the board's awareness shape; ⌘Z is still the board's per-note Y.UndoManager, so undo still lasts only while the board is open (not across reloads). Markdown is highlighted while writing; at rest it renders as before.",
       "issue": 63
     },
     {
@@ -693,8 +702,8 @@
       "kind": "bug",
       "milestone": "polish",
       "area": "perf",
-      "status": "backlog",
-      "body": "They render on every change on a big board. Narrow them the way `useSection` did.",
+      "status": "done",
+      "body": "GridViewport, WireLayer, the agent layer (PortWires), maps and presentation mode read slices of the store (`state/slices.ts`), and your own pointer no longer re-renders presence views. Typing 30 characters used to render all five layers 30 times each; now only the note and its section render. A drag no longer renders the agent layer about once per pointer move (2026-11-08, `e2e/renders.spec.ts`, `docs/evidence/2026-11-08_narrow-subscribers/`).",
       "issue": 64
     },
     {
@@ -793,8 +802,8 @@
       "kind": "plan",
       "milestone": "ship",
       "area": "auth",
-      "status": "backlog",
-      "body": "WebSocket auth uses the cookie, so a packaged app can't use a hosted server (cross-site). A short-lived ticket, like T3's `websocket-ticket`, fixes it.",
+      "status": "done",
+      "body": "Done 2026-11-08 (`feat/ws-ticket`): a page on another origin (the packaged app, a hosted server) signs in for an `app` bearer, sends it only as Authorization, reads SSE with fetch, and opens each socket (sync, huddle, terminal) with a one-time 30 s ticket bound to that path (`sockets.ts`). Same-origin web keeps the cookie. `test/tickets.test.ts`; a browser on :16430 synced live through a server on 127.0.0.1:16410 (`docs/evidence/2026-11-08_ws-ticket/`). Not yet run in the packaged exe against a hosted server.",
       "issue": 74
     },
     {
@@ -896,6 +905,33 @@
       "status": "done",
       "body": "`docs/plan.json` is the plan; `npm run plan:push` / `plan:pull` keep it and GitHub issues in step; Settings → Plan shows it as a board, and admins move cards there. SPEC §8 points here instead of a phase table. Built and checked in the browser; waiting on the first push to GitHub (see \"Turn on issues and push the plan to GitHub\").",
       "issue": 84
+    },
+    {
+      "id": "desktop-updates",
+      "title": "The desktop app updates itself (signed feed, a card, one press)",
+      "kind": "plan",
+      "milestone": "ship",
+      "area": "desktop",
+      "status": "done",
+      "body": "Like Vision (ADR-055): tauri-plugin-updater reads latest.json on the newest GitHub release, checks the installer against Foundation’s key, a person presses Update. npm run release builds and publishes. Checked on a real install (docs/evidence/2026-11-08_desktop-updates/)."
+    },
+    {
+      "id": "app-icon",
+      "title": "A new app icon: an F laid in masonry",
+      "kind": "plan",
+      "milestone": "ship",
+      "area": "desktop",
+      "status": "done",
+      "body": "apps/client/assets/foundation-icon.svg; the desktop icons and the browser tab use it."
+    },
+    {
+      "id": "files-search",
+      "title": "Search inside documents; paste, folders and one upload tray",
+      "kind": "plan",
+      "milestone": "search",
+      "area": "search",
+      "status": "done",
+      "body": "PDF, Word, PowerPoint, Excel and OpenDocument files are read after their upload answers (a worker thread, capped per file; unpdf for PDF, a built-in zip + XML reader for the rest), kept by content and put into search; older files are read at boot. ⌘K and the search pane show the matching words, marked. On the grid: paste files or a screenshot where the pointer is, drop whole folders (laid out as a group under a note naming them), and every upload goes through one glass tray (three at a time, Retry on failure). Checked: `test/files-text.test.ts` (9), `e2e/files.spec.ts` (4), `#/design` → Adding files, day and night (`docs/evidence/2026-11-08_files-search/`). Open: scanned PDFs (no OCR), legacy .doc/.ppt/.xls, a real OS folder drag (the e2e walks a stand-in entry tree)."
     }
   ]
 }

@@ -8,7 +8,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { activeBoard, onBoardChange, type PeerState } from "../sync/board";
 import { onCamera, onPointer } from "../state/camera";
 
-function useActiveBoard() {
+export function useActiveBoard() {
   return useSyncExternalStore(onBoardChange, activeBoard);
 }
 

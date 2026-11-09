@@ -19,6 +19,7 @@ import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { isNight, setNight, springs } from "@foundation/ui";
 import { api } from "../lib/api";
 import { NightOrb } from "../shell/NightOrb";
+import { UpdatesSection } from "../update/UpdateCard";
 import { renderMarkdown } from "../utils/markdown";
 import clientPackage from "../../package.json";
 import { longDate, releasesFrom, type ReleasePost } from "./releases";
@@ -56,7 +57,16 @@ export function SettingsPage({ route }: { route: string }) {
           ← Back to the board
         </a>
       </header>
-      {tab === "plan" ? <PlanTab /> : tab === "releases" ? <ReleasesTab posts={POSTS} route={route} /> : <ServicesTab />}
+      {tab === "plan" ? (
+        <PlanTab />
+      ) : tab === "releases" ? (
+        <ReleasesTab posts={POSTS} route={route} />
+      ) : (
+        <>
+          <ServicesTab />
+          <UpdatesSection />
+        </>
+      )}
     </div>
   );
 }

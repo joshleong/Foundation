@@ -267,7 +267,11 @@ function Activity() {
       {items.map((a, i) => (
         <button key={a.at + ":" + i} className={`activity-row role-${a.role}`} onClick={() => a.objectId && requestSnap({ kind: "object", id: a.objectId })}>
           <span className={`f-dot ${a.role === "agent" ? "is-agent" : a.role === "human" ? "is-ok" : ""}`} />
-          <span className="activity-who">{a.who}</span>
+          {/* an agent's line says whom it worked for; a person's is just theirs */}
+          <span className="activity-who" data-tip={a.role === "agent" && a.for ? `${a.who}: an agent working for ${a.for}` : undefined}>
+            {a.role === "agent" ? "✦ " : ""}
+            {a.who}
+          </span>
           <span className="activity-text">{a.text}</span>
           <span className="activity-when">{ago(a.at)}</span>
         </button>

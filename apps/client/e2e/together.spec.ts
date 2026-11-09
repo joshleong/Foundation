@@ -3,14 +3,15 @@
  * once, writing cells of one table at once, renaming a section — and both
  * end up looking at the same board. Then (2026-11-07) each sees where the
  * other is: pointer cursors on the board, named carets in a note, and ⌘Z
- * takes back only your own words.
+ * takes back only your own words. Since 2026-11-08 the note is CodeMirror on
+ * the note's Y.Text (y-codemirror.next): two people typing into the very same
+ * word keep two whole runs, never interleaved letters.
  */
 
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import { CLIENT, person, settle } from "./helpers";
 
-const SHOTS = "../../docs/evidence/2026-11-03_together";
-const SHOTS2 = "../../docs/evidence/2026-11-07_together-notes";
+const SHOTS = "../../docs/evidence/2026-11-08_codemirror-notes";
 let ada: Page;
 let kai: Page;
 let board = "";
@@ -37,18 +38,28 @@ test.beforeAll(async ({ browser }) => {
   await settle(ada, 800);
 });
 
-/** frame the shared note, open it for writing, and put the caret after "Goals:" or at the end */
-async function openShared(p: Page, at: "goals" | "end") {
+type Ed = { __view: { state: { doc: { toString(): string; length: number } }; dispatch(t: object): void; focus(): void } };
+
+/** what the note's open editor holds */
+const text = (ed: Locator) => ed.evaluate((el) => (el as unknown as Ed).__view.state.doc.toString());
+
+/** frame the shared note, open it for writing, and put the caret at `at` (an index, "goals" = after "Goals:
+", or the end) */
+async function openShared(p: Page, at: "goals" | "end" | number) {
   const id = await p.evaluate(() => Object.values((window as unknown as { __foundation: { getState(): { notes: Record<string, { id: string; name: string }> } } }).__foundation.getState().notes).find((n) => n.name === "Shared")!.id);
   await p.evaluate((i) => (window as unknown as { __foundation: { setState(x: object): void } }).__foundation.setState({ snapRequest: { kind: "object", id: i, nonce: Math.random() } }), id);
   await settle(p, 1200);
   await p.locator(`[data-obj-id="${id}"] .note-rendered`).dblclick();
-  const ed = p.locator(`[data-obj-id="${id}"] textarea`);
+  // CodeMirror, loaded on first use, bound to the note's shared text
+  const ed = p.locator(`[data-obj-id="${id}"] .cm-editor`);
   await ed.waitFor();
-  // the caret: after "Goals:\n" for Ada, at the end for Kai
-  await ed.evaluate((el: HTMLTextAreaElement, where) => {
-    const at = where === "goals" ? el.value.indexOf("\n") + 1 : el.value.length;
-    el.setSelectionRange(at, at);
+  await p.waitForFunction((i) => !!(document.querySelector(`[data-obj-id="${i}"] .cm-editor`) as unknown as Ed | null)?.__view, id);
+  await ed.evaluate((el, where) => {
+    const v = (el as unknown as Ed).__view;
+    const doc = v.state.doc.toString();
+    const pos = where === "goals" ? doc.indexOf("\n") + 1 : where === "end" ? doc.length : (where as number);
+    v.focus();
+    v.dispatch({ selection: { anchor: pos } });
   }, at);
   return ed;
 }
@@ -70,8 +81,8 @@ test("two people typing in one note at once both keep their words", async () => 
   }
   await settle(ada, 800);
   const want = "Goals:\n- ship the fan\n\nRisks:\n- supplier slip\n";
-  expect(await ea.inputValue()).toBe(want);
-  expect(await ek.inputValue()).toBe(want);
+  expect(await text(ea)).toBe(want);
+  expect(await text(ek)).toBe(want);
   await ada.screenshot({ path: `${SHOTS}/01_ada-note.png` });
   await kai.screenshot({ path: `${SHOTS}/02_kai-note.png` });
   await ada.keyboard.press("Escape");
@@ -132,7 +143,7 @@ test("each sees the other's pointer on the board", async () => {
 test("each sees where the other is writing; ⌘Z takes back only your own words", async () => {
   const before = "Goals:\n- ship the fan\n\nRisks:\n- supplier slip\n";
   const [ea, ek] = [await openShared(ada, "goals"), await openShared(kai, "end")];
-  expect(await ea.inputValue()).toBe(before);
+  expect(await text(ea)).toBe(before);
   // a named caret for the other person, in both editors
   await ada.locator(".note-caret-name", { hasText: "Kai Test" }).waitFor();
   await kai.locator(".note-caret-name", { hasText: "Ada Test" }).waitFor();
@@ -140,25 +151,60 @@ test("each sees where the other is writing; ⌘Z takes back only your own words"
   await kai.keyboard.type("- late resin\n");
   await settle(ada, 700);
   const both = "Goals:\n- tooling\n- ship the fan\n\nRisks:\n- supplier slip\n- late resin\n";
-  expect(await ea.inputValue()).toBe(both);
-  expect(await ek.inputValue()).toBe(both);
-  await ada.screenshot({ path: `${SHOTS2}/01_ada-sees-kai-writing.png` });
-  await kai.screenshot({ path: `${SHOTS2}/02_kai-sees-ada-writing.png` });
+  expect(await text(ea)).toBe(both);
+  expect(await text(ek)).toBe(both);
+  await ada.screenshot({ path: `${SHOTS}/05_ada-sees-kai-writing.png` });
+  await kai.screenshot({ path: `${SHOTS}/06_kai-sees-ada-writing.png` });
   // Ada's undo takes back her line; Kai's stays, in both editors
   const mod = process.platform === "darwin" ? "Meta" : "Control";
   await ada.keyboard.press(`${mod}+z`);
   await settle(ada, 700);
   const undone = "Goals:\n- ship the fan\n\nRisks:\n- supplier slip\n- late resin\n";
-  expect(await ea.inputValue()).toBe(undone);
-  expect(await ek.inputValue()).toBe(undone);
+  expect(await text(ea)).toBe(undone);
+  expect(await text(ek)).toBe(undone);
   // and redo puts it back
   await ada.keyboard.press(`${mod}+Shift+z`);
   await settle(ada, 700);
-  expect(await ek.inputValue()).toBe(both);
+  expect(await text(ek)).toBe(both);
   // Ada closes the note: a chip names whoever is still writing in it, until they stop
   await ada.keyboard.press("Escape");
   await ada.locator(".note-writer", { hasText: "Kai Test" }).waitFor();
-  await ada.screenshot({ path: `${SHOTS2}/03_ada-sees-kai-in-the-note.png` });
+  await ada.screenshot({ path: `${SHOTS}/07_ada-sees-kai-in-the-note.png` });
   await kai.keyboard.press("Escape");
   await expect(ada.locator(".note-writer")).toHaveCount(0);
+});
+
+test("two people typing into the very same word keep both words whole", async () => {
+  const before = "Goals:\n- tooling\n- ship the fan\n\nRisks:\n- supplier slip\n- late resin\n";
+  // both carets inside "supplier", after "sup"
+  const at = before.indexOf("supplier") + 3;
+  const [ea, ek] = [await openShared(ada, at), await openShared(kai, at)];
+  expect(await text(ea)).toBe(before);
+  // keystrokes interleaved, one each, as two people typing at once into one spot
+  const a = "[ada words]";
+  const k = "(kai words)";
+  for (let i = 0; i < Math.max(a.length, k.length); i++) {
+    if (a[i]) await ada.keyboard.type(a[i]);
+    if (k[i]) await kai.keyboard.type(k[i]);
+  }
+  await settle(ada, 800);
+  const got = await text(ea);
+  expect(await text(ek)).toBe(got);
+  // each run whole, in one order or the other, never letters shuffled together
+  const head = before.slice(0, at);
+  const tail = before.slice(at);
+  expect([head + a + k + tail, head + k + a + tail]).toContain(got);
+  await ada.screenshot({ path: `${SHOTS}/08_same-word_ada.png` });
+  await kai.screenshot({ path: `${SHOTS}/09_same-word_kai.png` });
+  // and each one's undo takes back only their own run
+  const mod = process.platform === "darwin" ? "Meta" : "Control";
+  await kai.keyboard.press(`${mod}+z`);
+  await settle(kai, 700);
+  expect(await text(ea)).toBe(head + a + tail);
+  expect(await text(ek)).toBe(head + a + tail);
+  await ada.keyboard.press(`${mod}+z`);
+  await settle(ada, 700);
+  expect(await text(ek)).toBe(before);
+  await ada.keyboard.press("Escape");
+  await kai.keyboard.press("Escape");
 });

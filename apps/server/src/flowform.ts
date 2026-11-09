@@ -35,7 +35,7 @@ import type { ServerResponse } from "node:http";
 import type { UserInfo } from "@foundation/protocol";
 import { config } from "./config.ts";
 import { all, db, one, run } from "./db.ts";
-import { createSession, setSessionCookie, upsertUser } from "./auth.ts";
+import { createSession, setSessionCookie, signIn, upsertUser } from "./auth.ts";
 import { HttpError, parseCookies, type Req } from "./http.ts";
 
 const ATTEMPT_TTL = 10 * 60_000; // flowform's own oauth_state lives 10 minutes
@@ -290,8 +290,12 @@ function finishDesktop(attempt: Attempt, result: { userId: string } | { error: s
   );
 }
 
-/** desktop: the window asks whether the browser finished; on success it gets its session cookie */
+/**
+ * desktop: the window asks whether the browser finished; on success it gets its session cookie,
+ * or, if it asked for one (`?bearer=1`: its server is another site), an app session in the body
+ */
 export function poll(req: Req, res: ServerResponse) {
+  const bearer = req.query?.get("bearer") === "1";
   sweep();
   const presented = (req.headers.authorization ?? "").replace(/^Bearer /, "");
   if (!presented) throw new HttpError(404, "no such sign-in (expired?)");
@@ -317,8 +321,7 @@ export function poll(req: Req, res: ServerResponse) {
   if (!finished.result_user_id) return { status: "error", error: finished.result_error ?? "Sign-in didn't finish" };
   const user = one<UserInfo>("select id, email, name, color, role from users where id = ?", finished.result_user_id);
   if (!user) throw new HttpError(500, "user vanished");
-  setSessionCookie(res, createSession(user.id));
-  return { status: "ok", user };
+  return { status: "ok", user, ...signIn(res, user.id, bearer) };
 }
 
 function page(res: ServerResponse, status: number, title: string, body: string) {

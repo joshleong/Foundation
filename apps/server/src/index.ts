@@ -13,8 +13,8 @@ import { WebSocketServer } from "ws";
 import { config } from "./config.ts";
 import { one } from "./db.ts";
 import { HttpError, json, readJson, Router, sse, type Req } from "./http.ts";
-import { clearSession, createSession, googleAuthUrl, googleCallback, isAllowed, requireUser, setSessionCookie, upsertUser, userFromRequest, createSession as mintToken } from "./auth.ts";
-import { attachConnection, boardEpoch, editBoard, syncAccess, ensureBoardRow, getBoard, listBoards, presence } from "./boards.ts";
+import { clearSession, createSession, googleAuthUrl, googleCallback, isAllowed, requireUser, setSessionCookie, signIn, upsertUser, userFromRequest } from "./auth.ts";
+import { boardEpoch, editBoard, ensureBoardRow, getBoard, listBoards, presence } from "./boards.ts";
 import { archiveFile, listFiles, reindexFilesIfNeeded, serveFile, uploadFile } from "./files.ts";
 import { integrationStatus, searchAll } from "./search.ts";
 import { listApps, probeApp, saveApp } from "./apps.ts";
@@ -26,19 +26,26 @@ import { followRun, listSessions, runtimes, sessionTurns, settleOrphanRuns, star
 import { t3Thread, t3Threads } from "./t3.ts";
 import { pollHandoffs } from "./vision.ts";
 import { boardPeople, boardRole, canWrite, requireWriter, setBoardRole } from "./roles.ts";
-import { runTool, TOOLS } from "./tools.ts";
+import { handleUpgrade, issueTicket } from "./sockets.ts";
+import { httpToolCtx, runTool, TOOLS } from "./tools.ts";
 import { handleMcp } from "./mcp.ts";
 import { seedCompanyBoard } from "./seed.ts";
-import { addLine, attachHuddle, attachRecording, huddleArchive, huddleForInvite, transcriptText, type NewHuddle } from "./huddles.ts";
+import { addLine, attachRecording, huddleArchive, huddleForInvite, transcriptText, type NewHuddle } from "./huddles.ts";
 import { boardLink, channelHistory, channelInfo, inviteText, listChannels, postMessage, shareText, SlackError, slackStatus } from "./slack.ts";
 import { appendSection, boardMaps, huddleStateOf } from "@foundation/protocol";
 import { migrateAllBoards } from "./migrate.ts";
 import * as flowform from "./flowform.ts";
 import { canSeeBoard, hiddenBoards, requireBoard } from "./members.ts";
 import { isPerson, requirePerson } from "./auth.ts";
+import { startGridLog } from "./gridlog.ts";
+import { answerAsk, startMachineAsks } from "./machineasks.ts";
 import { createPlanCard, movePlanCard, readPlan, syncPlan, type NewCard } from "./plan.ts";
 import { startDigest } from "./digest.ts";
-import { attachTerminal, engineImages, engineStatus, loadImage, reconcileMachine, removeMachine, restartMachine, startMachine, stopMachine } from "./machines.ts";
+import { engineImages, engineStatus, loadImage, reconcileMachine, removeMachine, restartMachine, startMachine, stopMachine } from "./machines.ts";
+
+// people's grid edits go in the activity log, from the first board loaded
+startGridLog();
+startMachineAsks();
 
 const r = new Router();
 
@@ -50,12 +57,11 @@ r.get("/auth/config", () => ({ google: Boolean(config.google.clientId), devLogin
 r.get("/api/me", (req) => ({ user: userFromRequest(req) }));
 r.post("/auth/dev", async (req, res) => {
   if (!config.devLogin) throw new HttpError(403, "dev login is off");
-  const { email, name } = await readJson<{ email?: string; name?: string }>(req);
+  const { email, name, bearer } = await readJson<{ email?: string; name?: string; bearer?: boolean }>(req);
   if (!email || !/^[^@\s]+@[^@\s]+$/.test(email)) throw new HttpError(400, "enter an email");
   if (!isAllowed(email)) throw new HttpError(403, `${email} is not on Foundation's allowlist`);
   const user = upsertUser(email, name ?? "");
-  setSessionCookie(res, createSession(user.id));
-  return { user };
+  return { user, ...signIn(res, user.id, bearer === true) };
 });
 r.get("/auth/google/start", (_req, res) => {
   res.writeHead(302, { location: googleAuthUrl() });
@@ -76,10 +82,15 @@ r.post("/auth/logout", (req, res) => {
   clearSession(req, res);
   return { ok: true };
 });
+/** a one-time, 30-second ticket for one socket, for a client that can't send its session on a WebSocket (sockets.ts) */
+r.post("/api/ws-ticket", async (req) => {
+  const { path } = await readJson<{ path?: string }>(req);
+  return issueTicket(req, path);
+});
 /** a bearer for an external agent (Claude Code, Codex, Vision) acting as you */
 r.post("/api/agent/token", (req) => {
   const u = requireUser(req);
-  return { token: mintToken(u.id, 30 * 864e5), mcp: `${config.publicUrl}/mcp?board=company` };
+  return { token: createSession(u.id, 30 * 864e5, "agent"), mcp: `${config.publicUrl}/mcp?board=company` };
 });
 
 // ---------- boards ----------
@@ -143,7 +154,8 @@ r.post("/api/boards/:id/tools/:name", async (req) => {
   const u = requireUser(req);
   requireBoard(u, req.params.id);
   const input = await readJson(req);
-  return { result: await runTool({ boardId: req.params.id, actor: u.name, userId: u.id, role: isPerson(req, u) ? "human" : "agent" }, req.params.name, input) };
+  // a person's browser acts as them; a bearer token is an agent acting for them (the activity log says which)
+  return { result: await runTool(httpToolCtx(req.params.id, u, isPerson(req)), req.params.name, input) };
 });
 
 // ---------- files ----------
@@ -425,6 +437,14 @@ r.post("/api/boards/:id/machines/:panel/remove", async (req) => {
   const b = await readJson<{ confirm?: boolean }>(req);
   return { machine: await removeMachine(req.params.id, req.params.panel, u.name, b.confirm === true) };
 });
+// an agent's command waiting on a machine's card: only a person at a browser, who can edit the board, answers it
+r.post("/api/boards/:id/machines/:panel/asks/:ask/:verdict", async (req) => {
+  const verdict = req.params.verdict;
+  if (verdict !== "run" && verdict !== "decline") throw new HttpError(404, "run or decline");
+  const u = requirePerson(req, verdict === "run" ? "Running an agent's command" : "Declining an agent's command");
+  requireBoard(u, req.params.id);
+  return { ask: answerAsk(req.params.id, req.params.panel, req.params.ask, u, verdict) };
+});
 r.post("/api/boards/:id/machines/load", async (req) => {
   const u = requirePerson(req, "Loading an image into an engine");
   requireBoard(u, req.params.id);
@@ -503,10 +523,11 @@ r.post("/api/agent/runs/:id/stop", (req) => {
  * Viewers don't write. Any non-GET under /api is a write except these: the
  * agent (its tools check per call, so a viewer can still ask it things),
  * stopping your own run, an MCP token (its tools check too), board tools
- * (runTool checks), and setting roles (admins only). The board is the
+ * (runTool checks), setting roles (admins only), and a socket ticket (a
+ * viewer's sync socket is read-only either way). The board is the
  * route's :id, or ?board=, else the person's account role decides.
  */
-const READ_POSTS = [/^\/api\/agent$/, /^\/api\/agent\/runs\/[^/]+\/stop$/, /^\/api\/agent\/token$/, /^\/api\/boards\/[^/]+\/tools\//, /^\/api\/boards\/[^/]+\/people$/, /^\/api\/apps\/probe$/];
+const READ_POSTS = [/^\/api\/agent$/, /^\/api\/agent\/runs\/[^/]+\/stop$/, /^\/api\/agent\/token$/, /^\/api\/boards\/[^/]+\/tools\//, /^\/api\/boards\/[^/]+\/people$/, /^\/api\/apps\/probe$/, /^\/api\/ws-ticket$/];
 function gateWrites(req: Req, path: string) {
   if (req.method === "GET" || req.method === "OPTIONS" || !path.startsWith("/api/")) return;
   if (READ_POSTS.some((p) => p.test(path))) return;
@@ -518,17 +539,24 @@ function gateWrites(req: Req, path: string) {
 
 // ---------- server ----------
 
+function corsAllowed(origin: string) {
+  return origin === config.clientUrl || /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin) || origin === "tauri://localhost" || config.corsOrigins.includes(origin);
+}
+
 const server = createServer(async (rawReq, res: ServerResponse) => {
   const req = rawReq as Req;
   const url = new URL(req.url ?? "/", "http://local");
   req.query = url.searchParams;
-  // dev: the client runs on its own port; allow it with credentials
+  // the client on its own port (dev), the desktop app's page (http://localhost:31440, tauri://localhost) and
+  // FOUNDATION_CORS_ORIGINS. The app on a hosted server sends a bearer (Authorization), so preflights are kept 10 minutes
   const origin = req.headers.origin;
-  if (origin && (origin === config.clientUrl || /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin) || origin === "tauri://localhost")) {
+  if (origin && corsAllowed(origin)) {
     res.setHeader("access-control-allow-origin", origin);
     res.setHeader("access-control-allow-credentials", "true");
-    res.setHeader("access-control-allow-headers", "content-type, authorization, mcp-session-id, mcp-protocol-version");
+    res.setHeader("access-control-allow-headers", "content-type, authorization, range, mcp-session-id, mcp-protocol-version");
     res.setHeader("access-control-allow-methods", "GET, POST, DELETE, OPTIONS");
+    res.setHeader("access-control-max-age", "600");
+    res.setHeader("vary", "origin");
   }
   if (req.method === "OPTIONS") {
     res.writeHead(204);
@@ -556,36 +584,8 @@ const server = createServer(async (rawReq, res: ServerResponse) => {
 });
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 * 1024 });
-server.on("upgrade", (rawReq, socket, head) => {
-  const req = rawReq as Req;
-  const url = new URL(req.url ?? "/", "http://local");
-  req.query = url.searchParams;
-  const user = userFromRequest(req);
-  const hm = /^\/huddle\/([A-Za-z0-9_-]{1,64})\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
-  if (hm && user && canSeeBoard(user, hm[1])) {
-    wss.handleUpgrade(req, socket, head, (ws) => attachHuddle(hm[1], hm[2], ws, user, req.query.get("send") === "1"));
-    return;
-  }
-  // a machine card's shared terminal: editors type, viewers watch
-  const tm = /^\/machines\/([A-Za-z0-9_-]{1,64})\/([A-Za-z0-9_-]{1,64})\/tty$/.exec(url.pathname);
-  if (tm && user && canSeeBoard(user, tm[1])) {
-    wss.handleUpgrade(req, socket, head, (ws) => void attachTerminal(tm[1], tm[2], ws, user, canWrite(user.id, tm[1])));
-    return;
-  }
-  const m = /^\/sync\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
-  if (!m || !user || !canSeeBoard(user, m[1])) {
-    socket.write(`HTTP/1.1 ${m ? 401 : 404} ${m ? "Unauthorized" : "Not Found"}\r\n\r\n`);
-    socket.destroy();
-    return;
-  }
-  // the board a client holds must be this board: a copy from before a reset is refused, and a client
-  // that doesn't say (a build from before epochs) can read but not write until it reloads
-  const access = syncAccess(req.query.get("epoch"), boardEpoch(m[1]), canWrite(user.id, m[1]));
-  wss.handleUpgrade(req, socket, head, (ws) => {
-    if (access === "refuse") return ws.close(4002, "this board was reset");
-    attachConnection(m[1], ws, access === "read", user.id, user.name);
-  });
-});
+// every socket (sync, huddles, a machine's terminal) and how it proves who opens it: sockets.ts
+server.on("upgrade", (req, socket, head) => handleUpgrade(wss, req, socket, head));
 
 reindexFilesIfNeeded();
 watchFactoryForm();

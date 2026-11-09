@@ -24,6 +24,8 @@ import { join } from "node:path";
 
 process.env.FOUNDATION_DATA_DIR = mkdtempSync(join(tmpdir(), "foundation-machines-"));
 process.env.FOUNDATION_ADMIN_EMAILS = "";
+process.env.FOUNDATION_MACHINE_ASK_MS = "1500";
+process.env.FOUNDATION_CREW_TRAVEL_MS = "0";
 
 // ---------- a stand-in Engine API ----------
 
@@ -41,7 +43,16 @@ const engine = {
   calls: [] as string[],
   pullDelayMs: 60,
   loaded: [] as Buffer[],
+  execSeq: 0,
+  execs: new Map<string, { body: { Tty?: boolean; Cmd?: string[] }; exitCode: number | null }>(),
 };
+/** what a command run without a terminal prints in the stand-in machine, and its exit code */
+function fakeRun(cmd: string): { out: Array<[1 | 2, string]>; code: number } {
+  if (cmd === "cat /etc/os-release") return { out: [[1, 'NAME="Alpine Linux"\nID=alpine\n']], code: 0 };
+  if (cmd === "echo oops >&2; exit 3") return { out: [[1, "before\n"], [2, "oops\n"]], code: 3 };
+  if (cmd === "seq 1 20000") return { out: [[1, Array.from({ length: 20000 }, (_, i) => i + 1).join("\n") + "\n"]], code: 0 };
+  return { out: [[2, `sh: ${cmd.split(" ")[0]}: not found\n`]], code: 127 };
+}
 const findBox = (ref: string) => engine.boxes.get(ref) ?? [...engine.boxes.values()].find((b) => b.Name === ref);
 
 const fake = createServer(async (req, res) => {
@@ -114,7 +125,14 @@ const fake = createServer(async (req, res) => {
   if (req.method === "POST" && (m = /^\/containers\/([^/]+)\/exec$/.exec(path))) {
     const b = findBox(m[1]);
     if (!b || b.State !== "running") return err(409, "container is not running");
-    return json({ Id: `exec-${b.Id.slice(0, 8)}` }, 201);
+    const Id = `exec-${b.Id.slice(0, 8)}-${++engine.execSeq}`;
+    engine.execs.set(Id, { body: JSON.parse(body.toString()), exitCode: null });
+    return json({ Id }, 201);
+  }
+  if (req.method === "GET" && (m = /^\/exec\/([^/]+)\/json$/.exec(path))) {
+    const x = engine.execs.get(m[1]);
+    if (!x) return err(404, "No such exec instance");
+    return json({ ID: m[1], Running: x.exitCode === null, ExitCode: x.exitCode ?? 0 });
   }
   if (req.method === "POST" && /^\/exec\/[^/]+\/resize$/.test(path)) return res.writeHead(200).end();
   return err(404, `stand-in engine has no ${req.method} ${path}`);
@@ -122,6 +140,24 @@ const fake = createServer(async (req, res) => {
 // the exec stream: hijacked, then an echo that shouts back, with a prompt
 fake.on("upgrade", (req: IncomingMessage, sock: Socket) => {
   engine.calls.push(`UPGRADE ${req.url}`);
+  const x = engine.execs.get(/^\/exec\/([^/]+)\/start/.exec(req.url ?? "")?.[1] ?? "");
+  if (x && x.body.Tty === false) {
+    // a command without a terminal: framed stdout/stderr, then the stream ends (the exit code is on /exec/:id/json)
+    sock.write("HTTP/1.1 101 UPGRADED\r\nContent-Type: application/vnd.docker.multiplexed-stream\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n");
+    const r = fakeRun(x.body.Cmd?.[5] ?? "");
+    for (const [stream, text] of r.out) {
+      const data = Buffer.from(text);
+      const h = Buffer.alloc(8);
+      h[0] = stream;
+      h.writeUInt32BE(data.length, 4);
+      // a frame split across writes, the way a socket can deliver it
+      sock.write(Buffer.concat([h, data.subarray(0, 3)]));
+      sock.write(data.subarray(3));
+    }
+    x.exitCode = r.code;
+    sock.end();
+    return;
+  }
   sock.write("HTTP/1.1 101 UPGRADED\r\nContent-Type: application/vnd.docker.raw-stream\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n");
   sock.write("root@box:~# ");
   sock.on("data", (d: Buffer) => sock.write(d.toString().toUpperCase()));
@@ -139,6 +175,8 @@ const { editBoard, getBoard, closeBoards } = await import("../src/boards.ts");
 const { boardMaps, appendSection } = await import("@foundation/protocol");
 type PanelDoc = import("@foundation/protocol").PanelDoc;
 const machines = await import("../src/machines.ts");
+const { answerAsk, waitingAsks } = await import("../src/machineasks.ts");
+const { joinCrew, leaveCrew } = await import("../src/crew.ts");
 
 after(async () => {
   machines.closeTerminals();
@@ -303,6 +341,106 @@ test("errors are the engine's own words; an image file loads from the archive", 
   assert.deepEqual(loaded.images, ["built-here:1"]);
   assert.equal(engine.loaded[0].toString(), bytes.toString());
   await assert.rejects(() => machines.loadImage(BOARD, "f_nope", "Ada"), /no such file/);
+});
+
+// ---------- agents' commands, approved by a person ----------
+
+/** an ask shows up on the card */
+async function untilWaiting(n = 1) {
+  for (let i = 0; i < 100 && waitingAsks().length < n; i++) await new Promise((r) => setTimeout(r, 10));
+  assert.equal(waitingAsks().length, n);
+  return waitingAsks().at(-1)!;
+}
+const asksOn = (panel: string) => boardMaps(getBoard(BOARD).doc).machineAsks.get(panel) ?? [];
+const execsMade = () => engine.calls.filter((c) => /^POST \/containers\/[^/]+\/exec$/.test(c)).length;
+
+let runBox = "";
+test("an agent's command waits for a person; Run runs it, and the agent gets the output and exit code", async () => {
+  const out = (await runTool({ boardId: BOARD, actor: "Ada", userId: ada.id }, "propose_machine", { name: "Run box", image: "alpine" })) as { card: string };
+  runBox = out.card;
+  await machines.startMachine(BOARD, runBox, "Ada");
+  const m = joinCrew({ boardId: BOARD, userId: ada.id, userName: "Ada", runId: "run_m1", task: "check the distro" });
+  const ctx = { boardId: BOARD, actor: m.name, userId: ada.id, crew: m.id };
+  const before = execsMade();
+  const pending = runTool(ctx, "machine_run", { machine: "run-box", command: "cat /etc/os-release", why: "which distro this is" }) as Promise<Record<string, unknown>>;
+  const ask = await untilWaiting();
+  // on the card for everyone, and nothing has run
+  const shown = asksOn(runBox).find((a) => a.id === ask.id)!;
+  assert.deepEqual([shown.state, shown.by, shown.for, shown.command, shown.why], ["waiting", m.name, "Ada", "cat /etc/os-release", "which distro this is"]);
+  assert.equal(execsMade(), before, "nothing ran while it waited");
+  // its agent can't ask a second one at once
+  await assert.rejects(() => runTool(ctx, "machine_run", { machine: runBox, command: "id" }), /already have a command waiting/);
+  // a viewer can't answer it (and the route only takes a person's browser session: requirePerson)
+  assert.throws(() => answerAsk(BOARD, runBox, ask.id, vic, "run"), /View only/);
+  assert.throws(() => answerAsk(BOARD, "pnl_other", ask.id, ada, "run"), /isn't waiting/);
+  answerAsk(BOARD, runBox, ask.id, ada, "run");
+  const r = await pending;
+  assert.equal(r.status, "done");
+  assert.equal(r.exit_code, 0);
+  assert.equal(r.ran_by, "Ada");
+  assert.equal(r.output, 'NAME="Alpine Linux"\nID=alpine\n');
+  assert.equal(execsMade(), before + 1);
+  const ex = [...engine.execs.values()].at(-1)!;
+  assert.equal(ex.body.Tty, false, "no terminal");
+  assert.equal(ex.body.Cmd?.[5], "cat /etc/os-release");
+  const done = asksOn(runBox).find((a) => a.id === ask.id)!;
+  assert.deepEqual([done.state, done.decidedBy, done.exitCode], ["done", "Ada", 0]);
+  assert.match(done.output ?? "", /ID=alpine/);
+  // the board's activity: who asked (and for whom), and who ran it with what result
+  const acts = boardMaps(getBoard(BOARD).doc).activity.toArray();
+  const asked = acts.find((a) => a.text === "asked to run `cat /etc/os-release` in run-box")!;
+  assert.deepEqual([asked.who, asked.role, asked.for, asked.objectId], [m.name, "agent", "Ada", runBox]);
+  const ran = acts.at(-1)!;
+  assert.deepEqual([ran.who, ran.role, ran.text], ["Ada", "human", `ran ${m.name}'s \`cat /etc/os-release\` in run-box: exit 0`]);
+  // answered once
+  assert.throws(() => answerAsk(BOARD, runBox, ask.id, ada, "run"), /isn't waiting/);
+
+  // stderr comes through in order, and a failing command's exit code
+  const p2 = runTool(ctx, "machine_run", { machine: runBox, command: "echo oops >&2; exit 3" }) as Promise<Record<string, unknown>>;
+  answerAsk(BOARD, runBox, (await untilWaiting()).id, ada, "run");
+  const r2 = await p2;
+  assert.deepEqual([r2.exit_code, r2.output], [3, "before\noops\n"]);
+  // a lot of output: the agent gets the end, and says so
+  const p3 = runTool(ctx, "machine_run", { machine: runBox, command: "seq 1 20000" }) as Promise<Record<string, unknown>>;
+  answerAsk(BOARD, runBox, (await untilWaiting()).id, ada, "run");
+  const r3 = await p3;
+  assert.match(String(r3.output), /^…\(earlier output cut\)\n/);
+  assert.match(String(r3.output), /\n19999\n20000\n$/);
+  assert.ok(String(r3.output).length < 17 * 1024);
+  assert.ok((asksOn(runBox).at(-1)!.output ?? "").length <= 1200, "the card keeps a short tail");
+  leaveCrew(m, "done", 0);
+});
+
+test("declined, unanswered, withdrawn: nothing runs, and the agent is told in words", async () => {
+  const m = joinCrew({ boardId: BOARD, userId: ada.id, userName: "Ada", runId: "run_m2", task: "tidy up" });
+  const ctx = { boardId: BOARD, actor: m.name, userId: ada.id, crew: m.id };
+  const before = execsMade();
+  // declined
+  const p1 = runTool(ctx, "machine_run", { machine: runBox, command: "rm -rf /tmp/cache" }) as Promise<Record<string, unknown>>;
+  answerAsk(BOARD, runBox, (await untilWaiting()).id, ada, "decline");
+  const r1 = await p1;
+  assert.equal(r1.status, "declined");
+  assert.equal(r1.declined_by, "Ada");
+  assert.match(String(r1.message), /nothing ran/);
+  assert.equal(boardMaps(getBoard(BOARD).doc).activity.toArray().at(-1)!.text, `declined ${m.name}'s \`rm -rf /tmp/cache\` in run-box`);
+  // nobody answers (FOUNDATION_MACHINE_ASK_MS, 1.5 s here)
+  const t0 = Date.now();
+  const r2 = (await runTool(ctx, "machine_run", { machine: runBox, command: "uptime" })) as Record<string, unknown>;
+  assert.equal(r2.status, "timed out");
+  assert.ok(Date.now() - t0 >= 1400);
+  assert.equal(asksOn(runBox).at(-1)!.state, "timed out");
+  // the agent stops while it waits
+  const p3 = runTool(ctx, "machine_run", { machine: runBox, command: "uptime" }) as Promise<Record<string, unknown>>;
+  await untilWaiting();
+  leaveCrew(m, "stopped", 0);
+  assert.equal((await p3).status, "withdrawn");
+  assert.equal(waitingAsks().length, 0);
+  assert.equal(execsMade(), before, "none of them reached the engine");
+  // a viewer's agent can't even ask; a stopped machine can't be asked
+  await assert.rejects(() => runTool({ boardId: BOARD, actor: "Vic's agent", userId: vic.id }, "machine_run", { machine: runBox, command: "id" }), /View only/);
+  await machines.stopMachine(BOARD, runBox, "Ada");
+  await assert.rejects(() => runTool({ boardId: BOARD, actor: "Ada's agent", userId: ada.id }, "machine_run", { machine: runBox, command: "id" }), /isn't running/);
+  await assert.rejects(() => runTool({ boardId: BOARD, actor: "Ada's agent", userId: ada.id }, "machine_run", { machine: "nowhere", command: "id" }), /no machine called/);
 });
 
 // ---------- a WebSocket stand-in ----------

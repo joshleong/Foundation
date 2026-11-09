@@ -8,7 +8,9 @@ import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { durations, easings, isNight, setNight, springs } from "@foundation/ui";
 import { initAsciiWind2 } from "../login/asciiWind2";
-import { Mark } from "../login/Login";
+import { Mark } from "../brand/Mark";
+import { UpdateCard } from "../update/UpdateCard";
+import type { UpdatePhase } from "../update/updater";
 import { NightOrb } from "../shell/NightOrb";
 import { pipeCrossings, polyline, route, routeSides, sideToward, type Side } from "../shell/wireGeometry";
 import { tunnelGeometry } from "../shell/wireGeometry";
@@ -17,7 +19,15 @@ import type { ReleasePost } from "../settings/releases";
 import { syncSentence } from "../settings/plan";
 import type { Plan } from "../settings/plan";
 import { SectionEmpty } from "../panels/SectionEmpty";
+import { MachineAskList } from "../panels/MachineView";
+import type { MachineAsk } from "@foundation/protocol";
 import { COMMANDS_GLYPH, IS_MAC, keys } from "../lib/keys";
+import * as Y from "yjs";
+import { loadNoteEditor } from "../components/NoteView";
+import { renderMarkdown } from "../utils/markdown";
+import { TrayView } from "../shell/UploadTray";
+import type { UploadItem } from "../lib/uploads";
+import { snippetHtml } from "../lib/snippet";
 
 const SURFACES = ["void", "abyss", "panel", "raise"];
 const INKS = ["frost", "mist", "dim"];
@@ -475,6 +485,9 @@ export function DesignPage() {
         </div>
       </Section>
 
+      <Section title="Adding files" note={`Drop files or whole folders on a section, paste onto the board (${keys("mod+V")}: they land where the pointer is), or pick them (${keys("mod+U")}). A folder comes in as a group, in path order, under a note that names it. Every upload goes through one glass tray at the bottom right: how many and how much in its head, a 3 px meter (blue while sending, green when everything landed, red when something didn't), then a row per file (its folder in dim, a percentage while it goes, ✓ when it's there). Three go at a time. It folds to its head, and goes by itself a beat after the last one lands. A failure keeps it open with Retry; its card waits until Retry or Close. Documents (PDF, Word, PowerPoint, Excel, OpenDocument) are searchable by what's inside them a moment after they land, and a result shows the words that matched.`}>
+        <UploadsDemo />
+      </Section>
       <Section title="Huddles and Slack" note="A huddle is a video portal at a place on the board: Live (green) while people are in it, REC (red, the one convention read without a legend) while it records, tabs and controls along the bottom because the hover bar covers the top. A Slack card is a channel: posts carry the person's name, ours get a blue rule. Shown at 400 and 560 px; offline says why.">
         <div className="adapt-row">
           {[560, 400].map((w) => (
@@ -606,7 +619,7 @@ export function DesignPage() {
         </div>
       </Section>
 
-      <Section title="Machines" note="A Linux machine or container in a section, on this computer's engine: Kiri or Docker (one wire, the Docker Engine API). The state pill leads: Running (green, breathing), Pulling and Starting (amber, with the engine's own progress), Stopped and Not started (grey), Error (red, in the engine's words), No engine (amber, a hatched well that says why). Kiri installed but asleep is not No engine: the tag says Kiri · asleep and Start wakes it first; a machine whose disk is on a sleeping Kiri is Out of reach (amber), never removed. Then the engine and its version, the image in code type, and published ports as pills that open the port as a page in the section. Start is the one blue action, and only a person presses it: an agent's proposal says so in violet. Running, the shared terminal fills the card (paper, ink, the tokens as its colours); viewers watch it under an amber View only tag. Remove asks twice. A page opened from a port follows its machine: while the machine isn't running the page's poster dims and the machine's state stands over it (the card's own pill, what happened in its words, Start it for a person and Show the machine), and it reloads by itself when the machine runs again; a removed machine, or a card taken off the board, says it's gone. Shown at 560, 400 and 260 px.">
+      <Section title="Machines" note="A Linux machine or container in a section, on this computer's engine: Kiri or Docker (one wire, the Docker Engine API). The state pill leads: Running (green, breathing), Pulling and Starting (amber, with the engine's own progress), Stopped and Not started (grey), Error (red, in the engine's words), No engine (amber, a hatched well that says why). Kiri installed but asleep is not No engine: the tag says Kiri · asleep and Start wakes it first; a machine whose disk is on a sleeping Kiri is Out of reach (amber), never removed. Then the engine and its version, the image in code type, and published ports as pills that open the port as a page in the section. Start is the one blue action, and only a person presses it: an agent's proposal says so in violet. Running, the shared terminal fills the card (paper, ink, the tokens as its colours); viewers watch it under an amber View only tag. Remove asks twice. A page opened from a port follows its machine: while the machine isn't running the page's poster dims and the machine's state stands over it (the card's own pill, what happened in its words, Start it for a person and Show the machine), and it reloads by itself when the machine runs again; a removed machine, or a card taken off the board, says it's gone. An agent's command (machine_run) waits on the card under the head: violet, the agent's name, the command in code type, its why, and the time left; Run is a person's blue go-ahead beside Decline, and a viewer sees who can answer instead. Running and answered asks shrink to a line (amber running, green exit 0, red otherwise, struck through when declined or unanswered) for two minutes. Shown at 560, 400 and 260 px.">
         <div className="adapt-row">
           <div className="frame-card live-specimen" style={{ width: 560, height: 320 }}>
             <div className="machine-body is-running">
@@ -672,6 +685,7 @@ export function DesignPage() {
             </div>
           </div>
         </div>
+        <MachineAsksDemo />
         <div className="adapt-row">
           <div className="frame-card live-specimen" style={{ width: 400, height: 220 }}>
             <div className="machine-body is-pulling">
@@ -788,44 +802,16 @@ export function DesignPage() {
         <CrewDemo />
       </Section>
 
-      <Section title="Writing together" note={`Each person keeps their own colour. In a note you're writing in, someone else's caret is a 2 px bar in their colour, named while it moves and quiet once it rests; their selection is a 22 % tint. A note at rest names whoever is writing in it with a breathing chip at the bottom right, clear of the bar that drops in at the top. ${keys("mod+Z")} takes back only your own words.`}>
-        <div className="adapt-row">
-          <div className="frame-card" style={{ width: 400 }}>
-            <div className="note-inner" style={{ height: 220 }}>
-              <div className="note-editor note-caret-mirror" aria-hidden style={{ color: "var(--ink)" }}>
-                {"Goals:\n- ship the fan\n"}
-                <span className="note-caret" style={{ ["--peer" as string]: "var(--viz-3)" }}>
-                  <span className="note-caret-name" style={{ animation: "none" }}>Kai</span>
-                </span>
-                {"\nRisks:\n- "}
-                <mark className="note-peer-sel" style={{ ["--peer" as string]: "var(--viz-5)", color: "var(--ink)" }}>
-                  supplier slip
-                </mark>
-                {"\n"}
-              </div>
-              <div className="note-editor" style={{ background: "var(--color-abyss)" }} />
-            </div>
-          </div>
-          <div className="frame-card" style={{ width: 260 }}>
-            <div className="note-inner" style={{ height: 220 }}>
-              <div className="note-writers">
-                <span className="note-writer" style={{ ["--peer" as string]: "var(--viz-3)" }}>
-                  Kai
-                </span>
-              </div>
-              <div className="note-rendered">
-                <p>Goals:</p>
-                <ul>
-                  <li>ship the fan</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </div>
+      <Section title="Writing together" note={`A note at rest is its markdown, tables included. Double-click and it opens as a CodeMirror editor on the note's shared text: monospace, the markdown's own marks dimmed, headings and strong text in weight, links blue — no colour of its own. Every keystroke is shared as it's typed, so two people can write in one note, even in one word, and both keep their words whole. Each person keeps their own colour: someone else's caret is a 2 px bar in it, named while it moves and quiet once it rests; their selection is a 22 % tint. A note at rest names whoever is writing in it with a breathing chip at the bottom right, clear of the bar that drops in at the top. ${keys("mod+Z")} takes back only your own words. The two editors below share one text: type in either.`}>
+        <NoteEditorDemo />
       </Section>
 
       <Section title="Plan board" note="Settings → Plan: Foundation's own kanban, the local copy of the issues on GitHub. Columns sit on the panel well; cards are raised paper with the title in 13/600 and a meta line in dim 11: a kind dot (red bug, blue plan, amber when it waits on a person), the milestone, the area in code type and the issue number, which links to the issue (a card made here says new in amber until it's synced). Needs you reads amber, Done green. An admin drags a card to another column (the column rings blue) or picks Move to… on the opened card; a moved card keeps an amber hairline and says who moved it until it's synced. Beside the title, + New card opens a form on the panel well, and Sync with GitHub turns while it works, then says what it sent in ok green. Every column's hint takes two lines so the cards start level. Cards travel on the camera spring. Under 720 px the columns stack.">
         <PlanBoardDemo />
+      </Section>
+
+      <Section title="Desktop updates" note="The desktop app checks its signed feed a few seconds after it opens and puts this card up under the top bar, on glass, when a new version is ready: Update and restart is the one blue action, Later hides it until the next launch, Skip this version until a newer one. Nothing downloads until a person presses Update. The bar fills on the compositor; the mark's courses settle while it works. After the restart it says what changed, once. Settings → Updates shows the same card inline on paper, with Check for updates. Shown at 260, 400 and 560 px.">
+        <UpdateDemo />
       </Section>
 
       <Section title="Release notes" note="Settings → Releases: docs/blog/<version>.md, newest first. The versions run down a sticky list on the left (the current one raised paper, the one this app is built as tagged in blue); the post reads on the right at 720 px: an eyebrow with the version and date, the title in display 24, the body in mist 14/1.6 with frost headings and bold. Under 720 px the list runs across the top.">
@@ -865,6 +851,44 @@ export function DesignPage() {
 }
 
 /** the crew, laid out still: cursors on a card, the guide pill, the sheet listening and typing */
+/** an agent's command on a running machine's card: waiting for a person, then what became of it (560, 400 as a viewer, 260) */
+function MachineAsksDemo() {
+  const now = Date.now();
+  const waiting: MachineAsk = { id: "ask_demo1", command: "apt-get install -y python3-pip && pip install trimesh", why: "to read the STEP export and list its parts", by: "Kestrel", for: "Ada", state: "waiting", at: now - 20_000, expiresAt: now + 100_000 };
+  const answered: MachineAsk[] = [
+    { id: "ask_demo0", command: "uname -sm", by: "Kestrel", for: "Ada", state: "done", at: now - 90_000, decidedBy: "Ada", exitCode: 0, endedAt: now - 80_000 },
+    { id: "ask_demo2", command: "rm -rf /srv/cache", by: "Kestrel", for: "Ada", state: "declined", at: now - 60_000, decidedBy: "Kai", endedAt: now - 50_000 },
+  ];
+  const card = (width: number, height: number, asks: MachineAsk[], viewer = false) => (
+    <div className="frame-card live-specimen" style={{ width, height }}>
+      <div className="machine-body is-running">
+        <div className="machine-head">
+          <span className="machine-state is-ok">
+            <span className="f-dot is-ok is-live" />
+            Running
+          </span>
+          <span className="machine-engine">Kiri 0.9.0</span>
+          <code className="machine-image">ubuntu:24.04</code>
+        </div>
+        <MachineAskList asks={asks} viewer={viewer} now={now} />
+        <div className="machine-term-wrap">
+          <pre className="machine-term machine-term-specimen">
+            <span className="t-ok">build-box</span>:<span className="t-pulse">~</span># ls /srv{"\n"}cache exports{"\n"}
+            <span className="t-cursor"> </span>
+          </pre>
+        </div>
+      </div>
+    </div>
+  );
+  return (
+    <div className="adapt-row">
+      {card(560, 400, [...answered, waiting])}
+      {card(400, 360, [{ id: "ask_demo4", command: "python3 -m pip list", by: "Wren", for: "Kai", state: "running", at: now - 4_000, decidedBy: "Kai" }, waiting], true)}
+      {card(260, 300, [waiting])}
+    </div>
+  );
+}
+
 function CrewDemo() {
   const cursor = (name: string, hue: number, doing: string, x: number, y: number, extra = "", lead?: string) => (
     <div className={`crew-cursor is-placed${extra}`} style={{ transform: `translate3d(${x}px, ${y}px, 0)`, ["--crew" as string]: `var(--color-crew-${hue})` }}>
@@ -999,6 +1023,114 @@ function CrewDemo() {
           </div>
         </div>
         <div className="effect-label">A tap of Space: typing</div>
+      </div>
+    </div>
+  );
+}
+
+const DEMO_NOTE = [
+  "## Fan programme",
+  "",
+  "Goals:",
+  "- ship the fan",
+  "- **tooling** by the 14th",
+  "",
+  "Risks:",
+  "- supplier slip, see [the tracker](https://example.com)",
+  "",
+  "| Part | Qty |",
+  "|---|---|",
+  "| Shroud | 2 |",
+  "| Hub | 1 |",
+  "",
+].join("\n");
+
+/**
+ * Two live note editors on one Y.Text (as Ada's and Kai's browsers would be),
+ * each drawing the other's caret, beside the same note at rest: rendered
+ * markdown with its table and the chip naming who's writing.
+ */
+function NoteEditorDemo() {
+  const ada = useRef<HTMLDivElement>(null);
+  const kai = useRef<HTMLDivElement>(null);
+  const [text, setText] = useState(DEMO_NOTE);
+  useEffect(() => {
+    let gone = false;
+    const handles: Array<{ destroy(): void }> = [];
+    const doc = new Y.Doc();
+    const ytext = doc.getText("note");
+    ytext.insert(0, DEMO_NOTE);
+    const sync = () => setText(ytext.toString());
+    ytext.observe(sync);
+    // each person's selection as relative positions, as the board's awareness carries them
+    const people = [
+      { clientId: 1, name: "Ada", color: "var(--viz-5)", sel: null as null | { anchor: Y.RelativePosition; head: Y.RelativePosition } },
+      { clientId: 2, name: "Kai", color: "var(--viz-3)", sel: null as null | { anchor: Y.RelativePosition; head: Y.RelativePosition } },
+    ];
+    const rel = (i: number) => Y.createRelativePositionFromTypeIndex(ytext, i);
+    const abs = (r: Y.RelativePosition) => Y.createAbsolutePositionFromRelativePosition(r, doc)?.index ?? 0;
+    // where each starts: Kai after "ship the fan", Ada selecting "supplier slip"
+    const kaiAt = DEMO_NOTE.indexOf("ship the fan") + "ship the fan".length;
+    people[1].sel = { anchor: rel(kaiAt), head: rel(kaiAt) };
+    people[0].sel = { anchor: rel(DEMO_NOTE.indexOf("supplier")), head: rel(DEMO_NOTE.indexOf(", see")) };
+    const listeners = new Set<() => void>();
+    const source = (me: number) => ({
+      get: () =>
+        people
+          .filter((p) => p.clientId !== me && p.sel)
+          .map((p) => {
+            const [a, h] = [abs(p.sel!.anchor), abs(p.sel!.head)];
+            return { clientId: p.clientId, name: p.name, color: p.color, from: Math.min(a, h), to: Math.max(a, h), head: h };
+          }),
+      subscribe: (fn: () => void) => (listeners.add(fn), () => void listeners.delete(fn)),
+      publish: (sel: { anchor: number; head: number } | null) => {
+        const p = people.find((x) => x.clientId === me)!;
+        if (!sel) return;
+        p.sel = { anchor: rel(sel.anchor), head: rel(sel.head) };
+        for (const fn of listeners) fn();
+      },
+    });
+    void loadNoteEditor().then((m) => {
+      if (gone) return;
+      for (const [el, me, um] of [[ada.current, 1, new Y.UndoManager(ytext)], [kai.current, 2, new Y.UndoManager(ytext)]] as const)
+        if (el) handles.push(m.mountNoteEditor(el, { ytext, undoManager: um, carets: source(me), at: 0 }));
+    });
+    return () => {
+      gone = true;
+      for (const h of handles) h.destroy();
+      ytext.unobserve(sync);
+      doc.destroy();
+    };
+  }, []);
+  return (
+    <div className="adapt-row">
+      {(
+        [
+          ["Ada writing", ada],
+          ["Kai writing", kai],
+        ] as const
+      ).map(([label, ref]) => (
+        <div key={label} style={{ display: "grid", gap: 6 }}>
+          <span className="design-note">{label}</span>
+          <div className="frame-card" style={{ width: 400 }}>
+            <div className="note-inner" style={{ height: 300 }}>
+              <div ref={ref} className="note-cm" />
+            </div>
+          </div>
+        </div>
+      ))}
+      <div style={{ display: "grid", gap: 6 }}>
+        <span className="design-note">At rest, with Kai still writing</span>
+        <div className="frame-card" style={{ width: 300 }}>
+          <div className="note-inner" style={{ height: 300 }}>
+            <div className="note-writers">
+              <span className="note-writer" style={{ ["--peer" as string]: "var(--viz-3)" }}>
+                Kai
+              </span>
+            </div>
+            <div className="note-rendered" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1191,6 +1323,114 @@ function HeldPageDemo(p: { width: number; word: string; tone: "ok" | "warn" | "b
             {p.viewer && <div className="machine-hold-note">View only: someone who can edit this board starts it.</div>}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+const UPDATE_NOTES = ["## Foundation 0.3.0", "- Desktop updates: this card", "- A new icon: an F laid in masonry", "- Signed installers, checked before they run"].join("\n");
+const UPDATE_PHASES: Array<{ phase: UpdatePhase; width: number; layout?: "floating" | "inline"; extra?: Record<string, unknown> }> = [
+  { phase: "available", width: 400 },
+  { phase: "available", width: 260 },
+  { phase: "downloading", width: 400, extra: { received: 4.2 * 1048576, total: 9.6 * 1048576 } },
+  { phase: "downloading", width: 260 },
+  { phase: "installing", width: 400 },
+  { phase: "failed", width: 400, extra: { message: "The download's signature didn't match Foundation's key, so nothing was installed." } },
+  { phase: "updated", width: 560 },
+  { phase: "checking", width: 400, layout: "inline" },
+  { phase: "current", width: 400, layout: "inline" },
+  { phase: "unreachable", width: 400, layout: "inline" },
+  { phase: "off", width: 400, layout: "inline", extra: { message: "This is a development build (tauri dev): pull main to update it." } },
+];
+
+function UpdateDemo() {
+  const noop = () => {};
+  return (
+    <div className="update-demo">
+      {UPDATE_PHASES.map((d, i) => (
+        <div key={i} style={{ width: d.width }}>
+          <div className="f-eyebrow update-demo-label">
+            {d.phase} · {d.width} px{d.layout === "inline" ? " · inline" : ""}
+          </div>
+          <UpdateCard
+            phase={d.phase}
+            layout={d.layout ?? "floating"}
+            version={d.phase === "current" ? "0.3.0" : "0.3.0"}
+            current="0.2.0"
+            date="2026-11-09T08:00:00Z"
+            notes={UPDATE_NOTES}
+            onUpdate={noop}
+            onLater={noop}
+            onSkip={noop}
+            onCheck={noop}
+            onClose={noop}
+            {...d.extra}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const MB = 1024 * 1024;
+const TRAY_SENDING: UploadItem[] = [
+  { id: 1, name: "front.png", path: "Renders/front.png", size: 2.4 * MB, loaded: 2.4 * MB, state: "done" },
+  { id: 2, name: "side.png", path: "Renders/side.png", size: 2.1 * MB, loaded: 1.3 * MB, state: "sending" },
+  { id: 3, name: "shroud-rev-c.step", path: "Renders/CAD/shroud-rev-c.step", size: 18 * MB, loaded: 4 * MB, state: "sending" },
+  { id: 4, name: "test-log.xlsx", path: "Renders/test-log.xlsx", size: 220 * 1024, loaded: 0, state: "waiting" },
+  { id: 5, name: "intake-spec.pdf", path: "Renders/intake-spec.pdf", size: 1.1 * MB, loaded: 0, state: "waiting" },
+];
+const TRAY_DONE: UploadItem[] = TRAY_SENDING.map((it) => ({ ...it, loaded: it.size, state: "done" }));
+const TRAY_FAILED: UploadItem[] = [
+  ...TRAY_DONE.slice(0, 3),
+  { id: 6, name: "flythrough.mov", size: 840 * MB, loaded: 312 * MB, state: "failed", error: "network error" },
+];
+
+function UploadsDemo() {
+  return (
+    <div className="oncall-row uploads-demo">
+      <div className="oncall-cell">
+        <TrayView items={TRAY_SENDING} folded={false} demo />
+        <div className="effect-label">A folder on its way: three at a time, the rest waiting; each row names its folder in dim</div>
+      </div>
+      <div className="oncall-cell">
+        <TrayView items={TRAY_SENDING} folded demo />
+        <TrayView items={TRAY_DONE} folded demo />
+        <div className="effect-label">Folded to its head while it works; all landed (it leaves by itself 2.6 s later)</div>
+      </div>
+      <div className="oncall-cell">
+        <TrayView items={TRAY_FAILED} folded={false} demo />
+        <div className="effect-label">Something didn't make it: the tray stays, red, with Retry; its card waits for it</div>
+      </div>
+      <div className="oncall-cell" style={{ width: 420 }}>
+        <div className="search-results">
+          <div className="search-row">
+            <span className="search-row-glyph">▤</span>
+            <span className="search-row-main">
+              <span className="search-row-title">intake-spec.pdf</span>
+              <span className="search-row-snip" dangerouslySetInnerHTML={{ __html: snippetHtml("Page two of the assembly notes for the rear housing and the clamp bands: the «Osterlund» fan shroud is printed in PETG") }} />
+            </span>
+            <span className="search-row-src">file</span>
+          </div>
+          <div className="search-row">
+            <span className="search-row-glyph">▤</span>
+            <span className="search-row-main">
+              <span className="search-row-title">bom.xlsx</span>
+              <span className="search-row-snip" dangerouslySetInnerHTML={{ __html: snippetHtml("BOM Part Qty Ventura gasket 12 «03304»-10027") }} />
+            </span>
+            <span className="search-row-src">file</span>
+          </div>
+        </div>
+        <div className="cmd f-glass design-cmd-specimen">
+          <div className="cmd-list">
+            <div className="cmd-row is-hit is-sel">
+              <span className="cmd-src src-file">File</span>
+              <span className="cmd-row-label">bracket.docx</span>
+              <span className="cmd-row-hint" dangerouslySetInnerHTML={{ __html: snippetHtml("«Zephyrine» bracket assembly Torque the M6 bolts to 9 Nm then check & sign.") }} />
+            </div>
+          </div>
+        </div>
+        <div className="effect-label">What matched, inside the document: the search pane ({keys("mod+F")}) and {keys("mod+K")}, the match in blue and brought forward on its line</div>
       </div>
     </div>
   );

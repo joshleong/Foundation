@@ -23,6 +23,7 @@ export const BOARD = {
   activity: "activity", // Y.Array<ActivityEntry>
   noteText: "noteText", // noteId → Y.Text (schema 3: typing merges character by character)
   huddles: "huddles", // huddle panel id → HuddleState (schema 6: kept by the server alone, off the card)
+  machineAsks: "machineAsks", // machine panel id → MachineAsk[] (commands agents asked to run; kept by the server alone, off the card)
 } as const;
 
 export interface GridTracks {
@@ -231,6 +232,40 @@ export function machineName(s: string): string {
   return n || "machine";
 }
 
+/**
+ * A command an agent asked to run in a machine a person started. Nothing runs
+ * until a person who can edit the board presses Run on the card (from their
+ * browser session; agents and bearer tokens can't approve). The server alone
+ * writes these, in the board's `machineAsks` map (off the card, so moving the
+ * card can't lose one), and keeps the last few per machine.
+ */
+export interface MachineAsk {
+  id: string;
+  command: string;
+  /** the agent's few words on why */
+  why?: string;
+  /** the agent that asked (a crew name, or "Ada's agent" for an outside one) */
+  by: string;
+  /** the person it works for */
+  for?: string;
+  state: "waiting" | "running" | "done" | "declined" | "timed out" | "withdrawn" | "failed";
+  at: number;
+  /** the person who pressed Run or Decline */
+  decidedBy?: string;
+  decidedAt?: number;
+  exitCode?: number;
+  /** the end of what it printed (the agent gets more) */
+  output?: string;
+  endedAt?: number;
+  /** when a waiting ask gives up, unanswered */
+  expiresAt?: number;
+}
+
+/** the commands agents asked to run in a machine, newest last */
+export function machineAsksOf(doc: Y.Doc, panelId: string): MachineAsk[] {
+  return boardMaps(doc).machineAsks.get(panelId) ?? [];
+}
+
 // ---------- huddles: video portals on the board ----------
 
 export interface HuddleState {
@@ -365,6 +400,8 @@ export interface ActivityEntry {
   role: "human" | "agent" | "system";
   text: string;
   objectId?: string;
+  /** an agent's line: the person it was working for */
+  for?: string;
 }
 
 export const DEFAULT_COL_W = 1560;
@@ -387,6 +424,7 @@ export function boardMaps(doc: Y.Doc) {
     activity: doc.getArray<ActivityEntry>(BOARD.activity),
     noteText: doc.getMap<Y.Text>(BOARD.noteText),
     huddles: doc.getMap<HuddleState>(BOARD.huddles),
+    machineAsks: doc.getMap<MachineAsk[]>(BOARD.machineAsks),
   };
 }
 
@@ -459,36 +497,6 @@ export function textDiff(a: string, b: string): { at: number; remove: number; in
   return { at: start, remove: a.length - start - end, insert: b.slice(start, b.length - end) };
 }
 const isLowSurrogate = (c: number) => c >= 0xdc00 && c <= 0xdfff;
-
-/**
- * A keystroke as an edit of the shared text: `base` is what the editor showed,
- * `next` what it shows after the key, `current` what the shared text holds
- * now (someone else may have typed in between). The person's edit, moved past
- * the other change so neither loses characters; null when nothing changed.
- */
-export function rebaseEdit(base: string, next: string, current: string): { at: number; remove: number; insert: string } | null {
-  const mine = textDiff(base, next);
-  if (!mine) return null;
-  const theirs = textDiff(base, current);
-  let { at, remove } = mine;
-  if (theirs) {
-    const theirEnd = theirs.at + theirs.remove;
-    const before = at + remove <= theirs.at && !(at === theirs.at && remove === 0 && theirs.remove === 0);
-    if (before) {
-      // mine is wholly before theirs: positions hold
-    } else if (at >= theirEnd) {
-      at += theirs.insert.length - theirs.remove; // after theirs (or both typing at one spot): slide past it
-    } else {
-      // overlapping: theirs stands, mine goes in just after it, deleting only what's left of my range
-      const myEnd = at + remove;
-      at = theirs.at + theirs.insert.length;
-      remove = Math.max(0, myEnd - theirEnd);
-    }
-  }
-  at = Math.min(at, current.length);
-  remove = Math.min(remove, current.length - at);
-  return { at, remove, insert: mine.insert };
-}
 
 /** A note's text: its Y.Text, or the legacy field on a board that hasn't migrated. */
 export function noteTextOf(doc: Y.Doc, note: { id: string; text?: string }): string {

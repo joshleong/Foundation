@@ -22,14 +22,14 @@ process.env.FOUNDATION_AGENT_SCRIPT = "1";
 process.env.FOUNDATION_SCRIPT_STEP_MS = "0";
 process.env.FOUNDATION_CREW_TRAVEL_MS = "40";
 
-const { run } = await import("../src/db.ts");
+const { run, all } = await import("../src/db.ts");
 const { upsertUser } = await import("../src/auth.ts");
 const { runTool } = await import("../src/tools.ts");
 const { startRun, followRun, stopAllRuns } = await import("../src/agent.ts");
-const { joinCrew, leaveCrew, crewOn, MAX_HELPERS, _resetCrew, describeStep } = await import("../src/crew.ts");
+const { joinCrew, leaveCrew, crewOn, MAX_HELPERS, _resetCrew, describeStep, crewWork, describeCrewWork } = await import("../src/crew.ts");
 const { getBoard, closeBoards } = await import("../src/boards.ts");
 const { crewFor } = await import("../src/mcp.ts");
-const { boardMaps, tableCellsOf } = await import("@foundation/protocol");
+const { boardMaps, tableCellsOf, noteTextOf } = await import("@foundation/protocol");
 
 after(() => {
   _resetCrew();
@@ -262,4 +262,53 @@ test("point_at: the cursor points at a cell or a port, writes nothing, and check
   const sec = [...m.sections.values()][0];
   await assert.rejects(runTool(ctx, "point_at", { target: sec.id, cell: "A1" }), /cells are on tables/);
   leaveCrew(member, "done", 0);
+});
+
+test("helpers see the lead's plan and each other's work, so the second doesn't make the first's card again", async () => {
+  const r = startRun({ boardId: "c9", user: ada, prompt: "Make a section called “Shared” with the parts, and get two helpers" });
+  const events = await finish(r, ada.id);
+  const helpers = events.filter((e) => e.type === "helper") as unknown as Array<{ name: string; runId: string }>;
+  assert.equal(helpers.length, 2, "the lead called in two");
+  // the helpers finish on their own
+  for (let i = 0; i < 60 && crewOn("c9").some((c) => c.state.crew.status === "working"); i++) await new Promise((res) => setTimeout(res, 100));
+  const m = boardMaps(getBoard("c9").doc);
+  const shared = [...m.sections.values()].find((s) => s.name === "Shared")!;
+  const notes = [...m.objects.values()].filter((o) => o.kind === "note" && o.sectionId === shared.id);
+  const suppliers = notes.filter((n) => n.name === "Suppliers to call");
+  assert.equal(suppliers.length, 1, `one supplier list, not two: ${notes.map((n) => `${n.name} by ${n.createdBy}`)}`);
+  assert.equal(suppliers[0].createdBy, helpers[0].name);
+  const lead = notes.find((n) => n.name === "Lead times");
+  assert.ok(lead, "the second helper wrote only what wasn't there");
+  assert.equal(lead.createdBy, helpers[1].name);
+  const text = noteTextOf(getBoard("c9").doc, lead as never);
+  assert.match(text, new RegExp(`${helpers[0].name} already wrote “Suppliers to call”`));
+  assert.match(text, /plan: Shared: the parts on the board, with their data/, "it had the lead's plan");
+  // each helper's brief carried the lead's plan and what the crew had made by then
+  const briefs = all<{ prompt: string }>("select prompt from agent_runs where board_id = 'c9' and prompt like 'You were called in%' order by created_at");
+  assert.equal(briefs.length, 2);
+  assert.match(briefs[0].prompt, /<crew>\n.*plan: Shared: the parts on the board/s);
+  assert.match(briefs[1].prompt, new RegExp(`${helpers[0].name} \\(helper.*made note “Suppliers to call” in “Shared”`));
+  // crew_work answers only Foundation's own agents
+  assert.equal(await runTool({ boardId: "c9", actor: "Ada's agent", userId: ada.id }, "crew_work", {}), "only Foundation's own agents work in a crew");
+});
+
+test("crew_work: the lead, its helpers, their plan and what each made; finished helpers stay in it", async () => {
+  const lead = joinCrew({ boardId: "c10", userId: ada.id, userName: ada.name, runId: "run_w1", task: "the ops review" });
+  const lctx = { boardId: "c10", actor: lead.name, userId: ada.id, crew: lead.id };
+  await runTool(lctx, "set_plan", { goal: "An ops review", steps: [{ text: "Section", status: "active" }] });
+  await runTool(lctx, "add_section", { name: "Ops" });
+  const h = joinCrew({ boardId: "c10", userId: ada.id, userName: ada.name, runId: "run_w2", task: "the standup checklist", lead });
+  const hctx = { boardId: "c10", actor: h.name, userId: ada.id, crew: h.id };
+  const note = (await runTool(hctx, "add_note", { section: "Ops", title: "Standup", markdown: "- [ ] blockers" })) as { id: string };
+  leaveCrew(h, "done", 0);
+  const h2 = joinCrew({ boardId: "c10", userId: ada.id, userName: ada.name, runId: "run_w3", task: "the metrics", lead });
+  const w = (await runTool({ boardId: "c10", actor: h2.name, userId: ada.id, crew: h2.id }, "crew_work", {})) as ReturnType<typeof crewWork>;
+  assert.equal(w.plan?.goal, "An ops review");
+  assert.equal(w.lead, lead.name);
+  assert.deepEqual(w.crew.map((c) => [c.name, c.role, c.working]), [[lead.name, "lead", true], [h.name, "helper", false], [h2.name, "helper", true]]);
+  assert.deepEqual(w.crew[0].sections, ["Ops"]);
+  assert.deepEqual(w.crew[1].made.map((x) => [x.id, x.kind, x.name, x.section]), [[note.id, "note", "Standup", "Ops"]]);
+  assert.match(describeCrewWork(h2), new RegExp(`${h.name} \\(helper, finished\\): made note “Standup” in “Ops”`));
+  leaveCrew(h2, "done", 0);
+  leaveCrew(lead, "done", 0);
 });

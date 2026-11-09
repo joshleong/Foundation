@@ -19,10 +19,10 @@ import "@xterm/xterm/css/xterm.css";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Terminal as XTerm, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { MACHINE_DISTROS, type MachineState } from "@foundation/protocol";
+import { boardMaps, MACHINE_DISTROS, type MachineAsk, type MachineState } from "@foundation/protocol";
 import { onNight } from "@foundation/ui";
 import { addPanel, addSectionAdjacent, getState, type PanelMeta } from "../state/store";
-import { api, wsUrl } from "../lib/api";
+import { api, openSocket } from "../lib/api";
 import { activeBoard } from "../sync/board";
 import { askAgent, toast, useUi } from "../state/ui";
 import { useOnScreen } from "./PanelView";
@@ -94,6 +94,7 @@ export function MachineBody({ panel }: { panel: PanelMeta }) {
         {m.image && <code className="machine-image">{m.image}</code>}
         {m.state === "running" && <Ports panel={panel} m={m} />}
       </div>
+      <MachineAsks panelId={panel.id} viewer={viewer} />
       {noEngine && m.state !== "running" ? (
         <NoEngine engines={engines!} />
       ) : m.state === "running" ? (
@@ -112,6 +113,118 @@ export function MachineBody({ panel }: { panel: PanelMeta }) {
         <Picker panel={panel} m={m} engine={engine} viewer={viewer} />
       )}
       {!noEngine && <Controls panel={panel} m={m} viewer={viewer} engine={engine} />}
+    </div>
+  );
+}
+
+// ---------- agents' commands, waiting for a person ----------
+
+/** answered asks stay on the card this long, so people see what became of them */
+const ANSWERED_MS = 2 * 60_000;
+
+/** the commands agents asked to run here: the board's `machineAsks`, written by the server alone */
+function useMachineAsks(panelId: string): MachineAsk[] {
+  const [asks, setAsks] = useState<MachineAsk[]>([]);
+  useEffect(() => {
+    const b = activeBoard();
+    if (!b) return;
+    const map = boardMaps(b.doc).machineAsks;
+    const read = () => setAsks(map.get(panelId) ?? []);
+    read();
+    const onChange = (e: { keysChanged: Set<string> }) => e.keysChanged.has(panelId) && read();
+    map.observe(onChange);
+    return () => map.unobserve(onChange);
+  }, [panelId]);
+  return asks;
+}
+
+function MachineAsks({ panelId, viewer }: { panelId: string; viewer: boolean }) {
+  const asks = useMachineAsks(panelId);
+  const [now, setNow] = useState(() => Date.now());
+  const live = asks.some((a) => a.state === "waiting" || a.state === "running");
+  const recent = asks.some((a) => a.endedAt && now - a.endedAt < ANSWERED_MS);
+  // tick while something waits (its time left) or an answer is still showing
+  useEffect(() => {
+    if (!live && !recent) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [live, recent]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const answer = async (ask: MachineAsk, verdict: "run" | "decline") => {
+    setBusy(ask.id);
+    try {
+      await api(`/api/boards/${encodeURIComponent(board())}/machines/${panelId}/asks/${ask.id}/${verdict}`, { method: "POST", json: {} });
+    } catch (e) {
+      toast((e as Error).message, "bad");
+    } finally {
+      setBusy(null);
+    }
+  };
+  const shown = asks.filter((a) => a.state === "waiting" || a.state === "running" || (a.endedAt && now - a.endedAt < ANSWERED_MS && a.state !== "withdrawn"));
+  if (!shown.length) return null;
+  return <MachineAskList asks={shown.slice(-3)} viewer={viewer} now={now} busy={busy} onAnswer={answer} />;
+}
+
+const clock = (ms: number) => {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+
+/**
+ * Asks on a machine card: waiting ones say which agent wants to run what and
+ * why, with Run (a person's forward action, blue) and Decline; viewers see who
+ * can answer. Running and answered ones are a line each. Also drawn on #/design.
+ */
+export function MachineAskList({ asks, viewer, now, busy, onAnswer }: { asks: MachineAsk[]; viewer: boolean; now: number; busy?: string | null; onAnswer?: (a: MachineAsk, verdict: "run" | "decline") => void }) {
+  return (
+    <div className="machine-asks">
+      {asks.map((a) =>
+        a.state === "waiting" ? (
+          <div key={a.id} className="machine-ask is-waiting">
+            <div className="machine-ask-head">
+              <span className="f-dot is-agent is-live" />
+              <span className="machine-ask-who">✦ {a.by}</span>
+              <span className="machine-ask-verb">wants to run{a.for && a.for !== a.by ? ` · for ${a.for}` : ""}</span>
+              {a.expiresAt && <span className="machine-ask-left" data-tip="Unanswered by then, it gives up and nothing runs">{clock(a.expiresAt - now)}</span>}
+            </div>
+            <pre className="machine-ask-cmd">{a.command}</pre>
+            {a.why && <div className="machine-ask-why">{a.why}</div>}
+            <div className="machine-ask-actions">
+              {viewer ? (
+                <span className="machine-ask-note">View only: someone who can edit this board runs or declines it.</span>
+              ) : (
+                <>
+                  <button className="f-pill is-accent" disabled={busy === a.id} onClick={() => onAnswer?.(a, "run")}>
+                    Run
+                  </button>
+                  <button className="f-pill" disabled={busy === a.id} onClick={() => onAnswer?.(a, "decline")}>
+                    Decline
+                  </button>
+                  <span className="machine-ask-terms">Runs once, as root, without a terminal · {a.by} gets what it prints</span>
+                </>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div key={a.id} className={`machine-ask is-${a.state.replace(" ", "-")}`} data-tip={a.output ? `What it printed, the end of it: ${a.output.slice(-300)}` : undefined}>
+            <div className="machine-ask-head">
+              <span className={`f-dot ${a.state === "running" ? "is-warn is-live" : a.state === "done" && a.exitCode === 0 ? "is-ok" : a.state === "done" || a.state === "failed" ? "is-bad" : ""}`} />
+              <code className="machine-ask-line">{a.command}</code>
+              <span className="machine-ask-verb">
+                {a.state === "running"
+                  ? `running · ${a.decidedBy} ran it for ${a.by}`
+                  : a.state === "done"
+                    ? `${a.exitCode === undefined ? "ended" : `exit ${a.exitCode}`} · ${a.decidedBy} ran it for ${a.by}`
+                    : a.state === "declined"
+                      ? `${a.decidedBy} declined ${a.by}'s ask`
+                      : a.state === "failed"
+                        ? `couldn't start · ${a.decidedBy} ran it for ${a.by}`
+                        : `nobody answered ${a.by}; nothing ran`}
+              </span>
+            </div>
+          </div>
+        ),
+      )}
     </div>
   );
 }
@@ -433,8 +546,17 @@ const Terminal = memo(function Terminal({ panelId, canType }: { panelId: string;
       sendSize();
     };
     // a dropped socket (the server restarted, the network blinked) comes back on its own; the screen is replayed
-    const connect = () => {
-      const s = new WebSocket(wsUrl(`/machines/${encodeURIComponent(boardId)}/${encodeURIComponent(panelId)}/tty`));
+    const connect = async () => {
+      let s: WebSocket;
+      try {
+        s = await openSocket(`/machines/${encodeURIComponent(boardId)}/${encodeURIComponent(panelId)}/tty`);
+      } catch {
+        if (done || tries >= 6) return setNote((n) => n ?? "The terminal closed.");
+        setNote("Reconnecting…");
+        retry = setTimeout(connect, 600 * 2 ** tries++);
+        return;
+      }
+      if (done) return void s.close();
       ws = s;
       s.binaryType = "arraybuffer";
       let fresh = true;
@@ -465,7 +587,7 @@ const Terminal = memo(function Terminal({ panelId, canType }: { panelId: string;
         retry = setTimeout(connect, 600 * 2 ** tries++);
       };
     };
-    connect();
+    void connect();
     const enc = new TextEncoder();
     const data = term.onData((d) => {
       if (canType && ws?.readyState === WebSocket.OPEN) ws.send(enc.encode(d));
@@ -482,6 +604,7 @@ const Terminal = memo(function Terminal({ panelId, canType }: { panelId: string;
       setTimeout(() => (term.options.theme = themeFromTokens(node)), 1500);
     });
     return () => {
+      done = true; // a ticket still on its way opens nothing
       clearTimeout(t);
       clearTimeout(retry);
       ro.disconnect();

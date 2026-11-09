@@ -2,6 +2,7 @@ import { ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion } from "motion/react";
 import { MINI_HEADER, liveObjPos, setActiveObject, setObjectFloat } from "../state/store";
 import { Spring2D, presets } from "../physics/spring";
+import { countRender } from "../state/renders";
 
 /**
  * Shared card frame for the lightweight primitives (notes, images, videos,
@@ -62,6 +63,7 @@ export function ObjectFrame({
   icons,
   onTap,
 }: Props) {
+  countRender("ObjectFrame");
   const rootRef = useRef<HTMLDivElement>(null);
 
   const spring = useMemo(

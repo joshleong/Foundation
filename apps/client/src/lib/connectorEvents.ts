@@ -1,25 +1,26 @@
 /**
  * One shared stream of connector changes from the server (FactoryForm's live
  * events, relayed), so a connector card refetches the moment its system
- * changes instead of waiting for its 20 s poll.
+ * changes instead of waiting for its 20 s poll. Read with fetch, not
+ * EventSource, so it carries the bearer when the server is another site.
  */
 
-import { serverUrl } from "./api";
+import { eventStream } from "./api";
 
 const listeners = new Map<string, Set<() => void>>();
-let source: EventSource | null = null;
+let started = false;
 
 function ensure() {
-  if (source) return;
-  source = new EventSource(serverUrl("/api/connectors/events"), { withCredentials: true });
-  source.onmessage = (e) => {
+  if (started) return;
+  started = true;
+  eventStream("/api/connectors/events", (data) => {
     try {
-      const { id } = JSON.parse(e.data) as { id: string };
+      const { id } = JSON.parse(data) as { id: string };
       listeners.get(id)?.forEach((fn) => fn());
     } catch {
       /* keep-alive */
     }
-  };
+  });
 }
 
 export function onConnectorChange(id: string, fn: () => void) {

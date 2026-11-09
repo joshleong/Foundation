@@ -27,8 +27,10 @@ function ftsQuery(q: string): string {
 export function searchLocal(q: string, boardId?: string, limit = 30, hidden?: Set<string>): SearchHit[] {
   const match = ftsQuery(q);
   if (!match) return [];
+  // matches come back between \x02 and \x03 (never in text), then as «» once any «» the text itself
+  // holds (French quotes) are made plain, so the highlight can't be thrown off by a document
   const rows = all<{ source: string; ref: string; board_id: string | null; title: string; snip: string; rank: number }>(
-    `select source, ref, board_id, title, snippet(search_fts, 4, '«', '»', '…', 14) as snip, bm25(search_fts, 0, 0, 0, 4, 1) as rank
+    `select source, ref, board_id, title, snippet(search_fts, 4, char(2), char(3), '…', 20) as snip, bm25(search_fts, 0, 0, 0, 4, 1) as rank
        from search_fts where search_fts match ? ${boardId ? "and (board_id = ? or board_id is null)" : ""}
        order by rank limit ?`,
     ...(boardId ? [match, boardId, limit] : [match, limit]),
@@ -38,11 +40,21 @@ export function searchLocal(q: string, boardId?: string, limit = 30, hidden?: Se
     source: r.source as SearchHit["source"],
     id: `${r.source}:${r.ref}`,
     title: r.title,
-    snippet: r.snip,
+    snippet: markSnippet(r.snip),
     objectId: r.source === "board" ? r.ref : r.source === "huddle" ? r.ref.split("/")[0] : undefined,
     url: r.source === "file" ? `/files/${r.ref}` : undefined,
     score: -r.rank,
   }));
+}
+
+/** a snippet as one line, its matches in «», nothing else in «» */
+export function markSnippet(snip: string): string {
+  return snip
+    .replace(/[«»]/g, '"')
+    .replace(/\s+/g, " ")
+    .replace(/\x02/g, "«")
+    .replace(/\x03/g, "»")
+    .trim();
 }
 
 async function withTimeout<T>(p: Promise<T>, fallback: T): Promise<T> {

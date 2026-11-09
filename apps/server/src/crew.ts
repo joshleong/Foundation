@@ -93,6 +93,14 @@ export interface CrewMember {
   doc: Y.Doc;
   state: CrewState;
   left: boolean;
+  joinedAt: number;
+  /** the plan this agent showed (set_plan): a lead's goes to its helpers */
+  plan?: { goal: string; steps: Array<{ text: string; status: string }> };
+  /** sections this agent made, and cards it wrote (with createdBy, the board's word for it) */
+  sections: string[];
+  made: Set<string>;
+  /** a lead's crew: itself, then each helper it called in (kept after they finish, so later ones see their work) */
+  team: CrewMember[];
 }
 
 const members = new Map<string, CrewMember>();
@@ -160,6 +168,10 @@ export function joinCrew(opts: { boardId: string; userId: string; userName: stri
     awareness,
     doc,
     left: false,
+    joinedAt: Date.now(),
+    sections: [],
+    made: new Set(),
+    team: [],
     state: {
       user: { name, color: "#6b5bd6", agent: true },
       crew: {
@@ -186,8 +198,55 @@ export function joinCrew(opts: { boardId: string; userId: string; userName: stri
     awarenessProtocol.applyAwarenessUpdate(board.awareness, update, "crew");
   });
   members.set(id, m);
+  // one crew per ask: the lead and every helper it calls in
+  const root = opts.lead ? (opts.lead.lead ?? opts.lead) : m;
+  root.team.push(m);
   publish(m);
   return m;
+}
+
+/**
+ * What a crew has done on an ask so far, for any agent on it: the ask, the
+ * lead's plan, and each agent's state, what it's doing now, and the sections
+ * and cards it made. Helpers read it (crew_work, and their brief) so two of
+ * them don't make the same thing.
+ */
+export function crewWork(m: CrewMember) {
+  const root = m.lead ?? m;
+  const bm = boardMaps(getBoard(m.boardId).doc);
+  const sectionName = (id: string) => bm.sections.get(id)?.name ?? null;
+  const objects = [...bm.objects.values()];
+  return {
+    ask: root.state.crew.task,
+    asker: root.userName,
+    lead: root.name,
+    you: m.name,
+    plan: root.plan ?? null,
+    crew: root.team.map((t) => ({
+      name: t.name,
+      role: t === root ? "lead" : "helper",
+      working: !t.left,
+      ...(t === root ? {} : { task: t.state.crew.task }),
+      doing: t.state.crew.doing,
+      sections: t.sections.map(sectionName).filter(Boolean),
+      made: objects
+        .filter((o) => o.createdBy === t.name && (t.made.has(o.id) || o.bornAt >= t.joinedAt))
+        .map((o) => ({ id: o.id, kind: o.kind === "panel" ? o.panel : o.kind, name: o.name, section: sectionName(o.sectionId) })),
+    })),
+  };
+}
+
+/** crewWork in words, for a helper's brief */
+export function describeCrewWork(m: CrewMember): string {
+  const w = crewWork(m);
+  const lines: string[] = [];
+  if (w.plan) lines.push(`${w.lead}'s plan: ${w.plan.goal}${w.plan.steps.length ? ` (${w.plan.steps.map((s) => `${s.text}: ${s.status}`).join("; ")})` : ""}`);
+  for (const c of w.crew) {
+    if (c.name === m.name) continue;
+    const made = c.made.length ? c.made.map((x) => `${x.kind} “${x.name}”${x.section ? ` in “${x.section}”` : ""}`).join(", ") : "nothing yet";
+    lines.push(`${c.name} (${c.role}${c.working ? `, now ${c.doing}` : ", finished"}): made ${made}${c.sections.length ? `; sections ${c.sections.map((x) => `“${x}”`).join(", ")}` : ""}`);
+  }
+  return lines.join("\n");
 }
 
 function publish(m: CrewMember) {
@@ -312,6 +371,10 @@ export function describeStep(name: string, input: Record<string, unknown>, board
       return "laying out a page";
     case "write_digest":
       return "writing the daily digest";
+    case "crew_work":
+      return "checking the crew's work";
+    case "machine_run":
+      return `asking to run ${q("command")}`;
     default:
       return name.replace(/_/g, " ");
   }
@@ -322,6 +385,12 @@ export function stepTarget(boardId: string, name: string, input: Record<string, 
   const s = (k: string) => (typeof input[k] === "string" ? (input[k] as string) : undefined);
   if (name === "connect") return resolveTarget(boardId, s("to_panel"));
   if (name === "bring_view") return null; // the tool aims itself
+  if (name === "machine_run") {
+    // by card id, or by the machine's name
+    const ref = s("machine");
+    const card = ref ? [...boardMaps(getBoard(boardId).doc).objects.values()].find((o) => o.kind === "panel" && o.panel === "machine" && (o.id === ref || o.machine?.name === ref.toLowerCase() || o.name.toLowerCase() === ref.toLowerCase())) : undefined;
+    return card ? { id: card.id, kind: "object" } : null;
+  }
   return resolveTarget(boardId, s("id") ?? s("object_id") ?? s("panel") ?? s("section") ?? null);
 }
 

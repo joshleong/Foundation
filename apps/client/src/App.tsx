@@ -8,6 +8,8 @@ import { DesignPage } from "./design/DesignPage";
 import { SettingsPage } from "./settings/SettingsPage";
 import { Tip } from "./shell/Tip";
 import { rememberMe, whoAmI } from "./lib/api";
+import { UpdateShelf } from "./update/UpdateCard";
+import { startUpdates } from "./update/updater";
 import "./App.css";
 import "./shell/shell.css";
 import "./panels/live.css";
@@ -15,6 +17,8 @@ import "./shell/crew.css";
 import "./settings/settings.css";
 
 initNight();
+// the desktop app asks its signed feed for a new version a few seconds after it opens (inert in a browser)
+startUpdates();
 
 function useHashRoute() {
   const [hash, setHash] = useState(window.location.hash);
@@ -61,6 +65,7 @@ function App() {
     return (
       <>
         <SettingsPage route={route} />
+        <UpdateShelf />
         <Tip />
       </>
     );
@@ -83,6 +88,8 @@ function App() {
           }}
         />
       )}
+      {/* over the sign-in page (always day), the card wears day too */}
+      <UpdateShelf day={preview || !user || veil} />
       <Tip />
     </>
   );

@@ -22,7 +22,8 @@
     "plan:project": "node scripts/plan.mjs project",
     "plan:check": "node scripts/plan.mjs check",
     "kiri": "node scripts/kiri.mjs",
-    "kiri:install": "node scripts/kiri.mjs install"
+    "kiri:install": "node scripts/kiri.mjs install",
+    "release": "node scripts/release.mjs"
   },
   "engines": {
     "node": ">=22.16"

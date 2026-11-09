@@ -46,13 +46,14 @@ import { MediaView } from "./MediaView";
 import { PANEL_GLYPH, PanelActions, PanelView } from "../panels/PanelView";
 import { isHostable } from "@foundation/protocol";
 import { isPanel } from "../state/store";
-import { ingest } from "../lib/ingest";
+import { ingest, ingestDrop } from "../lib/ingest";
 import { SectionEmpty } from "../panels/SectionEmpty";
 import { askAgent, setUi } from "../state/ui";
 import { openContextMenu, type MenuItem } from "./ContextMenu";
 import { api } from "../lib/api";
 import { activeBoard } from "../sync/board";
 import { toast } from "../state/ui";
+import { countRender } from "../state/renders";
 
 interface Props {
   section: Section;
@@ -71,6 +72,7 @@ export const SectionView = memo(function SectionView({
   getScale,
   zoomSpring,
 }: Props) {
+  countRender("SectionView");
   const view = useSection(section.id);
   const cardRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -261,9 +263,10 @@ export const SectionView = memo(function SectionView({
     (e: React.DragEvent) => {
       e.preventDefault();
       setDropping(false);
-      void ingestFiles(e.dataTransfer.files);
+      // folders too: walked and laid out as a group (the entries must be read during the event)
+      void ingestDrop(section.id, e.dataTransfer);
     },
-    [ingestFiles],
+    [section.id],
   );
 
 

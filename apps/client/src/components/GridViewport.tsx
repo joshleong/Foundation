@@ -25,7 +25,6 @@ import {
   setActiveSection,
   setFocusGrid,
   trackOffsets,
-  useAppState,
   expandSection,
 } from "../state/store";
 import { SectionView } from "./SectionView";
@@ -38,6 +37,8 @@ import { PeerCursors } from "../shell/Presence";
 import { CrewCursors, CrewFollow, CrewGuide } from "../shell/Crew";
 import { PortWires } from "../shell/AgentLayer";
 import { openContextMenu } from "./ContextMenu";
+import { countRender } from "../state/renders";
+import { gridViewSlice, useStoreSlice } from "../state/slices";
 
 function colName(col: number): string {
   let s = "";
@@ -133,7 +134,9 @@ interface Candidate {
 }
 
 export function GridViewport() {
-  const state = useAppState();
+  countRender("GridViewport");
+  // the grid's own slice: a press, a drag frame or a keystroke in a card doesn't render the board
+  const state = useStoreSlice(gridViewSlice);
   const ui = useUi();
   const insets = floorInsets(ui);
   const containerRef = useRef<HTMLDivElement>(null);
