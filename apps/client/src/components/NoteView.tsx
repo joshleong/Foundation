@@ -11,6 +11,7 @@ import { activeBoard, editNoteText, onBoardChange, undoNoteText, type NoteCaret 
 import { getUi } from "../state/ui";
 import { openExternal } from "../utils/media";
 import { ObjectFrame } from "./ObjectFrame";
+import { countRender } from "../state/renders";
 
 interface Props {
   note: NoteMeta;
@@ -28,6 +29,7 @@ interface Props {
  * goes back to the rendered note.
  */
 export const NoteView = memo(function NoteView({ note, pos, isActive, getScale }: Props) {
+  countRender("NoteView");
   const [editing, setEditing] = useState(false);
   const editor = useRef<HTMLTextAreaElement>(null);
   /** what the editor showed before the last keystroke: the base the keystroke is an edit of */

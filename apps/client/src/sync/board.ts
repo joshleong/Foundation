@@ -149,7 +149,8 @@ class BoardSync {
       encoding.writeVarUint(enc, MSG_AWARENESS);
       encoding.writeVarUint8Array(enc, awarenessProtocol.encodeAwarenessUpdate(this.awareness, added.concat(updated, removed)));
       this.send(encoding.toUint8Array(enc));
-      this.notify();
+      // no notify: nothing here draws this window's own cursor, caret or focus (peers() leaves them out),
+      // and notifying re-rendered every presence and crew view on each move of your own pointer
     });
     const m = boardMaps(this.doc);
     m.objects.observe((e) => e.transaction.origin !== LOCAL && this.pullObjects([...e.keysChanged]));
