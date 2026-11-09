@@ -319,30 +319,50 @@ export function huddleRoster(boardId: string, huddleId: string) {
   return room ? [...room.conns.values()].map((c) => ({ id: c.id, name: c.user.name, sending: c.sending })) : [];
 }
 
+export interface NewHuddle {
+  /** the card's id, made by the client, so a retried invite finds the same card */
+  id: string;
+  sectionId: string;
+  name: string;
+  channel: string;
+  x: number;
+  y: number;
+}
+
 /**
- * The huddle card `id` on a board, waiting up to `ms` for it to arrive. A person who invites a channel
- * to a brand-new huddle sends the card over the sync socket and the invite over HTTP at the same
- * moment, so the invite can reach the server first; it waits for the card instead of the page
- * guessing how long sync takes. Null when no such huddle turns up.
+ * The huddle a channel is invited to, made here when it's new, so the invite
+ * names a card the server already holds (the client used to add the card,
+ * wait 400 ms for it to sync, then ask). A second call with the same id finds
+ * the same card. The caller has checked the person can write the board.
  */
-export async function huddleArriving(boardId: string, id: string, ms = 3000): Promise<PanelDoc | null> {
-  const objects = boardMaps(getBoard(boardId).doc).objects;
-  const isHuddle = () => {
-    const o = objects.get(id);
-    return o && o.kind === "panel" && o.panel === "huddle" ? (o as PanelDoc) : null;
-  };
-  const now = isHuddle();
-  if (now || ms <= 0) return now;
-  return new Promise((resolve) => {
-    const done = () => {
-      clearTimeout(timer);
-      objects.unobserve(watch);
-      resolve(isHuddle());
+export function huddleForInvite(boardId: string, by: Pick<UserInfo, "name">, h: NewHuddle): PanelDoc {
+  if (!/^[\w-]{4,64}$/.test(h.id)) throw new Error("a huddle needs an id");
+  return editBoard(boardId, "system", (doc) => {
+    const m = boardMaps(doc);
+    const had = m.objects.get(h.id);
+    if (had) {
+      if (had.kind !== "panel" || had.panel !== "huddle") throw new Error("that id is taken by another card");
+      return had;
+    }
+    if (!m.sections.get(h.sectionId)) throw new Error("no such section");
+    const panel: PanelDoc = {
+      id: h.id,
+      kind: "panel",
+      panel: "huddle",
+      sectionId: h.sectionId,
+      name: h.name.slice(0, 120) || "Huddle",
+      channel: h.channel,
+      x: Math.round(h.x),
+      y: Math.round(h.y),
+      float: true,
+      bornAt: Date.now(),
+      w: 560,
+      h: 420,
+      ports: [],
+      createdBy: by.name,
     };
-    const watch = (e: { keysChanged: Set<string> }) => {
-      if (e.keysChanged.has(id) && isHuddle()) done();
-    };
-    const timer = setTimeout(done, ms);
-    objects.observe(watch);
+    m.objects.set(panel.id, panel);
+    logActivity(doc, { who: by.name, role: "human", text: `opened “${panel.name}” and invited its channel`, objectId: panel.id });
+    return panel;
   });
 }

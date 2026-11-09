@@ -14,6 +14,7 @@
  */
 
 import { EventEmitter } from "node:events";
+import { plural } from "./words.ts";
 import { config } from "./config.ts";
 import { callMcpTool } from "./mcpclient.ts";
 import { one } from "./db.ts";
@@ -231,7 +232,7 @@ async function bomform(): Promise<ConnectorState> {
     url: roomUrl.replace(/\/api\/foundation\/bomform$/, "/admin"),
     provenance: `Airform Data Room's copy, synced ${when} (${ageDays === 0 ? "today" : `${ageDays} day${ageDays === 1 ? "" : "s"} ago`})${stale ? " — the daily sync has stopped; check BOMFORM_API_KEY and CRON_SECRET on the Data Room" : ""}`,
     provenanceLabel: stale ? `copy · ${ageDays}d old` : "Data Room copy",
-    summary: `${d.certProjects.length} cert programs · ${c.itemsOpen} items open (${c.itemsWithUs} with us) · ${c.criticalDocumented}/${c.criticalTotal} critical parts documented`,
+    summary: `${plural(d.certProjects.length, "cert program")} · ${plural(c.itemsOpen, "item")} open (${c.itemsWithUs} with us) · ${c.criticalDocumented}/${c.criticalTotal} critical parts documented`,
     metrics: [
       { label: "Cert items resolved", value: items ? `${Math.round((resolved / items) * 100)}%` : "unknown" },
       { label: "Open items with us", value: c.itemsWithUs, tone: c.itemsWithUs ? "warn" : "ok" },
@@ -282,7 +283,7 @@ async function bomformDirect(url: string, key: string): Promise<ConnectorState> 
     name: "BomForm",
     ok: true,
     url,
-    summary: certRows.length ? `${certRows.length} certification programs · ${resolved}/${total} items resolved` : certs.text.slice(0, 160),
+    summary: certRows.length ? `${plural(certRows.length, "certification program")} · ${resolved}/${total} items resolved` : certs.text.slice(0, 160),
     metrics: [
       { label: "Cert programs", value: certRows.length },
       { label: "Cert items resolved", value: total ? `${Math.round((resolved / total) * 100)}%` : "unknown" },
@@ -311,7 +312,7 @@ function foundation(): ConnectorState {
     name: "Foundation",
     ok: true,
     url: config.publicUrl,
-    summary: `${people} people · ${boards} boards · ${files} files`,
+    summary: `${plural(people, "person", "people")} · ${plural(boards, "board")} · ${plural(files, "file")}`,
     metrics: [
       { label: "Boards", value: boards },
       { label: "Files", value: files },
@@ -370,6 +371,28 @@ async function vision(): Promise<ConnectorState> {
   };
 }
 
+/**
+ * Why a service didn't answer, in words: Node's fetch says only "fetch failed",
+ * with the real reason (refused, no such host, reset) on its cause.
+ */
+export function offlineReason(e: unknown, url?: string): string {
+  const err = e as Error & { cause?: { code?: string; message?: string } };
+  let host = "";
+  try {
+    host = url ? new URL(url).host : "";
+  } catch {
+    /* not a URL */
+  }
+  const at = host ? ` at ${host}` : "";
+  if (err?.message !== "fetch failed") return err?.message === "timed out" ? `nothing answered${at} within a few seconds` : (err?.message ?? String(e));
+  const code = err.cause?.code ?? "";
+  if (code === "ECONNREFUSED") return `nothing is running${at}`;
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") return `${host || "its address"} can't be found from here (offline, or a typo in its URL)`;
+  if (code === "ECONNRESET" || code === "UND_ERR_SOCKET") return `it hung up${at}`;
+  if (/CERT|SSL|TLS/.test(code)) return `its certificate isn't trusted${at}`;
+  return `it didn't answer${at}${code ? ` (${code})` : ""}`;
+}
+
 export async function readConnector(id: string, fresh = false): Promise<ConnectorState> {
   const hit = cache.get(id);
   if (!fresh && hit && Date.now() - hit.checkedAt < TTL) return hit;
@@ -389,7 +412,7 @@ export async function readConnector(id: string, fresh = false): Promise<Connecto
       name: meta?.name ?? id,
       ok: false,
       url: "",
-      summary: `offline — ${(e as Error).message}`,
+      summary: `offline — ${offlineReason(e, (config.connectors as Record<string, string>)[id])}`,
       metrics: [],
       checkedAt: Date.now(),
     };

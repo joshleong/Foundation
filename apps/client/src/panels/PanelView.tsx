@@ -656,6 +656,12 @@ function ConnectorBody({ panel }: { panel: PanelMeta }) {
           ))}
           <div className="connector-summary is-small">{st.summary}</div>
         </>
+      ) : st?.ok && st.summary === "reachable" ? (
+        // a service with no read API for Foundation yet: say it's up, and where
+        <div className="connector-offline is-up">
+          <div className="connector-offline-title">Up and answering</div>
+          <div className="connector-offline-reason">{hostOf(st.url)} · nothing to read from it here yet; Open shows it</div>
+        </div>
       ) : (
         <div className="connector-summary">{st ? st.summary : "Reaching the service…"}</div>
       )}
@@ -668,10 +674,27 @@ function ConnectorBody({ panel }: { panel: PanelMeta }) {
             Open ↗
           </button>
         )}
-        {st && <span className="connector-checked">checked {Math.max(1, Math.round((Date.now() - st.checkedAt) / 1000))}s ago</span>}
+        {st && <span className="connector-checked">checked {checkedAgo(st.checkedAt)}</span>}
       </div>
     </div>
   );
+}
+
+function hostOf(url: string | undefined) {
+  try {
+    return url ? new URL(url).host : "";
+  } catch {
+    return url ?? "";
+  }
+}
+
+/** "checked 4s ago", "checked 3 min ago", "checked 2 h ago" */
+export function checkedAgo(at: number, now = Date.now()) {
+  const s = Math.max(1, Math.round((now - at) / 1000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min ago`;
+  return `${Math.round(m / 60)} h ago`;
 }
 
 // ---------- Hermes asks ----------

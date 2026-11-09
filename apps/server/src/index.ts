@@ -8,7 +8,7 @@
  */
 
 import { createServer, type ServerResponse } from "node:http";
-import type { UserInfo } from "@foundation/protocol";
+import type { PanelDoc, UserInfo } from "@foundation/protocol";
 import { WebSocketServer } from "ws";
 import { config } from "./config.ts";
 import { one } from "./db.ts";
@@ -30,7 +30,7 @@ import { handleUpgrade, issueTicket } from "./sockets.ts";
 import { httpToolCtx, runTool, TOOLS } from "./tools.ts";
 import { handleMcp } from "./mcp.ts";
 import { seedCompanyBoard } from "./seed.ts";
-import { addLine, attachRecording, huddleArchive, huddleArriving, transcriptText } from "./huddles.ts";
+import { addLine, attachRecording, huddleArchive, huddleForInvite, transcriptText, type NewHuddle } from "./huddles.ts";
 import { boardLink, channelHistory, channelInfo, inviteText, listChannels, postMessage, shareText, SlackError, slackStatus } from "./slack.ts";
 import { appendSection, boardMaps, huddleStateOf } from "@foundation/protocol";
 import { migrateAllBoards } from "./migrate.ts";
@@ -39,7 +39,7 @@ import { canSeeBoard, hiddenBoards, requireBoard } from "./members.ts";
 import { isPerson, requirePerson } from "./auth.ts";
 import { startGridLog } from "./gridlog.ts";
 import { answerAsk, startMachineAsks } from "./machineasks.ts";
-import { movePlanCard, readPlan } from "./plan.ts";
+import { createPlanCard, movePlanCard, readPlan, syncPlan, type NewCard } from "./plan.ts";
 import { startDigest } from "./digest.ts";
 import { engineImages, engineStatus, loadImage, reconcileMachine, removeMachine, restartMachine, startMachine, stopMachine } from "./machines.ts";
 
@@ -118,6 +118,14 @@ r.post("/api/plan/cards/:id", async (req) => {
   const { status } = await readJson<{ status?: string }>(req);
   if (!status) throw new HttpError(400, "status (a column id) required");
   return { card: movePlanCard(u, req.params.id, status) };
+});
+r.post("/api/plan/cards", async (req) => {
+  const u = requirePerson(req, "Adding a card to the plan");
+  return { card: createPlanCard(u, await readJson<NewCard>(req)) };
+});
+r.post("/api/plan/sync", async (req) => {
+  const u = requirePerson(req, "Syncing the plan with GitHub");
+  return syncPlan(u);
 });
 
 r.post("/api/boards/:id/people", async (req) => {
@@ -340,12 +348,19 @@ r.post("/api/slack/channels/:id/share", async (req) => {
 /** invite the channel into a huddle on the board */
 r.post("/api/slack/channels/:id/invite", async (req) => {
   const u = requireUser(req);
-  const b = await readJson<{ board?: string; huddleId?: string }>(req);
+  const b = await readJson<{ board?: string; huddleId?: string; create?: Omit<NewHuddle, "channel"> }>(req);
   const board = b.board ?? "company";
   requireBoard(u, board);
-  // a huddle made for this invite may still be on its way over the sync socket
-  const h = await huddleArriving(board, b.huddleId ?? "");
-  if (!h) throw new HttpError(404, "no such huddle");
+  // a new huddle is made here, then invited, in one request: no waiting for the card to sync first
+  let h: PanelDoc;
+  if (b.create) {
+    requireWriter(u, board);
+    try {
+      h = huddleForInvite(board, u, { ...b.create, channel: req.params.id });
+    } catch (e) {
+      throw new HttpError(400, (e as Error).message);
+    }
+  } else h = huddleOn(board, b.huddleId ?? "");
   const text = inviteText({ by: u.name, board, huddleId: h.id, huddleName: h.name, live: huddleStateOf(getBoard(board).doc, h.id)?.people ?? [] });
   return slackDo(async () => ({ ...(await postMessage(req.params.id, text, u, { board, huddle: h.id })), url: boardLink(board, h.id) }));
 });

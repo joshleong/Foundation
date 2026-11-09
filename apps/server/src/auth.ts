@@ -157,8 +157,8 @@ export function requirePerson(req: Req, what = "This"): UserInfo {
   return u;
 }
 
-/** is this request a person at a browser (requirePerson's test), without refusing it */
-export function isPerson(req: Req): boolean {
+/** is this request a person (requirePerson's test: their browser's cookie, or their app's sign-in bearer), without refusing it */
+export function isPerson(req: Req, _user?: UserInfo): boolean {
   try {
     requirePerson(req);
     return true;

@@ -1,5 +1,5 @@
 /**
- * Settings (#/settings). Two tabs:
+ * Settings (#/settings). Three tabs:
  *
  *  - **Plan** — Foundation's own kanban (docs/plan.json): the local copy of the
  *    issues on GitHub, as columns from Needs you to Done. Filters by kind and
@@ -8,6 +8,8 @@
  *    and the card says so until it's pushed to GitHub.
  *  - **Services** — what this server is connected to (Slack, GitHub, Google,
  *    the agent's runtimes), so a missing key reads as a fact, not a mystery.
+ *  - **Releases** — what each version changed (docs/blog/<version>.md),
+ *    newest first, bundled with the app so they open offline.
  *
  * The night orb sits in the head, as on #/design.
  */
@@ -19,16 +21,22 @@ import { api } from "../lib/api";
 import { NightOrb } from "../shell/NightOrb";
 import { UpdatesSection } from "../update/UpdateCard";
 import { renderMarkdown } from "../utils/markdown";
-import { boardColumns, counts, issueUrl, PLAN, type CardKind, type Plan, type PlanCard, type PlanFilter } from "./plan";
+import clientPackage from "../../package.json";
+import { longDate, releasesFrom, type ReleasePost } from "./releases";
+import { ago, boardColumns, counts, issueUrl, PLAN, syncSentence, waitingWords, type CardKind, type Plan, type PlanCard, type PlanFilter } from "./plan";
 
-type Tab = "plan" | "services";
+type Tab = "plan" | "services" | "releases";
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "plan", label: "Plan" },
   { id: "services", label: "Services" },
+  { id: "releases", label: "Releases" },
 ];
 
+/** the release notes, bundled: every docs/blog/<version>.md, read as text at build time */
+const POSTS = releasesFrom(import.meta.glob("../../../../docs/blog/*.md", { query: "?raw", import: "default", eager: true }) as Record<string, string>);
+
 export function SettingsPage({ route }: { route: string }) {
-  const tab: Tab = route.startsWith("#/settings/services") ? "services" : "plan";
+  const tab: Tab = route.startsWith("#/settings/services") ? "services" : route.startsWith("#/settings/releases") ? "releases" : "plan";
   return (
     <div className="settings-page">
       <header className="design-head settings-head">
@@ -51,6 +59,8 @@ export function SettingsPage({ route }: { route: string }) {
       </header>
       {tab === "plan" ? (
         <PlanTab />
+      ) : tab === "releases" ? (
+        <ReleasesTab posts={POSTS} route={route} />
       ) : (
         <>
           <ServicesTab />
@@ -72,12 +82,31 @@ export async function moveCard(id: string, status: string): Promise<PlanCard> {
   return r.card;
 }
 
+export async function syncWithGitHub(): Promise<{ plan: Plan; summary: { moved: number; created: number; cards: number } }> {
+  return api("/api/plan/sync", { method: "POST", json: {} });
+}
+
+export async function addCard(card: NewCardInput): Promise<PlanCard> {
+  const r = await api<{ card: PlanCard }>("/api/plan/cards", { method: "POST", json: card });
+  return r.card;
+}
+
+export interface NewCardInput {
+  title: string;
+  kind: CardKind;
+  milestone: string;
+  area: string;
+  body?: string;
+  request_id: string;
+}
+
 function PlanTab() {
   const [plan, setPlan] = useState<Plan>(PLAN);
   const [canMove, setCanMove] = useState(false);
   /** where the board came from: the copy bundled with the app, or the server's file */
   const [source, setSource] = useState<"bundled" | "server">("bundled");
   const [err, setErr] = useState<string | null>(null);
+  const [sync, setSync] = useState<SyncState>({ busy: false });
 
   useEffect(() => {
     let live = true;
@@ -110,7 +139,33 @@ function PlanTab() {
     }
   };
 
-  return <PlanBoard plan={plan} source={source} canMove={canMove} onMove={onMove} error={err} />;
+  const onSync = async () => {
+    setSync({ busy: true });
+    setErr(null);
+    try {
+      const r = await syncWithGitHub();
+      setPlan(r.plan);
+      setSync({ busy: false, said: syncSentence(r.summary) });
+    } catch (e) {
+      setSync({ busy: false });
+      setErr((e as Error).message);
+    }
+  };
+
+  const onCreate = async (input: NewCardInput) => {
+    setErr(null);
+    const card = await addCard(input);
+    setPlan((p) => (p.cards.some((c) => c.id === card.id) ? p : { ...p, cards: [...p.cards, card] }));
+    return card;
+  };
+
+  return <PlanBoard plan={plan} source={source} canMove={canMove} onMove={onMove} onSync={onSync} onCreate={onCreate} sync={sync} error={err} />;
+}
+
+export interface SyncState {
+  busy: boolean;
+  /** what the last sync did, in a sentence */
+  said?: string;
 }
 
 const KIND_LABEL: Record<CardKind, string> = { bug: "Bug", plan: "Plan", hookup: "Needs a person" };
@@ -120,6 +175,9 @@ export function PlanBoard({
   source,
   canMove,
   onMove,
+  onSync,
+  onCreate,
+  sync,
   error,
   height,
 }: {
@@ -127,6 +185,11 @@ export function PlanBoard({
   source: "bundled" | "server";
   canMove: boolean;
   onMove(id: string, status: string): void;
+  /** Sync with GitHub (admins; the server runs scripts/plan.mjs sync) */
+  onSync?(): void;
+  /** a new card (admins); resolves when the server has it */
+  onCreate?(input: NewCardInput): Promise<PlanCard>;
+  sync?: SyncState;
   error?: string | null;
   /** fixed board height (the design page's demo); the page lets it run */
   height?: number;
@@ -135,35 +198,67 @@ export function PlanBoard({
   const [open, setOpen] = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   const cols = useMemo(() => boardColumns(plan, filter), [plan, filter]);
   const n = counts(plan);
   const pushed = plan.cards.some((c) => c.issue);
   const moved = plan.cards.filter((c) => c.moved).length;
+  const fresh = plan.cards.filter((c) => !c.issue).length;
 
   return (
     <section className="kb" style={height ? { height } : undefined}>
       <div className="kb-head">
         <div className="kb-title">
-          <h2>The plan</h2>
+          <div className="kb-title-row">
+            <h2>The plan</h2>
+            {canMove && (onCreate || onSync) && (
+              <div className="kb-actions">
+                {onCreate && (
+                  <button className="f-pill kb-toggle" onClick={() => setAdding((a) => !a)} aria-expanded={adding}>
+                    + New card
+                  </button>
+                )}
+                {onSync && (
+                  <button className="f-pill kb-sync" onClick={onSync} disabled={sync?.busy} title={`Reads every issue on ${plan.repo}, then sends the columns moved here and the cards made here`}>
+                    {sync?.busy ? (
+                      <>
+                        <span className="kb-spin" aria-hidden /> Syncing…
+                      </>
+                    ) : (
+                      <>↻ Sync with GitHub</>
+                    )}
+                  </button>
+                )}
+                {sync?.said && !sync.busy && <span className="kb-said">{sync.said}</span>}
+              </div>
+            )}
+          </div>
           <p>
-            {n.open} open · {n.bug} bugs · {n.plan} plans · {n.hookup} waiting on a person.{" "}
+            {n.open} open · {n.bug} {n.bug === 1 ? "bug" : "bugs"} · {n.plan} {n.plan === 1 ? "plan" : "plans"} · {n.hookup} waiting on a person.{" "}
             {pushed ? (
               <>
                 The local copy of{" "}
                 <a href={`https://github.com/${plan.repo}/issues?q=label%3Aplan`} target="_blank" rel="noopener">
                   the issues on GitHub ↗
                 </a>
-                {plan.syncedAt ? `, synced ${new Date(plan.syncedAt).toLocaleString()}` : ""}.
+                {plan.syncedAt ? (
+                  <>
+                    , synced <time title={new Date(plan.syncedAt).toLocaleString()}>{ago(plan.syncedAt)}</time>
+                  </>
+                ) : (
+                  ""
+                )}
+                .
               </>
             ) : (
               <>
                 Not on GitHub yet: <code>npm run plan:push</code> makes an issue for every card.
               </>
             )}
-            {moved > 0 && (
+            {pushed && moved + fresh > 0 && (
               <>
                 {" "}
-                <b className="kb-moved-count">{moved} moved here</b>, not yet pushed.
+                <b className="kb-moved-count">{waitingWords(moved, fresh)}</b>, not on GitHub yet.
               </>
             )}
             {source === "bundled" && <span className="kb-source"> Showing the copy bundled with the app.</span>}
@@ -190,6 +285,13 @@ export function PlanBoard({
           <input className="kb-search" placeholder="Find a card or #issue" value={filter.query ?? ""} onChange={(e) => setFilter((f) => ({ ...f, query: e.target.value }))} />
         </div>
       </div>
+      <AnimatePresence initial={false}>
+        {adding && onCreate && (
+          <motion.div key="new" className="kb-new-wrap" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={cardSpring}>
+            <NewCardForm plan={plan} onCreate={onCreate} onDone={() => setAdding(false)} />
+          </motion.div>
+        )}
+      </AnimatePresence>
       {error && <div className="kb-error">{error}</div>}
 
       <LayoutGroup>
@@ -319,7 +421,15 @@ function PlanCardView({
           <span className={`kb-kind is-${card.kind}`} title={KIND_LABEL[card.kind]} />
           <span>{milestone?.name ?? card.milestone}</span>
           <span className="kb-card-area">{card.area}</span>
-          {card.issue ? <span className="kb-card-issue">#{card.issue}</span> : null}
+          {card.issue ? (
+            <a className="kb-card-issue" href={issueUrl(plan, card.issue)} target="_blank" rel="noopener" draggable={false} onClick={(e) => e.stopPropagation()} title={`Open #${card.issue} on GitHub`}>
+              #{card.issue}
+            </a>
+          ) : (
+            <span className="kb-card-issue is-local" title="Made here; the next sync makes it an issue">
+              new
+            </span>
+          )}
         </div>
         {card.moved && (
           <div className="kb-card-moved">
@@ -356,6 +466,105 @@ function PlanCardView({
         )}
       </AnimatePresence>
     </motion.article>
+  );
+}
+
+function NewCardForm({ plan, onCreate, onDone }: { plan: Plan; onCreate(input: NewCardInput): Promise<PlanCard>; onDone(): void }) {
+  const [title, setTitle] = useState("");
+  const [kind, setKind] = useState<CardKind>("bug");
+  const [milestone, setMilestone] = useState(plan.milestones[plan.milestones.length - 1]?.id ?? "");
+  const [area, setArea] = useState("");
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  // one id per card being written: a doubled press makes one card
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID());
+  const ok = title.trim().length >= 4;
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ok || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await onCreate({ title: title.trim(), kind, milestone, area: area.trim() || "general", body: body.trim() || undefined, request_id: requestId });
+      setTitle("");
+      setBody("");
+      setRequestId(crypto.randomUUID());
+      onDone();
+    } catch (e2) {
+      setErr((e2 as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="kb-new" onSubmit={submit}>
+      <input className="kb-new-title" autoFocus placeholder="What's wrong, or what should we build?" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={140} aria-label="Title" />
+      <div className="kb-new-row">
+        <div className="kb-new-kinds" role="group" aria-label="Kind">
+          {(["bug", "plan", "hookup"] as CardKind[]).map((k) => (
+            <FilterChip key={k} on={kind === k} onClick={() => setKind(k)}>
+              <span className={`kb-kind is-${k}`} />
+              {KIND_LABEL[k]}
+            </FilterChip>
+          ))}
+        </div>
+        <select className="kb-select" value={milestone} onChange={(e) => setMilestone(e.target.value)} aria-label="Milestone">
+          {plan.milestones.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+        <input className="kb-search kb-new-area" placeholder="Area: wires, sections…" value={area} onChange={(e) => setArea(e.target.value)} aria-label="Area" />
+      </div>
+      <textarea className="kb-new-body" placeholder="How to see it, or what done looks like (markdown)" value={body} onChange={(e) => setBody(e.target.value)} rows={3} aria-label="Description" />
+      <div className="kb-new-row">
+        <span className="kb-new-note">{kind === "hookup" ? "Goes to Needs you." : "Goes to Backlog."} Sync with GitHub makes it an issue.</span>
+        <button type="button" className="f-pill" onClick={onDone}>
+          Cancel
+        </button>
+        <button type="submit" className="f-pill is-accent" disabled={!ok || busy}>
+          {busy ? "Adding…" : "Add card"}
+        </button>
+      </div>
+      {err && <div className="kb-error">{err}</div>}
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------- releases
+
+/** the version this app was built as, so its post can say "this app" */
+const RUNNING = clientPackage.version;
+
+export function ReleasesTab({ posts, route }: { posts: ReleasePost[]; route: string }) {
+  // #/settings/releases/0.2.0 opens that post; otherwise the newest
+  const asked = /#\/settings\/releases\/([\w.-]+)/.exec(route)?.[1];
+  const current = posts.find((p) => p.version === asked) ?? posts[0];
+  const body = useMemo(() => (current ? renderMarkdown(current.body) : ""), [current]);
+  if (!current) return <p className="design-lede">No release notes yet: they go in docs/blog/&lt;version&gt;.md.</p>;
+  return (
+    <section className="releases">
+      <nav className="releases-list" aria-label="Releases">
+        {posts.map((p) => (
+          <a key={p.version} href={`#/settings/releases/${p.version}`} className={`releases-item${p === current ? " is-current" : ""}`} aria-current={p === current ? "page" : undefined}>
+            <span className="releases-version">
+              {p.version}
+              {p.version === RUNNING && <span className="releases-running">this app</span>}
+            </span>
+            <span className="releases-date">{longDate(p.date)}</span>
+          </a>
+        ))}
+      </nav>
+      <article className="releases-post">
+        <div className="f-eyebrow">
+          Foundation {current.version} · {longDate(current.date)}
+        </div>
+        <h2>{current.title}</h2>
+        <div className="note-rendered releases-body" dangerouslySetInnerHTML={{ __html: body }} />
+      </article>
+    </section>
   );
 }
 

@@ -414,11 +414,81 @@ export function sectionBaseRect(grid: GridTracks, s: Section) {
  * the wheel pans across it like any other part of the board.
  */
 export function sectionCardRect(grid: GridTracks, s: Section) {
+  const rest = sectionRestRect(grid, s);
+  const e = sectionEase.get(s.id);
+  if (!e) return rest;
+  // the card's own transition, when it has one, is the clock; else time since the start (and never past 3× the time)
+  const own = e.progress?.();
+  const p = clock() - e.t0 > SECTION_EASE_MS * 3 ? 1 : (own ?? (clock() - e.t0) / SECTION_EASE_MS);
+  if (p >= 1) {
+    sectionEase.delete(s.id);
+    return rest;
+  }
+  const k = settle(Math.max(0, p));
+  return { x: e.from.x + (rest.x - e.from.x) * k, y: e.from.y + (rest.y - e.from.y) * k, w: e.from.w + (rest.w - e.from.w) * k, h: e.from.h + (rest.h - e.from.h) * k };
+}
+
+/** where the card comes to rest: what the DOM is given (its CSS eases it there) */
+export function sectionRestRect(grid: GridTracks, s: Section) {
   const base = sectionBaseRect(grid, s);
   if (getState().expandedSection !== s.id || s.host) return base;
   const { extent } = sectionFlow(s.id);
   return { ...base, w: Math.max(base.w, extent.w + 2), h: Math.max(base.h, SECTION_HEADER + extent.h + 2) };
 }
+
+/**
+ * Opening or closing a section eases its card over 0.5 s (App.css: .section-card,
+ * var(--ease-settle)). sectionCardRect follows the same curve meanwhile, so the
+ * wires and landings that read it travel with the card instead of jumping to
+ * the end at once (the wire layer redraws every frame).
+ */
+const SECTION_EASE_MS = 500;
+const sectionEase = new Map<string, { from: { x: number; y: number; w: number; h: number }; t0: number; progress?: () => number | null }>();
+let clock = () => performance.now();
+
+/**
+ * A section card's size just changed in the DOM (opened or closed): from now,
+ * sectionCardRect eases from `from` (where the card was drawn) to where it
+ * rests, on the CSS's curve and time. SectionView calls it as the new size
+ * lands, so the two start on the same frame.
+ */
+export function startSectionEase(id: string, from: { x: number; y: number; w: number; h: number }, progress?: () => number | null) {
+  sectionEase.set(id, { from, t0: clock(), progress });
+}
+/** tests: a clock they turn by hand */
+export function setSectionClock(fn: () => number) {
+  clock = fn;
+}
+
+/** cubic-bezier(x1, y1, x2, y2) as a function of progress, as CSS draws it */
+export function cubicBezier(x1: number, y1: number, x2: number, y2: number) {
+  const bx = (t: number) => 3 * x1 * t * (1 - t) ** 2 + 3 * x2 * t * t * (1 - t) + t ** 3;
+  const by = (t: number) => 3 * y1 * t * (1 - t) ** 2 + 3 * y2 * t * t * (1 - t) + t ** 3;
+  const dx = (t: number) => 3 * x1 * (1 - t) ** 2 + 6 * (x2 - x1) * t * (1 - t) + 3 * (1 - x2) * t * t;
+  return (x: number) => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    let t = x;
+    for (let i = 0; i < 8; i++) {
+      const d = dx(t);
+      if (Math.abs(d) < 1e-6) break;
+      t -= (bx(t) - x) / d;
+    }
+    // Newton can wander on a flat stretch: settle it by halving
+    if (t < 0 || t > 1 || Math.abs(bx(t) - x) > 1e-4) {
+      let lo = 0;
+      let hi = 1;
+      t = x;
+      for (let i = 0; i < 30; i++) {
+        if (bx(t) < x) lo = t;
+        else hi = t;
+        t = (lo + hi) / 2;
+      }
+    }
+    return by(t);
+  };
+}
+const settle = cubicBezier(0.22, 1.3, 0.36, 1);
 
 export function gridSize(grid: GridTracks) {
   const xo = trackOffsets(grid.cols);
@@ -616,7 +686,7 @@ function emit() {
 
 // dev: let the browser console (and headless checks) read the live model
 // the test hooks: the dev server, and a build made for the e2e checks (E2E_BUILD sets VITE_E2E_HOOKS)
-if ((import.meta.env?.DEV || import.meta.env?.VITE_E2E_HOOKS) && typeof window !== "undefined") (window as unknown as { __foundation: unknown }).__foundation = { getState: () => state, setState: (p: Partial<AppState>) => set(p), workbook };
+if ((import.meta.env?.DEV || import.meta.env?.VITE_E2E_HOOKS) && typeof window !== "undefined") (window as unknown as { __foundation: unknown }).__foundation = { getState: () => state, setState: (p: Partial<AppState>) => set(p), workbook, sectionCardRect, expandSection };
 
 export function getState(): AppState {
   return state;

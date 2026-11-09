@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { addPanel, allObjects, getState, updatePanel, type PanelMeta } from "../state/store";
+import { allObjects, getState, uid, updatePanel, type PanelMeta } from "../state/store";
 import { api } from "../lib/api";
 import { activeBoard } from "../sync/board";
 import { askAgent, toast } from "../state/ui";
@@ -168,9 +168,11 @@ function Channel({ panel, live }: { panel: PanelMeta; live: boolean }) {
       huddle = near;
     }
     if (!huddle) {
-      const pos = { x: panel.x + panel.w + 32, y: panel.y };
-      // the new card goes over sync; the server waits for it to arrive before it names it in the invite
-      huddle = addPanel(panel.sectionId, { panel: "huddle", name: `Huddle · ${panel.name}`, channel: panel.channel, float: true, ...pos }, { focus: false });
+      // a new huddle: the server makes the card and sends the invite in one go (it arrives here by sync)
+      const name = `Huddle · ${panel.name}`;
+      const create = { id: uid("pnl"), sectionId: panel.sectionId, name, x: panel.x + panel.w + 32, y: panel.y };
+      void post("invite", { board: boardId, create }, `Invited ${panel.name} to ${name}`);
+      return;
     }
     void post("invite", { board: boardId, huddleId: huddle.id }, `Invited ${panel.name} to ${huddle.name}`);
   };

@@ -16,7 +16,7 @@ import * as awarenessProtocol from "y-protocols/awareness";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import type { WebSocket } from "ws";
-import { boardMaps, describeBoard, noteTextOf, tableCellsOf, type ObjectDoc } from "@foundation/protocol";
+import { boardMaps, describeBoard, logActivity, noteTextOf, tableCellsOf, type ObjectDoc } from "@foundation/protocol";
 import { all, indexDoc, one, run, unindexDoc } from "./db.ts";
 
 const MSG_SYNC = 0;
@@ -169,6 +169,7 @@ function send(ws: WebSocket, data: Uint8Array) {
 
 /** who each sync socket belongs to, so a role change can make them reconnect */
 const socketUser = new WeakMap<WebSocket, string>();
+/** and their name, for the activity log */
 
 /** the person behind a sync socket (a change's transaction origin), if it is one */
 export function socketUserId(origin: unknown): string | undefined {

@@ -64,7 +64,9 @@ function Pane() {
   useEffect(() => {
     const term = q.trim();
     if (!term) {
+      // a search cut short by clearing the box leaves no dots behind
       setHits([]);
+      setLoading(false);
       return;
     }
     const ctrl = new AbortController();

@@ -1,5 +1,5 @@
 import { keys } from "../lib/keys";
-import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   CONTENT_PAD,
@@ -28,6 +28,8 @@ import {
   releaseSectionFit,
   requestSnap,
   sectionCardRect,
+  sectionRestRect,
+  startSectionEase,
   sectionFit,
   setActiveSection,
   setSectionDragTarget,
@@ -162,7 +164,8 @@ export const SectionView = memo(function SectionView({
     }
   }, [section.id]);
 
-  const rect = sectionCardRect(grid, section);
+  // the DOM gets where the card comes to rest; its CSS eases it there (wires follow sectionCardRect)
+  const rect = sectionRestRect(grid, section);
   // a section that hosts an app is that app; any other cards sit over it
   const { host, objects } = view;
   const hostable = !host && objects.length === 1 && isPanel(objects[0]) && isHostable(objects[0].panel) ? objects[0] : null;
@@ -187,6 +190,22 @@ export const SectionView = memo(function SectionView({
   // It shows its cards as large as its body allows (store: sectionFlow) and
   // the wheel always pans the grid. Expanded, it grows to hold them at full size.
   const { fit, clipped, expanded } = view;
+  // opening or closing: the card's CSS eases its size from where it's drawn now; the store's
+  // rect (wires, landings) eases with it from the same frame (store: startSectionEase)
+  const wasExpanded = useRef(expanded);
+  useLayoutEffect(() => {
+    if (wasExpanded.current === expanded) return;
+    wasExpanded.current = expanded;
+    const el = cardRef.current;
+    // offsetWidth/Height: the size the transition starts from (mid-ease too), not the new style
+    if (!el) return;
+    // the height transition the new style just started is the clock both follow (it begins on the next
+    // frame drawn, which a heavy render delays): 0 until it runs, 1 when it ends, null when it's gone
+    const tr = el.getAnimations().find((a): a is CSSTransition => a instanceof CSSTransition && (a.transitionProperty === "height" || a.transitionProperty === "width"));
+    const total = Number(tr?.effect?.getComputedTiming().duration) || 0;
+    const progress = tr && total ? () => (tr.playState === "finished" || tr.playState === "idle" ? 1 : tr.currentTime == null ? 0 : Number(tr.currentTime) / total) : undefined;
+    startSectionEase(section.id, { x: rect.x, y: rect.y, w: el.offsetWidth, h: el.offsetHeight }, progress);
+  }, [expanded, section.id, rect.x, rect.y]);
   const fitSpring = useMemo(
     // the camera's feel, at a scale's precision (its rest threshold is for pixels)
     () => new Spring(view.fit, { ...presets.camera, restDelta: 0.0005, restSpeed: 0.0005 }),

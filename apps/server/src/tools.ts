@@ -11,6 +11,7 @@
  */
 
 import { queueHandoff } from "./vision.ts";
+import { plural } from "./words.ts";
 import { findImages, layOut } from "./construct.ts";
 import { READ_TOOLS, canWrite } from "./roles.ts";
 import { HttpError } from "./http.ts";
@@ -65,6 +66,8 @@ export interface ToolCtx {
    * (the built-in agent, MCP, a bearer token) is an agent.
    */
   person?: boolean;
+  /** the same, as origin/main's activity log said it ("human" is a person); kept so both callers agree */
+  role?: "human" | "agent";
 }
 
 /**
@@ -164,7 +167,7 @@ function touch(ctx: ToolCtx, objectId: string | undefined, text: string) {
     editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: member.name, role: "agent", text, objectId, for: member.userName }));
     return;
   }
-  if (ctx.person) {
+  if (ctx.person || ctx.role === "human") {
     // a person's own call (a card's button, ⌘K): theirs in the log, and no agent ring
     editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: ctx.actor, role: "human", text, objectId }));
     return;
@@ -297,7 +300,7 @@ export const TOOLS: BoardTool[] = [
     write: true,
     run: async (ctx, i) => {
       const out = await layOut(ctx, i);
-      touch(ctx, out.section, `laid out “${i.title}” (${out.cards} cards)`);
+      touch(ctx, out.section, `laid out “${i.title}” (${plural(out.cards, "card")})`);
       return out;
     },
   }),
@@ -854,7 +857,7 @@ export const TOOLS: BoardTool[] = [
         setTableCells(doc, t.id, raw); // made with the table, in the same change (schema 5)
         return t;
       });
-      touch(ctx, table.id, `made table “${name}” (${rows.length} rows)`);
+      touch(ctx, table.id, `made table “${name}” (${plural(rows.length, "row")})`);
       return { id: table.id, cols: table.cols, rows: table.rows };
     },
   }),
@@ -898,10 +901,10 @@ export const TOOLS: BoardTool[] = [
         });
         return sorted.length;
       });
-      touch(ctx, undefined, `arranged ${n} cards in “${findSection(getBoard(ctx.boardId).doc, section)?.name ?? section}”`);
+      touch(ctx, undefined, `arranged ${plural(n, "card")} in “${findSection(getBoard(ctx.boardId).doc, section)?.name ?? section}”`);
       const member = crewMember(ctx.crew);
       if (member) aim(member, resolveTarget(ctx.boardId, section));
-      return `arranged ${n} cards`;
+      return `arranged ${plural(n, "card")}`;
     },
   }),
   def({

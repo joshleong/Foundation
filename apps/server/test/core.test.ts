@@ -17,7 +17,7 @@ process.env.FOUNDATION_ALLOWLIST = "@formindustries.com,josh.leong@gmail.com";
 const { run: runSql } = await import("../src/db.ts");
 runSql("insert or ignore into users (id, email, name, color, role, created_at) values (?, ?, ?, ?, 'member', ?)", "u", "u@formindustries.com", "Tester", "#325bb4", Date.now());
 const { cadHeaderText } = await import("../src/files.ts");
-const { parseRepo } = await import("../src/github.ts");
+const { matchRepos, parseRepo } = await import("../src/github.ts");
 const { isAllowed } = await import("../src/auth.ts");
 const { indexDoc } = await import("../src/db.ts");
 const { searchLocal } = await import("../src/search.ts");
@@ -66,4 +66,13 @@ test("deletes need confirm; request_id makes writes idempotent", async () => {
   assert.ok(boardMaps(board.doc).objects.has(a.id));
   await runTool(ctx, "delete_card", { id: a.id, confirm: true });
   assert.ok(!boardMaps(board.doc).objects.has(a.id));
+});
+
+test("repo search stays inside the company's repos: every word, name hits first", () => {
+  const repo = (fullName: string, description: string | null = null) => ({ fullName, url: "", description, homepage: null, defaultBranch: "main", pushedAt: "", language: null, private: true });
+  const mine = [repo("formindustries/bomform", "BOMs and the supply chain"), repo("formindustries/supply-chain"), repo("joshleong/Foundation", "The company brain")];
+  assert.deepEqual(matchRepos(mine, "supply").map((r) => r.fullName), ["formindustries/supply-chain", "formindustries/bomform"]);
+  assert.deepEqual(matchRepos(mine, "company brain").map((r) => r.fullName), ["joshleong/Foundation"]);
+  assert.deepEqual(matchRepos(mine, "fleetbase"), [], "a stranger's repo is never a hit");
+  assert.deepEqual(matchRepos(mine, "   "), []);
 });
