@@ -303,7 +303,7 @@
       "kind": "bug",
       "milestone": "vision",
       "area": "vision",
-      "status": "review",
+      "status": "needs-you",
       "body": "Built 2026-11-07 (`t3paths.ts`): Vision Code's CLI and store are found on Windows and Linux, overrides still win, and when nothing is found the side pane and the hand-off card list every path tried. On this machine it found `C:\\Dev\\Vision\\.tools\\code-server\t3.exe` and `%APPDATA%\\co.normallab.vision\\code` and read 4 threads. Left for a person: press Run on a hand-off card on Windows with Vision Code open, and approve the thread there.",
       "issue": 26
     },
@@ -668,6 +668,15 @@
       "issue": 62
     },
     {
+      "id": "october-grid-branch",
+      "title": "Port what's still missing from the October grid branch",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "grid",
+      "status": "backlog",
+      "body": "`feat/grid-interactions-and-persistence` (2026-10-04, merged into the upstream org repo, not into this one) was written on the app before the monorepo: multi-select and merging sections, dragging a card across sections, media ingest, local persistence, a voice command bar and sound effects (`src/sound/sfx.ts`). It can't be merged (different layout and store); compare it with today's app and port the parts that are still missing."
+    },
+    {
       "id": "codemirror-notes",
       "title": "Notes in CodeMirror with y-codemirror",
       "kind": "plan",
@@ -773,8 +782,8 @@
       "kind": "bug",
       "milestone": "polish",
       "area": "desktop",
-      "status": "review",
-      "body": "42 labels in 12 files say ⌘ where Windows takes Ctrl. Fixed on branch `fix/shortcut-labels` (\"Keys: ⌘ on a Mac, Ctrl on Windows and Linux\"); waiting to merge.",
+      "status": "done",
+      "body": "Merged 2026-11-08 (`fix/shortcut-labels`): labels print ⌘ on a Mac and Ctrl on Windows and Linux through `lib/keys.ts`; key chips never wrap.",
       "issue": 73
     },
     {
@@ -883,7 +892,7 @@
       "kind": "plan",
       "milestone": "polish",
       "area": "docs",
-      "status": "review",
+      "status": "done",
       "body": "`docs/plan.json` is the plan; `npm run plan:push` / `plan:pull` keep it and GitHub issues in step; Settings → Plan shows it as a board, and admins move cards there. SPEC §8 points here instead of a phase table. Built and checked in the browser; waiting on the first push to GitHub (see \"Turn on issues and push the plan to GitHub\").",
       "issue": 84
     }
