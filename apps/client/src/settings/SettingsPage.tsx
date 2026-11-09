@@ -49,8 +49,14 @@ export function SettingsPage({ route }: { route: string }) {
           ← Back to the board
         </a>
       </header>
-      {tab === "plan" ? <PlanTab /> : <ServicesTab />}
-      <UpdatesSection />
+      {tab === "plan" ? (
+        <PlanTab />
+      ) : (
+        <>
+          <ServicesTab />
+          <UpdatesSection />
+        </>
+      )}
     </div>
   );
 }
