@@ -2713,6 +2713,40 @@ body.is-connecting .port-in.is-snap {
   height: 120px;
   background: linear-gradient(135deg, var(--viz-3), var(--viz-5));
 }
+/* #/design → Key labels: both platforms' chips, then the section welcome at 260 / 400 / 560 */
+.keys-table {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+.keys-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+.keys-os {
+  width: 150px;
+  color: var(--color-mist);
+  font: 600 var(--text-12) / 1 var(--font-sans);
+}
+.keys-here {
+  color: var(--color-dim);
+  font-weight: 400;
+}
+.f-tip.keys-tip {
+  position: static;
+}
+.keys-sections + .keys-sections {
+  margin-top: var(--space-5);
+}
+.keys-section {
+  position: relative;
+  background: color-mix(in srgb, var(--color-raise) 72%, transparent);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pane);
+}
 .adapt-row {
   display: flex;
   gap: var(--space-5);

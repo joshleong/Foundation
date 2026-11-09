@@ -5,7 +5,7 @@
  * right — then the layers above: the agent layer, ⌘K, presentation mode, the
  * repo drawer and toasts.
  *
- * Keys: ⌘K commands · ⌘F search · ⌘\ side pane · ⌘J new agent session · ⌘1 the board ·
+ * Keys (⌘ is Ctrl off a Mac, and lib/keys.ts labels it so): ⌘K commands · ⌘F search · ⌘\ side pane · ⌘J new agent session · ⌘1 the board ·
  * ⌘2…9 tabs · ⌘W close the tab · A agent layer · P present · ⌘U upload ·
  * Esc releases an engaged app (then steps up the grid's levels).
  */

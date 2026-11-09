@@ -224,9 +224,12 @@ html .f-day {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   min-width: 18px;
   height: 18px;
   padding: 0 4px;
+  /* one line on every platform: "Ctrl+Enter" is wider than "⌘↵" and must not wrap or squeeze */
+  white-space: nowrap;
   border-radius: var(--radius-paper);
   border: 1px solid var(--color-line);
   background: var(--color-abyss);

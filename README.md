@@ -35,7 +35,7 @@ npm run desktop        # the server + the desktop window (needs Rust; see below)
    npm install
    npm run dev
    ```
-   Open http://localhost:1430. Sign in with Google, or with your name and an allowlisted email (`.env` sets `FOUNDATION_ALLOWLIST`). Every ⌘ shortcut is Ctrl on Windows.
+   Open http://localhost:1430. Sign in with Google, or with your name and an allowlisted email (`.env` sets `FOUNDATION_ALLOWLIST`). Every ⌘ shortcut is Ctrl on Windows and Linux, and the app labels it that way there.
 3. **The desktop window** also needs the Tauri toolchain: **Visual Studio Build Tools** with the *Desktop development with C++* workload, **Rust** from rustup.rs (the default MSVC toolchain), and **WebView2** (already on Windows 10 and 11). Then `npm run desktop`. The first build compiles the Rust side, which takes a few minutes.
    **An installer:** `npm run tauri build` writes `apps/client/src-tauri/target/release/bundle/nsis/Foundation_<version>_x64-setup.exe` (and an `.msi`). The installed app is a window onto a Foundation server at http://localhost:4410, so run `npm run dev:server` beside it. It serves its own page from http://localhost:31440, which makes that server the same site, so the sign-in cookie and live sync work, and boards opened before still open when the server is down. To point a build elsewhere, edit `apps/client/.env.desktop`.
 4. **The agent** runs on Claude Code: install it with Anthropic's native Windows installer so `claude.exe` is on your PATH (an npm-installed `claude.cmd` can't be started without a shell; point `FOUNDATION_CLAUDE_CLI` at a `claude.exe` instead), or set `ANTHROPIC_API_KEY` for the API runtime.
@@ -45,6 +45,8 @@ Vision Code hand-offs look for Vision on macOS paths, and the reverse-engineerin
 Connect Claude Code (or Codex) to a board: press **⌘K**, choose **Connect Claude Code**, and paste the command it copies.
 
 ## Keys
+
+⌘ is Ctrl on Windows and Linux, where the app shows its shortcuts as Ctrl+K, Ctrl+J and so on.
 
 | Key | Action |
 |---|---|

@@ -5,6 +5,7 @@
  * sources stream in after.
  */
 
+import { keys } from "../lib/keys";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import type { SearchHit } from "@foundation/protocol";
@@ -146,7 +147,7 @@ export function CommandBar() {
         { id: "rea", glyph: "⌬", label: `Reverse-engineer ${term}`, hint: "REA — queued, you press Run", run: () => askAgent(`Reverse-engineer ${normalizeUrl(term)} — map how it works and what we could reuse.`) },
       );
     }
-    if (term) list.push({ id: "ask", glyph: "✦", label: `Ask the agent: “${term}”`, keys: "⌘↵", run: () => askAgent(term) });
+    if (term) list.push({ id: "ask", glyph: "✦", label: `Ask the agent: “${term}”`, keys: keys("mod+enter"), run: () => askAgent(term) });
     if (term && !looksLikeUrl(term))
       list.push({ id: "pipeline-named", glyph: "◆", label: `Start a design pipeline: “${term}”`, hint: "Brief → Concept → CAD → Simulate → Review → Release", run: () => startPipeline(term) });
     list.push(
@@ -253,7 +254,7 @@ export function CommandBar() {
                   </button>
                 ),
               )}
-              {q && !loading && hits.length === 0 && !looksLikeUrl(q) && <div className="cmd-empty">Nothing found yet — ⌘↵ asks the agent.</div>}
+              {q && !loading && hits.length === 0 && !looksLikeUrl(q) && <div className="cmd-empty">Nothing found yet — {keys("mod+enter")} asks the agent.</div>}
             </div>
           </motion.div>
         </motion.div>

@@ -6,6 +6,7 @@
  * Before you type, it shows this board's recent files and the known apps.
  */
 
+import { keys } from "../lib/keys";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SearchHit } from "@foundation/protocol";
 import { api, search } from "../lib/api";
@@ -110,7 +111,7 @@ function Pane() {
           onKeyDown={(e) => e.key === "Escape" && (q ? setQ("") : setUi({ search: false }))}
         />
         {loading && <span className="thinking-dots"><i /><i /><i /></span>}
-        <button className="top-btn" onClick={() => setUi({ search: false })} title="Close (⌘F)" aria-label="Close search">
+        <button className="top-btn" onClick={() => setUi({ search: false })} title={`Close (${keys("mod+F")})`} aria-label="Close search">
           ✕
         </button>
       </header>

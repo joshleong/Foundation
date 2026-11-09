@@ -1,3 +1,4 @@
+import { keys } from "../lib/keys";
 import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
@@ -430,11 +431,11 @@ export const SectionView = memo(function SectionView({
               tool("Open an app or link", "◳", () => {
                 setActiveSection(section.id);
                 setUi({ command: true });
-              }, "", "⌘L")}
+              }, "", keys("mod+L"))}
             {tool("Add a table", "⊞", () => createTable(section.id))}
             {tool("Add a map", "◍", () => createMap(section.id))}
             {tool("Add a note", "▤", () => addNote(section.id))}
-            {tool("Upload an image or video", "⇪", () => fileRef.current?.click(), "", "⌘U")}
+            {tool("Upload an image or video", "⇪", () => fileRef.current?.click(), "", keys("mod+U"))}
           </div>
           <div className="sec-group">
             {tool("Split into two columns", "◫", () => splitSection(section.id, "h"))}
@@ -447,8 +448,8 @@ export const SectionView = memo(function SectionView({
           </div>
           <div className="sec-group">
             {host
-              ? tool(`Ask the agent about ${host.name}`, "✦", () => askAgent(`About “${host.name}”: `), "sec-agent", "⌘J")
-              : tool("Ask the agent about this section", "✦", () => askAgent(`In the “${section.name}” section: `), "sec-agent", "⌘J")}
+              ? tool(`Ask the agent about ${host.name}`, "✦", () => askAgent(`About “${host.name}”: `), "sec-agent", keys("mod+J"))
+              : tool("Ask the agent about this section", "✦", () => askAgent(`In the “${section.name}” section: `), "sec-agent", keys("mod+J"))}
             {canRemove && tool("Remove this section…", "✕", () => setConfirming(true), "sec-remove")}
           </div>
         </div>
