@@ -2,7 +2,7 @@
 
 > The company brain of Form Industries: one shared grid where people, the apps we build, and the agents that work with us meet. This document is the plan every session (human or agent) builds from. **DESIGN.md** is its visual contract. Status is honest: _done_ means it ran and was checked; _partial_ and _stub_ say what's missing.
 
-Last updated 2026-11-09 · **0.2.0** (0.3.0 being cut: `docs/blog/0.3.0.md`) · branch `main` · evidence in `docs/evidence/` (latest: `2026-11-09_polish/`) · release notes in `docs/blog/` and Settings → Releases · **the plan is a kanban board**: `docs/plan.json`, GitHub issues, and Settings → Plan in the app (§8)
+Last updated 2026-11-09 · **0.3.0** (`docs/blog/0.3.0.md`; the desktop app updates itself from here on) · branch `main` · evidence in `docs/evidence/` (latest: `2026-11-09_polish/`) · release notes in `docs/blog/` and Settings → Releases · **the plan is a kanban board**: `docs/plan.json`, GitHub issues, and Settings → Plan in the app (§8)
 
 ---
 
