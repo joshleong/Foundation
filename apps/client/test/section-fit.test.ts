@@ -16,10 +16,18 @@ import {
   getState,
   objectWorldRect,
   sectionBaseRect,
+  cubicBezier,
   sectionCardRect,
   sectionFlow,
+  sectionRestRect,
+  setSectionClock,
+  startSectionEase,
   type NoteMeta,
 } from "../src/state/store";
+
+// the section ease runs on a clock the tests turn by hand
+let now = 0;
+setSectionClock(() => now);
 
 const note = (i: number): NoteMeta => ({ id: `n${i}`, sectionId: "S", name: `n${i}`, x: 0, y: 0, float: false, bornAt: i, w: 420, h: 300, text: "" });
 const load = (count: number) =>
@@ -78,14 +86,36 @@ test("expanded: its own width, full size, and the section grows to hold it all; 
   assert.deepEqual(sectionCardRect(getState().grid, getState().sections.S), base);
 });
 
-test("an expanded section: wires between the sections that stepped back fade with them", async () => {
-  const { wireBackstage, getState: st } = await import("../src/state/store");
-  load(2);
-  const base = st();
-  assert.equal(wireBackstage(base, "A", "B"), false, "nothing is open");
-  const open = { ...base, expandedSection: "S" };
-  assert.equal(wireBackstage(open, "A", "B"), true, "neither end is in the open section");
-  assert.equal(wireBackstage(open, "S", "B"), false, "a wire out of the open section stays");
-  assert.equal(wireBackstage(open, "A", "S"), false, "a wire into it stays");
-  assert.equal(wireBackstage({ ...base, expandedSection: "gone" }, "A", "B"), false, "a section that no longer exists opens nothing");
+test("the CSS curve, in numbers: cubic-bezier as the browser draws it", () => {
+  const ease = cubicBezier(0.25, 0.1, 0.25, 1); // CSS `ease`
+  assert.equal(ease(0), 0);
+  assert.equal(ease(1), 1);
+  assert.ok(Math.abs(ease(0.5) - 0.8024) < 1e-3, `ease(0.5) = ${ease(0.5)}`);
+  const settle = cubicBezier(0.22, 1.3, 0.36, 1); // --ease-settle overshoots a little, then settles
+  const peak = Math.max(...Array.from({ length: 99 }, (_, i) => settle((i + 1) / 100)));
+  assert.ok(peak > 1 && peak < 1.12, `overshoot ${peak}`);
+});
+
+test("opening a section: its rect eases with the card, so wires travel with it instead of jumping", () => {
+  load(80);
+  const S = () => getState().sections.S;
+  const base = sectionBaseRect(getState().grid, S());
+  expandSection("S");
+  // SectionView starts the ease as the new size lands in the DOM, from where the card was drawn
+  startSectionEase("S", base);
+  const open = sectionRestRect(getState().grid, S());
+  assert.ok(open.h > base.h + 100, "it has somewhere to grow to");
+  // at the press: still where it was
+  assert.deepEqual(sectionCardRect(getState().grid, S()), base);
+  // part way: between the two, growing from its corner
+  now += 150;
+  const mid = sectionCardRect(getState().grid, S());
+  assert.equal(mid.x, base.x);
+  assert.ok(mid.h > base.h && mid.h < open.h * 1.12, `mid ${mid.h} between ${base.h} and ${open.h}`);
+  // closing mid-ease starts from where it was drawn then
+  expandSection(null);
+  startSectionEase("S", mid);
+  assert.deepEqual(sectionCardRect(getState().grid, S()), mid);
+  now += 600;
+  assert.deepEqual(sectionCardRect(getState().grid, S()), base);
 });
