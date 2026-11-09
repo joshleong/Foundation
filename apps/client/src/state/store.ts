@@ -265,6 +265,15 @@ export function sectionFit(sectionId: string): number {
   return liveFit.get(sectionId) ?? sectionFlow(sectionId).fit;
 }
 
+/**
+ * The scale a card is drawn at, at rest: the camera's zoom times its section's
+ * fit (none for a hosted app, which fills its section). Live pages run only
+ * when this is big enough (PanelView's useOnScreen).
+ */
+export function drawnScale(zoom: number, sectionId: string | null | undefined): number {
+  return zoom * (sectionId ? sectionFlow(sectionId).fit : 1);
+}
+
 /** live (mid-spring) section fits, written by SectionView */
 export const liveFit = new Map<string, number>();
 
@@ -629,6 +638,7 @@ export function useObjectSetVersion(): string {
   });
 }
 
+/** the whole store: renders on every change. Board-wide layers read a slice instead (state/slices.ts) */
 export function useAppState(): AppState {
   return useSyncExternalStore(subscribe, getState);
 }

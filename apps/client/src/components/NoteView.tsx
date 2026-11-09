@@ -11,6 +11,7 @@ import { getUi, toast } from "../state/ui";
 import { openExternal } from "../utils/media";
 import { ObjectFrame } from "./ObjectFrame";
 import type { CaretSource, NoteEditorHandle } from "./noteEditor";
+import { countRender } from "../state/renders";
 
 interface Props {
   note: NoteMeta;
@@ -50,6 +51,7 @@ function warmNoteEditor() {
  * your own typing. Esc or clicking away goes back to the rendered note.
  */
 export const NoteView = memo(function NoteView({ note, pos, isActive, getScale }: Props) {
+  countRender("NoteView");
   const [editing, setEditing] = useState(false);
   const carets = useNoteCarets(note.id, note.text);
   useEffect(() => {

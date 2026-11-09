@@ -652,8 +652,8 @@
       "kind": "bug",
       "milestone": "polish",
       "area": "panels",
-      "status": "backlog",
-      "body": "Frames mount when on screen and the camera's zoom is ≥ 0.3 (`useOnScreen`), whatever the section's fit. So a page fitted to 27 % in a section at 100 % zoom mounts at an effective 27 % (costly, unreadable), while one reported on the crowded company board stayed a poster (not reproduced: likely the board was zoomed out below 0.3). Decide the rule on the effective scale (zoom × fit) and reproduce the report first.",
+      "status": "done",
+      "body": "Live bodies mount when drawn at their line or more: zoom × the section's fit (`store.drawnScale`), checked at mount too (it used to start live until the camera moved). A page fitted to 49 % at zoom 0.52 is a poster now, and live from zoom ≈ 0.62 (2026-11-08, `e2e/fitted-frames.spec.ts`). The company-board report wasn't reproduced (its data isn't on this machine); under the new rule a page fitted to 27 % stays a poster below zoom 1.1.",
       "issue": 60
     },
     {
@@ -702,8 +702,8 @@
       "kind": "bug",
       "milestone": "polish",
       "area": "perf",
-      "status": "backlog",
-      "body": "They render on every change on a big board. Narrow them the way `useSection` did.",
+      "status": "done",
+      "body": "GridViewport, WireLayer, the agent layer (PortWires), maps and presentation mode read slices of the store (`state/slices.ts`), and your own pointer no longer re-renders presence views. Typing 30 characters used to render all five layers 30 times each; now only the note and its section render. A drag no longer renders the agent layer about once per pointer move (2026-11-08, `e2e/renders.spec.ts`, `docs/evidence/2026-11-08_narrow-subscribers/`).",
       "issue": 64
     },
     {

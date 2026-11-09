@@ -13,14 +13,14 @@
 import { CadPreview } from "../cad/CadPreview";
 import { MODEL_EXT } from "../cad/model";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { isHosted, MINI_HEADER, emitPort, getState, inputValue, movePanel, removePanel, requestSnap, resizePanel, sectionBodyRect, updatePanel, usePanel, type PanelMeta } from "../state/store";
+import { drawnScale, isHosted, MINI_HEADER, emitPort, getState, subscribe, inputValue, movePanel, removePanel, requestSnap, resizePanel, sectionBodyRect, updatePanel, usePanel, type PanelMeta } from "../state/store";
 import { ObjectFrame } from "../components/ObjectFrame";
 import { beginConnect, beginDetach, usePortLayout } from "../shell/AgentLayer";
 import { describeValue, landingsOf, toneOf } from "../shell/ports";
 import { api, fetchFile, uploadFile } from "../lib/api";
 import { fileLink, useFileSrc } from "../lib/fileSrc";
 import { askAgent, setUi, toast, useUi } from "../state/ui";
-import { onCamera } from "../state/camera";
+import { camera, onCamera } from "../state/camera";
 import { activeBoard } from "../sync/board";
 import { StageBody } from "./StageView";
 import { onConnectorChange } from "../lib/connectorEvents";
@@ -28,6 +28,7 @@ import { HuddleBody } from "./HuddleView";
 import { SlackBody } from "./SlackView";
 import { MachineBody, machineAction } from "./MachineView";
 import { machinePage, type FromMachine, type MachinePage } from "./machinePage";
+import { countRender } from "../state/renders";
 
 interface Props {
   panel: PanelMeta;
@@ -53,6 +54,7 @@ const GLYPH: Record<PanelMeta["panel"], string> = {
 };
 
 export const PanelView = memo(function PanelView({ panel, pos, isActive, getScale, hosted }: Props) {
+  countRender("PanelView");
   const ui = useUi();
   const layout = usePortLayout(panel);
   const ports = (
@@ -227,18 +229,34 @@ export { GLYPH as PANEL_GLYPH };
 
 // ---------- live frames (apps, links, machines) ----------
 
+/**
+ * Whether a live body runs: on screen (with 200 px to spare) and drawn at
+ * minScale or more. Drawn means the camera's zoom times its section's fit
+ * (store.drawnScale): a page fitted to 40 % at zoom 0.5 is drawn at 20 %, a
+ * poster. Checked when it mounts, as the camera moves and as the fit changes.
+ */
 export function useOnScreen(ref: React.RefObject<HTMLElement | null>, minScale = 0.3) {
   const [visible, setVisible] = useState(false);
-  const [bigEnough, setBigEnough] = useState(true);
+  const [bigEnough, setBigEnough] = useState(false);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     const io = new IntersectionObserver(([e]) => setVisible(e.isIntersecting), { rootMargin: "200px" });
     io.observe(el);
-    const off = onCamera((c) => setBigEnough(c.scale >= minScale));
+    // fitted when it's in a section's flow; a hosted app fills its section at full size
+    const section = el.closest(".section-content") ? (el.closest<HTMLElement>("[data-section-id]")?.dataset.sectionId ?? null) : null;
+    let zoom = camera.scale;
+    const check = () => setBigEnough(drawnScale(zoom, section) >= minScale);
+    check();
+    const off = onCamera((c) => {
+      zoom = c.scale;
+      check();
+    });
+    const offFit = section ? subscribe(check) : () => {};
     return () => {
       io.disconnect();
       off();
+      offFit();
     };
   }, [ref, minScale]);
   return visible && bigEnough;

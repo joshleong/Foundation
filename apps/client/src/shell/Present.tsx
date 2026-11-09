@@ -10,10 +10,12 @@
  * --ease-out-soft, words staggered 40 ms.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { getState, objectsInSection, requestSnap, useAppState, type Section } from "../state/store";
+import { getState, objectsInSection, requestSnap, subscribe, type Section } from "../state/store";
+import { useStoreSlice } from "../state/slices";
 import { setUi, useUi } from "../state/ui";
+import { countRender } from "../state/renders";
 
 const SLIDE_W = 200;
 const GAP = 18;
@@ -24,10 +26,16 @@ function orderSections(sections: Record<string, Section>) {
   return Object.values(sections).sort((a, b) => a.r0 - b.r0 || a.c0 - b.c0);
 }
 
+const noCounts = () => "";
+const presentCounts = () => Object.keys(getState().sections).map((id) => objectsInSection(id).length).join(",");
+
 export function Present() {
+  countRender("Present");
   const ui = useUi();
-  const state = useAppState();
-  const slides = useMemo(() => orderSections(state.sections), [state.sections]);
+  const sections = useSyncExternalStore(subscribe, () => getState().sections);
+  // the slides' card counts, only while presenting (each is drawn on its slide)
+  useStoreSlice(ui.presenting ? presentCounts : noCounts);
+  const slides = useMemo(() => orderSections(sections), [sections]);
   const n = slides.length;
   const [index, setIndex] = useState(0);
   const strip = useRef<HTMLDivElement>(null);

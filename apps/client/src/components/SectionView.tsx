@@ -51,6 +51,7 @@ import { openContextMenu, type MenuItem } from "./ContextMenu";
 import { api } from "../lib/api";
 import { activeBoard } from "../sync/board";
 import { toast } from "../state/ui";
+import { countRender } from "../state/renders";
 
 interface Props {
   section: Section;
@@ -69,6 +70,7 @@ export const SectionView = memo(function SectionView({
   getScale,
   zoomSpring,
 }: Props) {
+  countRender("SectionView");
   const view = useSection(section.id);
   const cardRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);

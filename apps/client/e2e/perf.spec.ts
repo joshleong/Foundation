@@ -8,7 +8,7 @@ import { test, expect } from "@playwright/test";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { CLIENT, person, settle } from "./helpers";
 
-const OUT = "../../docs/evidence/2026-11-03_perf";
+const OUT = process.env.PERF_OUT ?? "../../docs/evidence/2026-11-03_perf";
 
 test("pan, zoom and drag on 200 cards and 20 live frames", async ({ browser }) => {
   test.setTimeout(240_000);
@@ -53,18 +53,20 @@ test("pan, zoom and drag on 200 cards and 20 live frames", async ({ browser }) =
       w.__frames = [];
       w.__long = 0;
       w.__rec = true;
+      const renders = (window as unknown as { __renders?: Record<string, number> }).__renders ?? {};
+      for (const k of Object.keys(renders)) delete renders[k];
     });
     await act();
     const r = await page.evaluate(() => {
       const w = window as unknown as { __frames: number[]; __long: number; __rec: boolean };
       w.__rec = false;
-      return { frames: w.__frames.slice(1), long: w.__long };
+      return { frames: w.__frames.slice(1), long: w.__long, renders: { ...((window as unknown as { __renders?: Record<string, number> }).__renders ?? {}) } };
     });
     const f = [...r.frames].sort((a, b) => a - b);
     const q = (p: number) => Math.round(f[Math.min(f.length - 1, Math.floor(p * f.length))] * 10) / 10;
     const live = await page.evaluate(() => document.querySelectorAll("iframe").length);
 
-    return { label, frames: f.length, p50: q(0.5), p95: q(0.95), max: q(1), over33: f.filter((x) => x > 33.4).length, longTasks: r.long, liveFramesMounted: live };
+    return { label, frames: f.length, p50: q(0.5), p95: q(0.95), max: q(1), over33: f.filter((x) => x > 33.4).length, longTasks: r.long, liveFramesMounted: live, renders: r.renders };
   };
 
   const browserHandle = context.browser()!;
