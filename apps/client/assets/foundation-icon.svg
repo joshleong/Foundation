@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Foundation: an F laid in masonry</title>
+  <g fill="#325bb4">
+    <rect x="200" y="128" width="392" height="176" rx="12"/>
+    <rect x="636" y="128" width="188" height="176" rx="12"/>
+    <rect x="200" y="348" width="248" height="240" rx="12"/>
+    <rect x="492" y="436" width="232" height="152" rx="12"/>
+    <rect x="200" y="632" width="248" height="264" rx="12"/>
+  </g>
+</svg>

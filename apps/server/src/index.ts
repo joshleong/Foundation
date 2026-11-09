@@ -30,7 +30,7 @@ import { handleUpgrade, issueTicket } from "./sockets.ts";
 import { runTool, TOOLS } from "./tools.ts";
 import { handleMcp } from "./mcp.ts";
 import { seedCompanyBoard } from "./seed.ts";
-import { addLine, attachRecording, huddleArchive, transcriptText } from "./huddles.ts";
+import { addLine, attachRecording, huddleArchive, huddleArriving, transcriptText } from "./huddles.ts";
 import { boardLink, channelHistory, channelInfo, inviteText, listChannels, postMessage, shareText, SlackError, slackStatus } from "./slack.ts";
 import { appendSection, boardMaps, huddleStateOf } from "@foundation/protocol";
 import { migrateAllBoards } from "./migrate.ts";
@@ -335,7 +335,10 @@ r.post("/api/slack/channels/:id/invite", async (req) => {
   const u = requireUser(req);
   const b = await readJson<{ board?: string; huddleId?: string }>(req);
   const board = b.board ?? "company";
-  const h = huddleOn(board, b.huddleId ?? "");
+  requireBoard(u, board);
+  // a huddle made for this invite may still be on its way over the sync socket
+  const h = await huddleArriving(board, b.huddleId ?? "");
+  if (!h) throw new HttpError(404, "no such huddle");
   const text = inviteText({ by: u.name, board, huddleId: h.id, huddleName: h.name, live: huddleStateOf(getBoard(board).doc, h.id)?.people ?? [] });
   return slackDo(async () => ({ ...(await postMessage(req.params.id, text, u, { board, huddle: h.id })), url: boardLink(board, h.id) }));
 });

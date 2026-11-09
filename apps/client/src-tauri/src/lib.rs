@@ -20,7 +20,42 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 /// port range for Hyper-V and WSL at boot (bind fails with WSAEACCES), and that range
 /// is 49152+ by default but 1024–15000 on some machines; Linux and macOS hand out
 /// ephemeral ports from 32768 and 49152.
-const PORT: u16 = 31440;
+/// `FOUNDATION_DESKTOP_PORT` at build time moves it, for a check build installed beside
+/// the real app (its own origin, so its own offline copies); release builds never set it.
+const PORT: u16 = match option_env!("FOUNDATION_DESKTOP_PORT") {
+    Some(p) => parse_port(p),
+    None => 31440,
+};
+
+const fn parse_port(s: &str) -> u16 {
+    let b = s.as_bytes();
+    let mut i = 0;
+    let mut n: u32 = 0;
+    while i < b.len() {
+        assert!(b[i] >= b'0' && b[i] <= b'9', "FOUNDATION_DESKTOP_PORT must be a number");
+        n = n * 10 + (b[i] - b'0') as u32;
+        i += 1;
+    }
+    assert!(n > 0 && n < 65536, "FOUNDATION_DESKTOP_PORT must be a port");
+    n as u16
+}
+
+/// Whether nothing else serves http://localhost:PORT. "localhost" can mean 127.0.0.1 or
+/// ::1, and a server on one family doesn't stop a bind on the other: the window would
+/// then load whichever the WebView resolves first, which can be another app's page (an
+/// installed Foundation of another version did exactly that, 2026-11-08). So both must
+/// be free; a family this computer doesn't have (no IPv6) doesn't count against it.
+fn port_free(port: u16) -> bool {
+    use std::io::ErrorKind::{AddrInUse, PermissionDenied};
+    for host in ["127.0.0.1", "::1"] {
+        if let Err(e) = TcpListener::bind((host, port)) {
+            if matches!(e.kind(), AddrInUse | PermissionDenied) {
+                return false;
+            }
+        }
+    }
+    true
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -34,9 +69,12 @@ pub fn run() {
                 let _ = w.set_focus();
             }
         }))
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        // updates (SPEC: Desktop updates): the page asks the signed feed and a person presses Update
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
     // the plugin's server panics on its own thread if it can't bind; check first and say why instead
-    let port_free = dev || TcpListener::bind(("localhost", PORT)).is_ok();
+    let port_free = dev || port_free(PORT);
     if !dev && port_free {
         builder = builder.plugin(tauri_plugin_localhost::Builder::new(PORT).build());
     }

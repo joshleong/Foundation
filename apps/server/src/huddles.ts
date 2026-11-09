@@ -318,3 +318,31 @@ export function huddleRoster(boardId: string, huddleId: string) {
   const room = rooms.get(`${boardId}/${huddleId}`);
   return room ? [...room.conns.values()].map((c) => ({ id: c.id, name: c.user.name, sending: c.sending })) : [];
 }
+
+/**
+ * The huddle card `id` on a board, waiting up to `ms` for it to arrive. A person who invites a channel
+ * to a brand-new huddle sends the card over the sync socket and the invite over HTTP at the same
+ * moment, so the invite can reach the server first; it waits for the card instead of the page
+ * guessing how long sync takes. Null when no such huddle turns up.
+ */
+export async function huddleArriving(boardId: string, id: string, ms = 3000): Promise<PanelDoc | null> {
+  const objects = boardMaps(getBoard(boardId).doc).objects;
+  const isHuddle = () => {
+    const o = objects.get(id);
+    return o && o.kind === "panel" && o.panel === "huddle" ? (o as PanelDoc) : null;
+  };
+  const now = isHuddle();
+  if (now || ms <= 0) return now;
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      objects.unobserve(watch);
+      resolve(isHuddle());
+    };
+    const watch = (e: { keysChanged: Set<string> }) => {
+      if (e.keysChanged.has(id) && isHuddle()) done();
+    };
+    const timer = setTimeout(done, ms);
+    objects.observe(watch);
+  });
+}

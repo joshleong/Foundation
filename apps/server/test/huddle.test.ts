@@ -24,7 +24,7 @@ const { run: runSql } = await import("../src/db.ts");
 runSql("insert or ignore into users (id, email, name, color, role, created_at) values (?, ?, ?, ?, 'member', ?)", "u0", "u0@formindustries.com", "Tester", "#325bb4", Date.now());
 const { getBoard, editBoard, closeBoards } = await import("../src/boards.ts");
 const { migrateBoard, huddleStateToMap } = await import("../src/migrate.ts");
-const { attachHuddle, addLine, attachRecording, huddleArchive, huddleRoster, transcriptText } = await import("../src/huddles.ts");
+const { attachHuddle, addLine, attachRecording, huddleArchive, huddleArriving, huddleRoster, transcriptText } = await import("../src/huddles.ts");
 const { runTool } = await import("../src/tools.ts");
 const { searchLocal } = await import("../src/search.ts");
 const { run } = await import("../src/db.ts");
@@ -405,4 +405,22 @@ test("Slack: read a channel, post as a person, share a board place, invite to a 
   assert.deepEqual([card.panel, card.name, card.channel], ["slack", "#design", "C0DESIGN1"]);
   assert.match(String(await runTool(ctx, "slack_read", { channel: "C0DESIGN1" })), /Kai: morning/);
   await assert.rejects(runTool(ctx, "add_slack_channel", { channel: "#nope" }), /no Slack channel/);
+});
+
+test("an invite to a brand-new huddle waits for its card to arrive, and no longer", async () => {
+  const doc = getBoard(BOARD).doc;
+  const sec = [...boardMaps(doc).sections.keys()][0];
+  // the card lands 120 ms after the invite asks for it (it was on its way over the sync socket)
+  setTimeout(() => {
+    doc.transact(() => boardMaps(doc).objects.set("pnl_fresh", { kind: "panel", panel: "huddle", id: "pnl_fresh", sectionId: sec, name: "Huddle · #design", x: 0, y: 0, w: 560, h: 420 } as never));
+  }, 120);
+  const t0 = Date.now();
+  const h = await huddleArriving(BOARD, "pnl_fresh", 3000);
+  assert.equal(h?.name, "Huddle · #design");
+  assert.ok(Date.now() - t0 < 1000, "it answered when the card arrived, not at the timeout");
+  // a card that isn't a huddle, or never comes, is no huddle
+  const t1 = Date.now();
+  assert.equal(await huddleArriving(BOARD, "pnl_never", 150), null);
+  assert.ok(Date.now() - t1 >= 140);
+  assert.ok(await huddleArriving(BOARD, "pnl_fresh", 0), "one already there answers at once");
 });
