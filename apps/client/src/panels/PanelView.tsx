@@ -27,6 +27,8 @@ import { HuddleBody } from "./HuddleView";
 import { SlackBody } from "./SlackView";
 import { MachineBody, machineAction } from "./MachineView";
 import { machinePage, type FromMachine, type MachinePage } from "./machinePage";
+import { sandboxFor } from "./frameSandbox";
+import { SERVER as FOUNDATION_SERVER } from "../lib/api";
 
 interface Props {
   panel: PanelMeta;
@@ -340,7 +342,8 @@ function LiveFrame({ panel }: { panel: PanelMeta }) {
           loading="lazy"
           onLoad={() => setLoaded(true)}
           allow="clipboard-read; clipboard-write; fullscreen; camera; microphone"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
+          // our own pages can't lift their sandbox; others keep their origin (frameSandbox.ts, #80)
+          sandbox={sandboxFor(url!, [window.location.origin, FOUNDATION_SERVER || window.location.origin])}
         />
       )}
       {(!mount || !loaded) && (
