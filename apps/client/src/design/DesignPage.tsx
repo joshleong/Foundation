@@ -1202,7 +1202,8 @@ function WireDemo() {
 function AppSectionsDemo() {
   const A = { x: 10, y: 14, w: 110, h: 70 };
   const B = { x: 130, y: 14, w: 110, h: 70 };
-  const C = { x: 200, y: 120, w: 130, h: 70 };
+  // ends at 164, clear of the caption along the card's foot (as the Wires demo's cards do)
+  const C = { x: 200, y: 104, w: 130, h: 60 };
   const land = (r: typeof A, s: Side, at: number) =>
     s === "right" ? { x: r.x + r.w, y: at } : s === "left" ? { x: r.x, y: at } : s === "bottom" ? { x: at, y: r.y + r.h } : { x: at, y: r.y };
   const sab = sideToward(A, B, "right");
@@ -1211,7 +1212,7 @@ function AppSectionsDemo() {
   const sca = sideToward(C, A, "left");
   const ab = routeSides(land(A, sab, 50), sab, land(B, sba, 50), sba, { src: A, dst: B });
   const acFrom = land(A, sac, sac === "bottom" ? 60 : 64);
-  const acTo = land(C, sca, sca === "top" ? 290 : 160);
+  const acTo = land(C, sca, sca === "top" ? 290 : 134);
   const ac = routeSides(acFrom, sac, acTo, sca, { src: A, dst: C, obstacles: [B] });
   return (
     <svg viewBox="0 0 340 200" width="100%" height="200" className="wire-demo">

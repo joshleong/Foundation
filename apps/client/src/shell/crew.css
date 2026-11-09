@@ -430,6 +430,11 @@
   width: 520px;
   max-width: 100%;
 }
+/* the stills' captions sit under each still: an absolute label here had no box to hold it and
+   pinned itself to the window's bottom-left, over the page */
+.crew-demo-col > .effect-label {
+  position: static;
+}
 .talk-sheet.crew-demo-still {
   position: static;
   translate: none;
