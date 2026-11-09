@@ -202,3 +202,25 @@ test("bends are drawn round: an arc at each, kept within half of either run", ()
   assert.ok(Number(r) <= 2, `a 4 px run holds only a 2 px radius (got ${r})`);
   assert.equal(polyline([{ x: 0, y: 0 }, { x: 50, y: 0 }]), "M 0.0 0.0 L 50.0 0.0", "a straight wire has no arcs");
 });
+
+import { spreadOnEdge } from "../src/shell/ports.ts";
+
+test("landings on one edge keep a pitch apart and stay on the edge at both ends", () => {
+  // three wires wanting the far end of a 0..200 edge: they used to run past 200
+  const far = spreadOnEdge([195, 198, 200], 0, 200, 18);
+  assert.deepEqual(far, [164, 182, 200]);
+  // the near end too
+  assert.deepEqual(spreadOnEdge([0, 2, 4], 0, 200, 18), [0, 18, 36]);
+  // room enough: nothing moves
+  assert.deepEqual(spreadOnEdge([20, 100, 180], 0, 200, 18), [20, 100, 180]);
+  // a crowd in the middle spreads forward only as far as it must
+  assert.deepEqual(spreadOnEdge([100, 101], 0, 200, 18), [100, 118]);
+  // too many for the edge: they share it evenly, ends included
+  assert.deepEqual(spreadOnEdge([50, 50, 50, 50], 0, 30, 18), [0, 10, 20, 30]);
+  // every result is inside the edge and a pitch apart
+  const many = spreadOnEdge([10, 190, 191, 192, 193, 194], 0, 200, 18);
+  for (let i = 0; i < many.length; i++) {
+    assert.ok(many[i] >= 0 && many[i] <= 200);
+    if (i) assert.ok(many[i] - many[i - 1] >= 18 - 1e-9);
+  }
+});
