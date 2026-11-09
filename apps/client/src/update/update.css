@@ -4,7 +4,7 @@
 
 .update-shelf {
   position: fixed;
-  z-index: 130;
+  z-index: 110; /* over ⌘K (100), under the toast (120): DESIGN §8 */
   top: calc(var(--h-bar) + var(--space-3));
   right: var(--space-4);
   width: min(360px, calc(100vw - 2 * var(--space-4)));
