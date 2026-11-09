@@ -14,6 +14,7 @@ import { toWorld } from "../state/camera";
 import { addMedia, addNote, addPanel, getState, placeAtWorld, requestSnap, sectionAtWorld } from "../state/store";
 import { WIDTHS, setUi, toast, useUi } from "../state/ui";
 import { activeBoard } from "../sync/board";
+import { snippetHtml, snippetText } from "../lib/snippet";
 import { openHit, openUrlAsPanel } from "./CommandBar";
 import { FloorEdge } from "./FloorEdge";
 
@@ -141,7 +142,7 @@ function Pane() {
             <span className="search-row-glyph">{GLYPH[h.source]}</span>
             <span className="search-row-main">
               <span className="search-row-title">{h.title}</span>
-              {h.snippet && <span className="search-row-snip" dangerouslySetInnerHTML={{ __html: highlight(h.snippet) }} />}
+              {h.snippet && <span className="search-row-snip" dangerouslySetInnerHTML={{ __html: snippetHtml(h.snippet) }} />}
             </span>
             <span className="search-row-src">{h.source}</span>
           </Draggable>
@@ -152,10 +153,6 @@ function Pane() {
   );
 }
 
-function highlight(snippet: string) {
-  const esc = snippet.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return esc.replace(/«/g, "<mark>").replace(/»/g, "</mark>");
-}
 
 // ---------- drag a result onto the grid ----------
 
@@ -264,7 +261,7 @@ async function place(hit: SearchHit, wx: number, wy: number) {
   } else if (hit.url) {
     id = addPanel(sec.id, { panel: "link", name: hit.title, url: hit.url }, { focus: false }).id;
   } else {
-    id = addNote(sec.id, `## ${hit.title}\n\n${hit.snippet.replace(/[«»]/g, "")}`, { focus: false }).id;
+    id = addNote(sec.id, `## ${hit.title}\n\n${snippetText(hit.snippet)}`, { focus: false }).id;
   }
   if (id) placeAtWorld(id, wx, wy);
 }

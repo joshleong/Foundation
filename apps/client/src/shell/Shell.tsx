@@ -23,6 +23,7 @@ import { talkTyping, toggleTalk } from "./Talk";
 import { Present } from "./Present";
 import { RepoDrawer } from "./RepoDrawer";
 import { HuddlePip } from "./HuddlePip";
+import { UploadTray } from "./UploadTray";
 import { SidePane } from "./SidePane";
 import { api } from "../lib/api";
 import { ingest } from "../lib/ingest";
@@ -191,6 +192,7 @@ export function Shell({ user }: { user: UserInfo }) {
       <Present />
       <RepoDrawer />
       <HuddlePip />
+      <UploadTray />
       <Toast />
 
       <input

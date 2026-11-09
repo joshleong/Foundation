@@ -923,6 +923,15 @@
       "area": "desktop",
       "status": "done",
       "body": "apps/client/assets/foundation-icon.svg; the desktop icons and the browser tab use it."
+    },
+    {
+      "id": "files-search",
+      "title": "Search inside documents; paste, folders and one upload tray",
+      "kind": "plan",
+      "milestone": "search",
+      "area": "search",
+      "status": "done",
+      "body": "PDF, Word, PowerPoint, Excel and OpenDocument files are read after their upload answers (a worker thread, capped per file; unpdf for PDF, a built-in zip + XML reader for the rest), kept by content and put into search; older files are read at boot. ⌘K and the search pane show the matching words, marked. On the grid: paste files or a screenshot where the pointer is, drop whole folders (laid out as a group under a note naming them), and every upload goes through one glass tray (three at a time, Retry on failure). Checked: `test/files-text.test.ts` (9), `e2e/files.spec.ts` (4), `#/design` → Adding files, day and night (`docs/evidence/2026-11-08_files-search/`). Open: scanned PDFs (no OCR), legacy .doc/.ppt/.xls, a real OS folder drag (the e2e walks a stand-in entry tree)."
     }
   ]
 }
