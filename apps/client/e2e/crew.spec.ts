@@ -19,6 +19,8 @@ import { test, expect, type Page, type BrowserContext } from "@playwright/test";
 import { CLIENT, person, settle } from "./helpers";
 
 const SHOTS = "../../docs/evidence/2026-11-07_crew";
+/** 2026-11-08: helpers that see each other's work, and people's own edits in the log */
+const SHOTS2 = "../../docs/evidence/2026-11-08_crew-next";
 let ada: Page;
 let kai: Page;
 let adaCtx: BrowserContext;
@@ -271,6 +273,59 @@ test("Stop stops an agent; nothing is left behind", async () => {
   expect(await count(), "no more cards after Stop").toBe(tables);
   await expect(kai.locator(".crew-cursor")).toHaveCount(0, { timeout: 6000 });
   await expect(ada.locator(".crew-cursor")).toHaveCount(0, { timeout: 2000 });
+});
+
+test("two helpers see the lead's plan and each other's work: one supplier list, not two; Kai's own edit is his in the log", async () => {
+  await expect(ada.locator(".crew-cursor")).toHaveCount(0, { timeout: 15_000 });
+  await startLog(kai);
+  await willSay(ada, ["make a section called “Shared” with the parts, and get two helpers"]);
+  await ada.keyboard.down("Space");
+  await expect(ada.locator(".talk-heard")).toContainText("two helpers", { timeout: 4000 });
+  await ada.keyboard.up("Space");
+  const shared = await expect.poll(() => sectionId(kai, "Shared"), { timeout: 10_000 }).not.toBeNull().then(() => sectionId(kai, "Shared"));
+  await kai.evaluate((id) => (window as unknown as { __foundation: { setState(p: object): void } }).__foundation.setState({ snapRequest: { kind: "section", id, nonce: Math.random() } }), shared);
+  // the lead and both helpers come and go; the notes they leave say who made what
+  type Note = { name: string; sectionId: string; createdBy?: string };
+  const notes = () => kai.evaluate((id) => Object.values((window as unknown as { __foundation: { getState(): { notes: Record<string, Note> } } }).__foundation.getState().notes).filter((n) => n.sectionId === id).map((n) => ({ name: n.name, by: n.createdBy })), shared);
+  await expect.poll(async () => (await notes()).map((n) => n.name).sort().join(","), { timeout: 30_000 }).toBe("Lead times,Suppliers to call,What's here");
+  await expect(kai.locator(".crew-cursor")).toHaveCount(0, { timeout: 15_000 });
+  const made = await notes();
+  const names = (await kai.evaluate(() => (window as unknown as { __crewLog: { names: string[] } }).__crewLog.names)) as string[];
+  expect(names.length, `agents Kai saw: ${names}`).toBe(3);
+  const suppliers = made.filter((n) => n.name === "Suppliers to call");
+  const leadTimes = made.find((n) => n.name === "Lead times")!;
+  expect(suppliers.length, "one supplier list").toBe(1);
+  expect(leadTimes.by && leadTimes.by !== suppliers[0].by, "the second helper wrote the lead times").toBeTruthy();
+  // the second helper's note says it saw the first one's, and the lead's plan
+  const text = await kai.evaluate((n) => {
+    const b = (window as unknown as { __foundationBoard: () => { doc: { getMap(k: string): { get(id: string): { toString(): string } | undefined } } } }).__foundationBoard();
+    const st = (window as unknown as { __foundation: { getState(): { notes: Record<string, { id: string; name: string }> } } }).__foundation.getState();
+    const id = Object.values(st.notes).find((x) => x.name === n)!.id;
+    return b.doc.getMap("noteText").get(id)?.toString() ?? "";
+  }, "Lead times");
+  expect(text).toContain(`${suppliers[0].by} already wrote “Suppliers to call”`);
+  expect(text).toContain("plan: Shared: the parts on the board, with their data");
+  await settle(kai, 600);
+  await kai.screenshot({ path: `${SHOTS2}/20_two-helpers-one-list.png` });
+
+  // Kai renames the section by hand (his own sync socket): the board's activity says it was Kai, not an agent
+  await kai.evaluate((id) => {
+    const b = (window as unknown as { __foundationBoard: () => { doc: { transact(f: () => void): void; getMap(k: string): { get(id: string): object; set(id: string, v: object): void } } } }).__foundationBoard();
+    const secs = b.doc.getMap("sections");
+    b.doc.transact(() => secs.set(id, { ...(secs.get(id) as object), name: "Shared parts" }));
+  }, shared);
+  type Act = { who: string; role: string; text: string; for?: string };
+  const acts = () => ada.evaluate(() => (window as unknown as { __foundationBoard: () => { activity(): Act[] } }).__foundationBoard().activity());
+  await expect.poll(async () => (await acts()).some((a) => a.who === "Kai Test" && a.role === "human" && a.text === "renamed the section “Shared” to “Shared parts”"), { timeout: 8000 }).toBeTruthy();
+  const agentLines = (await acts()).filter((a) => a.role === "agent" && names.includes(a.who));
+  expect(new Set(agentLines.map((a) => a.who)).size, "each of the three signed its work").toBe(3);
+  expect(agentLines.every((a) => a.for === "Ada Test"), "every agent line says whom it worked for").toBeTruthy();
+  // Ada's side pane shows it
+  await ada.keyboard.press("Control+Backslash");
+  await expect(ada.locator(".activity-row").first()).toBeVisible({ timeout: 4000 });
+  await settle(ada, 700);
+  await ada.locator(".side-pane").screenshot({ path: `${SHOTS2}/21_activity-person-and-agents.png` });
+  await ada.keyboard.press("Control+Backslash");
 });
 
 test("the crew on #/design, day and night", async ({ browser }) => {

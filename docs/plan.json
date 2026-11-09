@@ -408,6 +408,15 @@
       "issue": 36
     },
     {
+      "id": "crew-shared-work",
+      "title": "Helpers see the lead's plan and each other's work",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "crew",
+      "status": "done",
+      "body": "Done 2026-11-08: a helper's brief carries the lead's plan (`set_plan`) and what the crew has made so far, and `crew_work` (read) keeps it current: the ask, the plan, each agent's state, sections and cards, finished helpers included. On the script runtime, a second helper saw the first one's “Suppliers to call” and wrote only the lead times (`crew.test.ts`, `e2e/crew.spec.ts`). Not yet seen with a real model."
+    },
+    {
       "id": "crew-spatial-voice",
       "title": "Spatial voice: ask the agent nearest your pointer",
       "kind": "plan",
@@ -553,8 +562,8 @@
       "kind": "plan",
       "milestone": "apps",
       "area": "machines",
-      "status": "backlog",
-      "body": "Agents can read a machine's last screen; let them propose a command that runs once a person approves it on the card.",
+      "status": "done",
+      "body": "Done 2026-11-08: `machine_run` asks to run one command in a running machine; the ask waits on the card (violet, Run / Decline) and only a person with edit rights, from a browser session, answers it. Run executes it through the Engine API (no TTY, under `timeout`) and the agent gets the output and exit code; declined, unanswered or withdrawn, nothing runs. The ask and its outcome land in activity. Checked against the stand-in engine and against Docker Desktop with three browsers (`docs/evidence/2026-11-08_crew-next/`).",
       "issue": 51
     },
     {
@@ -663,8 +672,8 @@
       "kind": "bug",
       "milestone": "company",
       "area": "company",
-      "status": "backlog",
-      "body": "`touch()` in `tools.ts` logs every tool call with role `agent`, including a person's HTTP call, so the daily digest counts people as agents. A person's own edits on the grid write no activity at all. Log the actor's real role, and log a person's structural edits (sections and cards added or removed).",
+      "status": "done",
+      "body": "Done 2026-11-08: the HTTP tools door acts as the person only from their browser (cookie, no bearer); a bearer is “Name's agent”, role agent. Every agent line says whom it worked for (`for`). A person's own grid edits (sections and cards added, removed, renamed, moved) are logged under their name from their sync socket, coalesced: one line per thing after a 2.5 s pause, a repeat replaces the line before it, three or more at once are one summary (`gridlog.ts`, `test/activity.test.ts`, `e2e/crew.spec.ts`).",
       "issue": 62
     },
     {

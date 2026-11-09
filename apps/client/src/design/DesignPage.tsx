@@ -17,6 +17,8 @@ import { tunnelGeometry } from "../shell/wireGeometry";
 import { PlanBoard } from "../settings/SettingsPage";
 import type { Plan } from "../settings/plan";
 import { SectionEmpty } from "../panels/SectionEmpty";
+import { MachineAskList } from "../panels/MachineView";
+import type { MachineAsk } from "@foundation/protocol";
 import { COMMANDS_GLYPH, IS_MAC, keys } from "../lib/keys";
 import * as Y from "yjs";
 import { loadNoteEditor } from "../components/NoteView";
@@ -609,7 +611,7 @@ export function DesignPage() {
         </div>
       </Section>
 
-      <Section title="Machines" note="A Linux machine or container in a section, on this computer's engine: Kiri or Docker (one wire, the Docker Engine API). The state pill leads: Running (green, breathing), Pulling and Starting (amber, with the engine's own progress), Stopped and Not started (grey), Error (red, in the engine's words), No engine (amber, a hatched well that says why). Kiri installed but asleep is not No engine: the tag says Kiri · asleep and Start wakes it first; a machine whose disk is on a sleeping Kiri is Out of reach (amber), never removed. Then the engine and its version, the image in code type, and published ports as pills that open the port as a page in the section. Start is the one blue action, and only a person presses it: an agent's proposal says so in violet. Running, the shared terminal fills the card (paper, ink, the tokens as its colours); viewers watch it under an amber View only tag. Remove asks twice. A page opened from a port follows its machine: while the machine isn't running the page's poster dims and the machine's state stands over it (the card's own pill, what happened in its words, Start it for a person and Show the machine), and it reloads by itself when the machine runs again; a removed machine, or a card taken off the board, says it's gone. Shown at 560, 400 and 260 px.">
+      <Section title="Machines" note="A Linux machine or container in a section, on this computer's engine: Kiri or Docker (one wire, the Docker Engine API). The state pill leads: Running (green, breathing), Pulling and Starting (amber, with the engine's own progress), Stopped and Not started (grey), Error (red, in the engine's words), No engine (amber, a hatched well that says why). Kiri installed but asleep is not No engine: the tag says Kiri · asleep and Start wakes it first; a machine whose disk is on a sleeping Kiri is Out of reach (amber), never removed. Then the engine and its version, the image in code type, and published ports as pills that open the port as a page in the section. Start is the one blue action, and only a person presses it: an agent's proposal says so in violet. Running, the shared terminal fills the card (paper, ink, the tokens as its colours); viewers watch it under an amber View only tag. Remove asks twice. A page opened from a port follows its machine: while the machine isn't running the page's poster dims and the machine's state stands over it (the card's own pill, what happened in its words, Start it for a person and Show the machine), and it reloads by itself when the machine runs again; a removed machine, or a card taken off the board, says it's gone. An agent's command (machine_run) waits on the card under the head: violet, the agent's name, the command in code type, its why, and the time left; Run is a person's blue go-ahead beside Decline, and a viewer sees who can answer instead. Running and answered asks shrink to a line (amber running, green exit 0, red otherwise, struck through when declined or unanswered) for two minutes. Shown at 560, 400 and 260 px.">
         <div className="adapt-row">
           <div className="frame-card live-specimen" style={{ width: 560, height: 320 }}>
             <div className="machine-body is-running">
@@ -675,6 +677,7 @@ export function DesignPage() {
             </div>
           </div>
         </div>
+        <MachineAsksDemo />
         <div className="adapt-row">
           <div className="frame-card live-specimen" style={{ width: 400, height: 220 }}>
             <div className="machine-body is-pulling">
@@ -834,6 +837,44 @@ export function DesignPage() {
 }
 
 /** the crew, laid out still: cursors on a card, the guide pill, the sheet listening and typing */
+/** an agent's command on a running machine's card: waiting for a person, then what became of it (560, 400 as a viewer, 260) */
+function MachineAsksDemo() {
+  const now = Date.now();
+  const waiting: MachineAsk = { id: "ask_demo1", command: "apt-get install -y python3-pip && pip install trimesh", why: "to read the STEP export and list its parts", by: "Kestrel", for: "Ada", state: "waiting", at: now - 20_000, expiresAt: now + 100_000 };
+  const answered: MachineAsk[] = [
+    { id: "ask_demo0", command: "uname -sm", by: "Kestrel", for: "Ada", state: "done", at: now - 90_000, decidedBy: "Ada", exitCode: 0, endedAt: now - 80_000 },
+    { id: "ask_demo2", command: "rm -rf /srv/cache", by: "Kestrel", for: "Ada", state: "declined", at: now - 60_000, decidedBy: "Kai", endedAt: now - 50_000 },
+  ];
+  const card = (width: number, height: number, asks: MachineAsk[], viewer = false) => (
+    <div className="frame-card live-specimen" style={{ width, height }}>
+      <div className="machine-body is-running">
+        <div className="machine-head">
+          <span className="machine-state is-ok">
+            <span className="f-dot is-ok is-live" />
+            Running
+          </span>
+          <span className="machine-engine">Kiri 0.9.0</span>
+          <code className="machine-image">ubuntu:24.04</code>
+        </div>
+        <MachineAskList asks={asks} viewer={viewer} now={now} />
+        <div className="machine-term-wrap">
+          <pre className="machine-term machine-term-specimen">
+            <span className="t-ok">build-box</span>:<span className="t-pulse">~</span># ls /srv{"\n"}cache exports{"\n"}
+            <span className="t-cursor"> </span>
+          </pre>
+        </div>
+      </div>
+    </div>
+  );
+  return (
+    <div className="adapt-row">
+      {card(560, 400, [...answered, waiting])}
+      {card(400, 360, [{ id: "ask_demo4", command: "python3 -m pip list", by: "Wren", for: "Kai", state: "running", at: now - 4_000, decidedBy: "Kai" }, waiting], true)}
+      {card(260, 300, [waiting])}
+    </div>
+  );
+}
+
 function CrewDemo() {
   const cursor = (name: string, hue: number, doing: string, x: number, y: number, extra = "", lead?: string) => (
     <div className={`crew-cursor is-placed${extra}`} style={{ transform: `translate3d(${x}px, ${y}px, 0)`, ["--crew" as string]: `var(--color-crew-${hue})` }}>

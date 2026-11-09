@@ -36,6 +36,7 @@ import {
   type Port,
 } from "@foundation/protocol";
 import { editBoard, getBoard } from "./boards.ts";
+import { one } from "./db.ts";
 import { searchAll } from "./search.ts";
 import { discoverRepo, parseRepo, repoCommits, repoInfo, repoReadme } from "./github.ts";
 import { callMcpTool, listMcpTools } from "./mcpclient.ts";
@@ -48,8 +49,9 @@ import { stageDef } from "@foundation/protocol";
 import { huddleArchive, transcriptText } from "./huddles.ts";
 import { channelHistory, channelInfo, listChannels } from "./slack.ts";
 import { describeMachines, proposeMachine, validImage } from "./machines.ts";
+import { askToRun } from "./machineasks.ts";
 import { writeDigest } from "./digest.ts";
-import { aim, canCallHelp, crewMember, describeStep, guide, resolveTarget, setDoing, stepTarget, travel, type CrewMember } from "./crew.ts";
+import { aim, canCallHelp, crewMember, crewWork, describeStep, guide, resolveTarget, setDoing, stepTarget, travel, type CrewMember } from "./crew.ts";
 
 export interface ToolCtx {
   boardId: string;
@@ -57,6 +59,22 @@ export interface ToolCtx {
   userId: string;
   /** the crew member (a visible agent) acting, when it's one of Foundation's own runs */
   crew?: string;
+  /**
+   * A person at their browser (the HTTP door with a session cookie and no
+   * bearer), not an agent: their writes are logged as theirs. Everything else
+   * (the built-in agent, MCP, a bearer token) is an agent.
+   */
+  person?: boolean;
+}
+
+/**
+ * Who is acting at the HTTP door. A person's browser (cookie, no bearer) acts
+ * as themselves; a bearer token is an agent acting for its person (or the
+ * service token, Foundation's own agent).
+ */
+export function httpToolCtx(boardId: string, user: { id: string; name: string }, person: boolean): ToolCtx {
+  if (person) return { boardId, actor: user.name, userId: user.id, person: true };
+  return { boardId, actor: user.id === "agent" ? user.name : `${user.name}'s agent`, userId: user.id };
 }
 
 export interface BoardTool<S extends z.ZodTypeAny = z.ZodTypeAny> {
@@ -65,6 +83,11 @@ export interface BoardTool<S extends z.ZodTypeAny = z.ZodTypeAny> {
   schema: S;
   write?: boolean;
   run: (ctx: ToolCtx, input: z.infer<S>) => Promise<unknown> | unknown;
+}
+
+/** a person's display name, for "Ada's agent" lines */
+function userName(id: string) {
+  return one<{ name: string }>("select name from users where id = ?", id)?.name;
 }
 
 /** the crew agent making a card, when one is (people's cards leave createdBy unset) */
@@ -135,18 +158,25 @@ function touch(ctx: ToolCtx, objectId: string | undefined, text: string) {
   const board = getBoard(ctx.boardId);
   const member = crewMember(ctx.crew);
   if (member) {
-    // a crew member: its own cursor lands on what it touched, and the board says who
+    // a crew member: its own cursor lands on what it touched, and the board says who, and for whom
     aim(member, objectId ? resolveTarget(ctx.boardId, objectId) : null);
-    editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: member.name, role: "agent", text, objectId }));
+    if (objectId && (boardMaps(board.doc).objects.get(objectId) as { createdBy?: string } | undefined)?.createdBy === member.name) member.made.add(objectId);
+    editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: member.name, role: "agent", text, objectId, for: member.userName }));
     return;
   }
-  // the agent's presence: a ring on whatever it's touching
+  if (ctx.person) {
+    // a person's own call (a card's button, ⌘K): theirs in the log, and no agent ring
+    editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: ctx.actor, role: "human", text, objectId }));
+    return;
+  }
+  // an agent without a cursor of its own (MCP, a bearer token): the shared presence rings what it's touching
   board.awareness.setLocalState({
     user: { name: `${ctx.actor}`, color: "#6b5bd6", agent: true },
     focus: objectId ?? null,
     at: Date.now(),
   });
-  editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: ctx.actor, role: "agent", text, objectId }));
+  const forWhom = ctx.userId === "agent" ? undefined : userName(ctx.userId);
+  editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: ctx.actor, role: "agent", text, objectId, ...(forWhom ? { for: forWhom } : {}) }));
 }
 
 export function addPanel(
@@ -233,7 +263,12 @@ export const TOOLS: BoardTool[] = [
       goal: z.string().describe("one sentence: what done looks like"),
       steps: z.array(z.object({ text: z.string(), status: z.enum(["pending", "active", "done"]) })).max(12),
     }),
-    run: (_ctx, { steps }) => `plan set: ${steps.filter((x) => x.status === "done").length}/${steps.length} done`,
+    run: (ctx, { goal, steps }) => {
+      // a lead's plan goes to the helpers it calls in (crew_work)
+      const member = crewMember(ctx.crew);
+      if (member) member.plan = { goal, steps };
+      return `plan set: ${steps.filter((x) => x.status === "done").length}/${steps.length} done`;
+    },
   }),
   def({
     name: "find_images",
@@ -272,7 +307,11 @@ export const TOOLS: BoardTool[] = [
     schema: z.object({ name: z.string(), request_id: z.string().optional() }),
     write: true,
     run: (ctx, { name }) => {
+      const had = findSection(getBoard(ctx.boardId).doc, name);
       const sec = editBoard(ctx.boardId, "agent", (doc) => findSection(doc, name) ?? appendSection(doc, name));
+      // a crew member's own section: its teammates see it in crew_work
+      const member = crewMember(ctx.crew);
+      if (member && !had && !member.sections.includes(sec.id)) member.sections.push(sec.id);
       touch(ctx, undefined, `added section “${name}”`);
       return sec;
     },
@@ -584,6 +623,25 @@ export const TOOLS: BoardTool[] = [
     schema: z.object({}),
     run: (ctx) => describeMachines(ctx.boardId),
   }),
+  def({
+    name: "machine_run",
+    description:
+      "Ask to run one shell command in a machine on this board that a person has started (its card id or machine name; `machines` lists them). It goes on the machine's card, and runs only when a person who can edit the board presses Run there; they may Decline. This call waits for them (wait_s, 120 s by default), then returns the exit code and output, or says it was declined or nobody answered, in which case nothing ran: don't try another way, tell the person. It runs as the machine's user (root), without a terminal or prompts (use -y and the like), stopped after timeout_s (120 s by default). One waiting command per agent per machine; say why in a few words.",
+    schema: z.object({
+      machine: z.string().describe("the machine card's id, or the machine's name"),
+      command: z.string().min(1).max(2000).describe("a /bin/sh command line"),
+      why: z.string().max(160).optional().describe("why, in a few words, for the person deciding"),
+      wait_s: z.number().int().min(5).max(600).optional(),
+      timeout_s: z.number().int().min(1).max(600).optional(),
+      request_id: z.string().optional(),
+    }),
+    write: true,
+    run: (ctx, { machine, command, why, wait_s, timeout_s }) => {
+      const member = crewMember(ctx.crew);
+      const forName = member ? member.userName : ctx.person || ctx.userId === "agent" ? undefined : userName(ctx.userId);
+      return askToRun({ boardId: ctx.boardId, actor: ctx.actor, userId: ctx.userId, crew: ctx.crew, forName }, machine, command, { why, waitS: wait_s, timeoutS: timeout_s });
+    },
+  }),
   // ---------- design pipelines: design → CAD → simulation → release ----------
   def({
     name: "start_design_pipeline",
@@ -894,6 +952,17 @@ export const TOOLS: BoardTool[] = [
       const spot = cell ? `cell ${cell.toUpperCase()}` : port ? `port “${port}”` : (o?.name ?? target);
       aim(member, { ...t, ...(cell ? { cell: cell.toUpperCase() } : {}), ...(port ? { port } : {}) }, note ?? `pointing at ${spot}`);
       return `pointing at ${spot}`;
+    },
+  }),
+  def({
+    name: "crew_work",
+    description:
+      "What the crew on this ask has done so far: the ask, the lead's plan, and for each agent on it (the lead and every helper) what it's doing now and the sections and cards it has made. A helper reads it before making each thing, so two agents don't make the same card; build on what's there instead.",
+    schema: z.object({}),
+    run: (ctx) => {
+      const member = crewMember(ctx.crew);
+      if (!member) return "only Foundation's own agents work in a crew";
+      return crewWork(member);
     },
   }),
   def({

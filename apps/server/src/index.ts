@@ -25,9 +25,9 @@ import { getJob, listJobs, startJob } from "./jobs.ts";
 import { followRun, listSessions, runtimes, sessionTurns, settleOrphanRuns, startRun, stopAllRuns, stopRun } from "./agent.ts";
 import { t3Thread, t3Threads } from "./t3.ts";
 import { pollHandoffs } from "./vision.ts";
-import { boardPeople, boardRole, requireWriter, setBoardRole } from "./roles.ts";
+import { boardPeople, boardRole, canWrite, requireWriter, setBoardRole } from "./roles.ts";
 import { handleUpgrade, issueTicket } from "./sockets.ts";
-import { runTool, TOOLS } from "./tools.ts";
+import { httpToolCtx, runTool, TOOLS } from "./tools.ts";
 import { handleMcp } from "./mcp.ts";
 import { seedCompanyBoard } from "./seed.ts";
 import { addLine, attachRecording, huddleArchive, huddleArriving, transcriptText } from "./huddles.ts";
@@ -35,11 +35,17 @@ import { boardLink, channelHistory, channelInfo, inviteText, listChannels, postM
 import { appendSection, boardMaps, huddleStateOf } from "@foundation/protocol";
 import { migrateAllBoards } from "./migrate.ts";
 import * as flowform from "./flowform.ts";
-import { hiddenBoards, requireBoard } from "./members.ts";
-import { requirePerson } from "./auth.ts";
+import { canSeeBoard, hiddenBoards, requireBoard } from "./members.ts";
+import { isPerson, requirePerson } from "./auth.ts";
+import { startGridLog } from "./gridlog.ts";
+import { answerAsk, startMachineAsks } from "./machineasks.ts";
 import { movePlanCard, readPlan } from "./plan.ts";
 import { startDigest } from "./digest.ts";
 import { engineImages, engineStatus, loadImage, reconcileMachine, removeMachine, restartMachine, startMachine, stopMachine } from "./machines.ts";
+
+// people's grid edits go in the activity log, from the first board loaded
+startGridLog();
+startMachineAsks();
 
 const r = new Router();
 
@@ -140,7 +146,8 @@ r.post("/api/boards/:id/tools/:name", async (req) => {
   const u = requireUser(req);
   requireBoard(u, req.params.id);
   const input = await readJson(req);
-  return { result: await runTool({ boardId: req.params.id, actor: u.name, userId: u.id }, req.params.name, input) };
+  // a person's browser acts as them; a bearer token is an agent acting for them (the activity log says which)
+  return { result: await runTool(httpToolCtx(req.params.id, u, isPerson(req)), req.params.name, input) };
 });
 
 // ---------- files ----------
@@ -414,6 +421,14 @@ r.post("/api/boards/:id/machines/:panel/remove", async (req) => {
   requireBoard(u, req.params.id);
   const b = await readJson<{ confirm?: boolean }>(req);
   return { machine: await removeMachine(req.params.id, req.params.panel, u.name, b.confirm === true) };
+});
+// an agent's command waiting on a machine's card: only a person at a browser, who can edit the board, answers it
+r.post("/api/boards/:id/machines/:panel/asks/:ask/:verdict", async (req) => {
+  const verdict = req.params.verdict;
+  if (verdict !== "run" && verdict !== "decline") throw new HttpError(404, "run or decline");
+  const u = requirePerson(req, verdict === "run" ? "Running an agent's command" : "Declining an agent's command");
+  requireBoard(u, req.params.id);
+  return { ask: answerAsk(req.params.id, req.params.panel, req.params.ask, u, verdict) };
 });
 r.post("/api/boards/:id/machines/load", async (req) => {
   const u = requirePerson(req, "Loading an image into an engine");

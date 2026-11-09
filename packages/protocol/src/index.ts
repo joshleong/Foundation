@@ -23,6 +23,7 @@ export const BOARD = {
   activity: "activity", // Y.Array<ActivityEntry>
   noteText: "noteText", // noteId → Y.Text (schema 3: typing merges character by character)
   huddles: "huddles", // huddle panel id → HuddleState (schema 6: kept by the server alone, off the card)
+  machineAsks: "machineAsks", // machine panel id → MachineAsk[] (commands agents asked to run; kept by the server alone, off the card)
 } as const;
 
 export interface GridTracks {
@@ -231,6 +232,40 @@ export function machineName(s: string): string {
   return n || "machine";
 }
 
+/**
+ * A command an agent asked to run in a machine a person started. Nothing runs
+ * until a person who can edit the board presses Run on the card (from their
+ * browser session; agents and bearer tokens can't approve). The server alone
+ * writes these, in the board's `machineAsks` map (off the card, so moving the
+ * card can't lose one), and keeps the last few per machine.
+ */
+export interface MachineAsk {
+  id: string;
+  command: string;
+  /** the agent's few words on why */
+  why?: string;
+  /** the agent that asked (a crew name, or "Ada's agent" for an outside one) */
+  by: string;
+  /** the person it works for */
+  for?: string;
+  state: "waiting" | "running" | "done" | "declined" | "timed out" | "withdrawn" | "failed";
+  at: number;
+  /** the person who pressed Run or Decline */
+  decidedBy?: string;
+  decidedAt?: number;
+  exitCode?: number;
+  /** the end of what it printed (the agent gets more) */
+  output?: string;
+  endedAt?: number;
+  /** when a waiting ask gives up, unanswered */
+  expiresAt?: number;
+}
+
+/** the commands agents asked to run in a machine, newest last */
+export function machineAsksOf(doc: Y.Doc, panelId: string): MachineAsk[] {
+  return boardMaps(doc).machineAsks.get(panelId) ?? [];
+}
+
 // ---------- huddles: video portals on the board ----------
 
 export interface HuddleState {
@@ -365,6 +400,8 @@ export interface ActivityEntry {
   role: "human" | "agent" | "system";
   text: string;
   objectId?: string;
+  /** an agent's line: the person it was working for */
+  for?: string;
 }
 
 export const DEFAULT_COL_W = 1560;
@@ -387,6 +424,7 @@ export function boardMaps(doc: Y.Doc) {
     activity: doc.getArray<ActivityEntry>(BOARD.activity),
     noteText: doc.getMap<Y.Text>(BOARD.noteText),
     huddles: doc.getMap<HuddleState>(BOARD.huddles),
+    machineAsks: doc.getMap<MachineAsk[]>(BOARD.machineAsks),
   };
 }
 

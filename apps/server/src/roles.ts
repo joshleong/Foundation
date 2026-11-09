@@ -36,6 +36,7 @@ export const READ_TOOLS = new Set([
   "set_plan", // shows the session's plan; writes nothing to the board
   "find_images",
   "bring_view", // moves the asker's own view; changes nothing on the board
+  "crew_work", // what this ask's crew has made so far; reads only
 ]);
 
 function accountRole(userId: string): BoardRole {

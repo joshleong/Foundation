@@ -2156,6 +2156,10 @@ body.is-connecting .port-in.is-snap {
   font-weight: 600;
   white-space: nowrap;
 }
+/* violet means agent (DESIGN §2) */
+.activity-row.role-agent .activity-who {
+  color: var(--color-agent);
+}
 .activity-text {
   color: var(--color-mist);
   overflow: hidden;
