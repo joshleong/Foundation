@@ -56,3 +56,26 @@ export function counts(plan: Plan) {
 }
 
 export const issueUrl = (plan: Plan, n: number) => `https://github.com/${plan.repo}/issues/${n}`;
+
+/** "just now", "4 min ago", "3 h ago", "2 days ago" */
+export function ago(iso: string | number, now = Date.now()) {
+  const s = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
+  if (s < 45) return "just now";
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 36) return `${h} h ago`;
+  const d = Math.round(h / 24);
+  return `${d} ${d === 1 ? "day" : "days"} ago`;
+}
+
+/** what the last sync did: "Synced: 1 move sent, 2 new cards are issues." */
+export function syncSentence(s: { moved: number; created: number }) {
+  const parts = [s.moved ? `${s.moved} ${s.moved === 1 ? "move" : "moves"} sent` : "", s.created ? `${s.created} new ${s.created === 1 ? "card is an issue" : "cards are issues"}` : ""].filter(Boolean);
+  return parts.length ? `Synced: ${parts.join(", ")}.` : "Synced: GitHub and this board agree.";
+}
+
+/** "2 moved and 1 new here" */
+export function waitingWords(moved: number, fresh: number) {
+  return `${[moved ? `${moved} moved` : "", fresh ? `${fresh} new` : ""].filter(Boolean).join(" and ")} here`;
+}

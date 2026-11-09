@@ -12,7 +12,8 @@ import { Mark } from "../login/Login";
 import { NightOrb } from "../shell/NightOrb";
 import { pipeCrossings, polyline, route, routeSides, sideToward, type Side } from "../shell/wireGeometry";
 import { tunnelGeometry } from "../shell/wireGeometry";
-import { PlanBoard } from "../settings/SettingsPage";
+import { PlanBoard, type NewCardInput, type SyncState } from "../settings/SettingsPage";
+import { syncSentence } from "../settings/plan";
 import type { Plan } from "../settings/plan";
 import { SectionEmpty } from "../panels/SectionEmpty";
 import { COMMANDS_GLYPH, IS_MAC, keys } from "../lib/keys";
@@ -1110,11 +1111,36 @@ function PlanBoardDemo() {
       { id: "gap", title: "The + buttons in the gaps catch double-clicks", kind: "bug", milestone: "polish", area: "sections", status: "next", body: "Make adding a deliberate press.", issue: 31 },
       { id: "stop", title: "A crew-wide stop", kind: "plan", milestone: "crew", area: "crew", status: "doing", body: "Stop all of yours at once.", issue: 27, moved: { by: "Ada", at: 0, from: "next" } },
       { id: "fit", title: "Sections fit instead of scrolling", kind: "plan", milestone: "polish", area: "sections", status: "done", body: "Expand opens one as its own grid.", issue: 4 },
+      { id: "blink", title: "Wire landings blink on undo", kind: "bug", milestone: "polish", area: "wires", status: "next", body: "Made here; the next sync makes it an issue.", issue: null },
     ],
   }));
+  const [sync, setSync] = useState<SyncState>({ busy: false });
+  // Sync with GitHub, played locally: a moment's work, then the marks clear and the new card gets a number
+  const onSync = () => {
+    setSync({ busy: true });
+    window.setTimeout(() => {
+      let moved = 0;
+      let created = 0;
+      setPlan((p) => ({
+        ...p,
+        syncedAt: new Date().toISOString(),
+        cards: p.cards.map((c) => {
+          if (c.moved) moved++;
+          if (!c.issue) created++;
+          return { ...c, moved: null, issue: c.issue ?? 40 + created };
+        }),
+      }));
+      setSync({ busy: false, said: syncSentence({ moved, created }) });
+    }, 1200);
+  };
+  const onCreate = async (input: NewCardInput) => {
+    const card = { id: `demo-${Date.now()}`, title: input.title, kind: input.kind, milestone: input.milestone, area: input.area, status: input.kind === "hookup" ? "needs-you" : "next", body: input.body ?? "", issue: null };
+    setPlan((p) => ({ ...p, cards: [...p.cards, card] }));
+    return card;
+  };
   return (
     <div className="kb-demo">
-      <PlanBoard plan={plan} source="server" canMove height={400} onMove={(id, status) => setPlan((p) => ({ ...p, cards: p.cards.map((c) => (c.id === id ? { ...c, status } : c)) }))} />
+      <PlanBoard plan={plan} source="server" canMove height={460} sync={sync} onSync={onSync} onCreate={onCreate} onMove={(id, status) => setPlan((p) => ({ ...p, cards: p.cards.map((c) => (c.id === id ? { ...c, status, moved: c.moved ?? (c.status === status ? null : { by: "Ada", at: Date.now(), from: c.status }) } : c)) }))} />
     </div>
   );
 }

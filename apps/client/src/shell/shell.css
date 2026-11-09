@@ -1818,6 +1818,11 @@ body.is-connecting .port-in.is-snap {
     color-mix(in srgb, var(--color-frost) 2.5%, transparent) 8px 9px
   );
 }
+.connector-offline.is-up {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--color-ok) 35%, var(--color-line));
+  background: color-mix(in srgb, var(--color-ok) 5%, transparent);
+}
 .connector-offline-title {
   font: 600 var(--text-13) / 1.3 var(--font-sans);
 }
@@ -2442,6 +2447,10 @@ body.is-connecting .port-in.is-snap {
 }
 .login.is-leaving .login-foot {
   opacity: 0;
+}
+/* no wind to move (reduced motion, high contrast, no WebGL2): no line about it */
+.login:not(:has(canvas[data-ascii-wind-canvas])) .login-foot {
+  display: none;
 }
 
 /* ---------- design page ---------- */

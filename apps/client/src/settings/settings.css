@@ -66,6 +66,12 @@
 }
 .kb-title h2 {
   font: 600 var(--text-20) / 1.2 var(--font-sans);
+}
+.kb-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-5);
   margin-bottom: var(--space-2);
 }
 .kb-title p {
@@ -241,6 +247,8 @@
   color: var(--color-dim);
   font-size: var(--text-11);
   line-height: 1.35;
+  /* two lines for every column, so the cards (and the empty boxes) start on one line across the board */
+  min-height: calc(2lh + var(--space-1) + var(--space-3));
 }
 .kb-col-cards {
   display: flex;
@@ -314,6 +322,105 @@
   margin-left: auto;
   color: var(--color-mist);
   font-variant-numeric: tabular-nums;
+  text-decoration: none;
+  border-radius: var(--radius-paper);
+  padding: 2px 4px;
+  margin-right: -4px;
+}
+a.kb-card-issue:hover {
+  color: var(--color-pulse);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.kb-card-issue.is-local {
+  color: var(--color-warn);
+  font-weight: 600;
+}
+
+/* admins: make a card, sync with GitHub */
+.kb-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.kb-said {
+  color: var(--color-ok);
+  font-size: var(--text-12);
+}
+.kb-toggle[aria-expanded="true"] {
+  background: var(--color-raise);
+  border-color: var(--color-line-strong);
+  color: var(--color-frost);
+}
+.kb-sync {
+  gap: var(--space-2);
+}
+.kb-spin {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--color-line);
+  border-top-color: var(--color-pulse);
+  animation: spin 0.8s linear infinite;
+}
+.kb-new-wrap {
+  overflow: hidden;
+}
+.kb-new {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+  padding: var(--space-4);
+  border-radius: var(--radius-pane);
+  background: var(--color-panel);
+  border: 1px solid var(--color-line);
+  max-width: 880px;
+}
+.kb-new-title,
+.kb-new-body {
+  width: 100%;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-line);
+  background: var(--color-raise);
+  color: var(--color-frost);
+  outline: none;
+  padding: var(--space-3) var(--space-4);
+}
+.kb-new-title {
+  font: 600 var(--text-14) / 1.3 var(--font-sans);
+}
+.kb-new-body {
+  font: 400 var(--text-13) / 1.45 var(--font-sans);
+  resize: vertical;
+  min-height: 72px;
+}
+.kb-new-title:focus,
+.kb-new-body:focus {
+  border-color: var(--color-pulse);
+}
+.kb-new-title::placeholder,
+.kb-new-body::placeholder {
+  color: var(--color-dim);
+}
+.kb-new-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.kb-new-kinds {
+  display: flex;
+  gap: var(--space-2);
+}
+.kb-new-area {
+  width: 200px;
+}
+.kb-new-note {
+  margin-right: auto;
+  color: var(--color-dim);
+  font-size: var(--text-12);
 }
 .kb-card-moved {
   margin-top: var(--space-2);

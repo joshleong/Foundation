@@ -6,11 +6,19 @@
  *
  *   node scripts/plan.mjs push      write every card to its issue (makes missing ones), labels and milestones included
  *   node scripts/plan.mjs pull      read the issues back: column, title, body; issues made on GitHub with the `plan` label join the board
+ *   node scripts/plan.mjs sync      pull, then push only what changed here: moved cards' columns and new cards (never a title or body)
  *   node scripts/plan.mjs project   make (or refresh) a GitHub Projects board with a Column field (needs `gh auth refresh -s project`)
  *   node scripts/plan.mjs check     validate the file (also run by the tests)
  *
  * A card's column is its `status:` label on GitHub; a closed issue is Done.
  * Each issue carries `<!-- plan:<id> -->` so a card finds its issue again.
+ * A commit that says "Fixes #N" closes the issue when it lands on main; the
+ * next pull (or sync) moves the card to Done.
+ *
+ * Settings → Plan runs `sync` when an admin presses Sync with GitHub, so it
+ * never overwrites what the team wrote on GitHub: it only sends columns that
+ * were moved in the app and cards that were made there. FOUNDATION_PLAN_FILE
+ * points it at another copy; FOUNDATION_GH at another gh (the tests' stand-in).
  */
 
 import { execFileSync } from "node:child_process";
@@ -18,7 +26,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const FILE = join(dirname(fileURLToPath(import.meta.url)), "..", "docs", "plan.json");
+const FILE = process.env.FOUNDATION_PLAN_FILE ?? join(dirname(fileURLToPath(import.meta.url)), "..", "docs", "plan.json");
 const KINDS = { bug: "d73a4a", plan: "325bb4", hookup: "a16207" };
 const STATUS_COLOR = { "needs-you": "a16207", next: "325bb4", doing: "6b5bd6", review: "2e5d43", backlog: "8a8577", done: "2e7d54" };
 
@@ -46,7 +54,10 @@ export function checkPlan(plan) {
 }
 
 function gh(args, input) {
-  return execFileSync("gh", args, { input: input === undefined ? undefined : JSON.stringify(input), encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 64 << 20 });
+  const bin = process.env.FOUNDATION_GH ?? "gh";
+  // a stand-in written in JavaScript runs under this node
+  const [cmd, argv] = /\.m?js$/.test(bin) ? [process.execPath, [bin, ...args]] : [bin, args];
+  return execFileSync(cmd, argv, { input: input === undefined ? undefined : JSON.stringify(input), encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 64 << 20 });
 }
 function api(method, path, body) {
   const out = gh(["api", "-X", method, path, ...(body ? ["--input", "-"] : [])], body);
@@ -174,8 +185,16 @@ function pull() {
     if (known.has(issue.number)) continue;
     const names = issue.labels.map((l) => (typeof l === "string" ? l : l.name));
     const kind = names.find((n) => n.startsWith("kind: "))?.slice(6) ?? "plan";
+    const marked = /<!-- plan:([a-z0-9-]+) -->/.exec(issue.body ?? "")?.[1];
+    const same = marked && plan.cards.find((c) => c.id === marked);
+    if (same && !same.issue) {
+      // the card was made here and its issue already exists (another server, or a sync cut short): they're one card
+      same.issue = issue.number;
+      console.log(`linked  #${issue.number} ${same.id}`);
+      continue;
+    }
     plan.cards.push({
-      id: /<!-- plan:([a-z0-9-]+) -->/.exec(issue.body ?? "")?.[1] ?? `gh-${issue.number}`,
+      id: same ? `gh-${issue.number}` : (marked ?? `gh-${issue.number}`),
       title: issue.title,
       kind: KINDS[kind] ? kind : "plan",
       milestone: (issue.milestone && milestoneByName.get(issue.milestone.title)) ?? "polish",
@@ -186,9 +205,40 @@ function pull() {
     });
     console.log(`joined #${issue.number} ${issue.title}`);
   }
+  // never write a board that doesn't hold together; the file stays as it was
+  const problems = checkPlan(plan);
+  if (problems.length) throw new Error(`GitHub's issues don't fit the plan, nothing written:\n${problems.join("\n")}`);
   plan.syncedAt = new Date().toISOString();
   save(plan);
   console.log(`pulled ${issues.length} issues`);
+}
+
+function sync() {
+  pull();
+  const plan = readPlan();
+  const problems = checkPlan(plan);
+  if (problems.length) throw new Error(problems.join("\n"));
+  const repo = plan.repo;
+  const moved = plan.cards.filter((c) => c.issue && c.moved);
+  const fresh = plan.cards.filter((c) => !c.issue);
+  if (moved.length || fresh.length) ensureLabels(repo, plan);
+  const milestones = fresh.length ? ensureMilestones(repo, plan) : {};
+  for (const card of moved) {
+    // the column only: labels and open/closed; GitHub keeps its title and body
+    api("PATCH", `repos/${repo}/issues/${card.issue}`, { labels: labelsFor(card), state: card.status === "done" ? "closed" : "open" });
+    delete card.moved;
+    console.log(`moved   #${card.issue} ${card.id} → ${card.status}`);
+  }
+  for (const card of fresh) {
+    const made = api("POST", `repos/${repo}/issues`, { title: card.title, body: issueBody(plan, card), labels: labelsFor(card), milestone: milestones[card.milestone] });
+    card.issue = made.number;
+    delete card.moved;
+    if (card.status === "done") api("PATCH", `repos/${repo}/issues/${made.number}`, { state: "closed" });
+    console.log(`created #${made.number} ${card.id}`);
+  }
+  plan.syncedAt = new Date().toISOString();
+  save(plan);
+  console.log(`SYNC ${JSON.stringify({ moved: moved.length, created: fresh.length, cards: plan.cards.length })}`);
 }
 
 function project() {
@@ -219,10 +269,11 @@ function save(plan) {
 }
 
 const command = process.argv[2];
-if (command && import.meta.url === `file://${process.argv[1].replace(/\\/g, "/").replace(/^(?=[A-Za-z]:)/, "/")}`) {
+if (command && process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   try {
     if (command === "push") push();
     else if (command === "pull") pull();
+    else if (command === "sync") sync();
     else if (command === "project") project();
     else if (command === "check") {
       const problems = checkPlan(readPlan());
@@ -232,7 +283,7 @@ if (command && import.meta.url === `file://${process.argv[1].replace(/\\/g, "/")
       }
       console.log("plan ok");
     } else {
-      console.error("usage: node scripts/plan.mjs push | pull | project | check");
+      console.error("usage: node scripts/plan.mjs push | pull | sync | project | check");
       process.exit(2);
     }
   } catch (err) {

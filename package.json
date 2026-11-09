@@ -18,6 +18,7 @@
     "services": "node scripts/sibling.mjs all",
     "plan:push": "node scripts/plan.mjs push",
     "plan:pull": "node scripts/plan.mjs pull",
+    "plan:sync": "node scripts/plan.mjs sync",
     "plan:project": "node scripts/plan.mjs project",
     "plan:check": "node scripts/plan.mjs check",
     "kiri": "node scripts/kiri.mjs",

@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 // @ts-expect-error a plain .mjs script with no types
 import { checkPlan, readPlan } from "../../../scripts/plan.mjs";
-import { boardColumns, PLAN } from "../src/settings/plan";
+import { ago, boardColumns, PLAN, syncSentence, waitingWords } from "../src/settings/plan";
 
 test("docs/plan.json is sound", () => {
   assert.deepEqual(checkPlan(readPlan()), []);
@@ -25,4 +25,18 @@ test("filters narrow by kind and milestone", () => {
   assert.ok(bugs.length > 0 && bugs.every((c) => c.kind === "bug"));
   const crew = boardColumns(PLAN, { milestone: "crew" }).flatMap((c) => c.cards);
   assert.ok(crew.length > 0 && crew.every((c) => c.milestone === "crew"));
+});
+
+test("the board says when it synced and what's waiting, in plain words", () => {
+  const now = Date.parse("2026-11-09T12:00:00Z");
+  assert.equal(ago("2026-11-09T11:59:40Z", now), "just now");
+  assert.equal(ago("2026-11-09T11:56:00Z", now), "4 min ago");
+  assert.equal(ago("2026-11-09T09:00:00Z", now), "3 h ago");
+  assert.equal(ago("2026-11-08T00:00:00Z", now), "2 days ago");
+  assert.equal(ago("2026-11-08T12:00:00Z", now), "24 h ago");
+  assert.equal(syncSentence({ moved: 0, created: 0 }), "Synced: GitHub and this board agree.");
+  assert.equal(syncSentence({ moved: 1, created: 2 }), "Synced: 1 move sent, 2 new cards are issues.");
+  assert.equal(syncSentence({ moved: 2, created: 1 }), "Synced: 2 moves sent, 1 new card is an issue.");
+  assert.equal(waitingWords(2, 0), "2 moved here");
+  assert.equal(waitingWords(1, 3), "1 moved and 3 new here");
 });
