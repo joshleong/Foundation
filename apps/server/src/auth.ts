@@ -110,11 +110,14 @@ export function requireUser(req: Req): UserInfo {
  */
 export function requirePerson(req: Req, what = "This"): UserInfo {
   const u = requireUser(req);
-  const cookie = parseCookies(req.headers.cookie)[COOKIE];
-  if (u.id === AGENT_USER.id || req.headers.authorization || !cookie) {
-    throw new HttpError(403, `${what} needs a person: press the button on the card. Agents can propose, not run.`);
-  }
+  if (!isPerson(req, u)) throw new HttpError(403, `${what} needs a person: press the button on the card. Agents can propose, not run.`);
   return u;
+}
+
+/** the same test, without throwing: who's acting, for the activity log */
+export function isPerson(req: Req, u: UserInfo): boolean {
+  const cookie = parseCookies(req.headers.cookie)[COOKIE];
+  return u.id !== AGENT_USER.id && !req.headers.authorization && Boolean(cookie);
 }
 
 // ---------- Google OAuth ----------

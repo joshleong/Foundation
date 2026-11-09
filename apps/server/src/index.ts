@@ -35,7 +35,7 @@ import { appendSection, boardMaps, huddleStateOf } from "@foundation/protocol";
 import { migrateAllBoards } from "./migrate.ts";
 import * as flowform from "./flowform.ts";
 import { canSeeBoard, hiddenBoards, requireBoard } from "./members.ts";
-import { requirePerson } from "./auth.ts";
+import { isPerson, requirePerson } from "./auth.ts";
 import { createPlanCard, movePlanCard, readPlan, syncPlan, type NewCard } from "./plan.ts";
 import { startDigest } from "./digest.ts";
 import { attachTerminal, engineImages, engineStatus, loadImage, reconcileMachine, removeMachine, restartMachine, startMachine, stopMachine } from "./machines.ts";
@@ -143,7 +143,7 @@ r.post("/api/boards/:id/tools/:name", async (req) => {
   const u = requireUser(req);
   requireBoard(u, req.params.id);
   const input = await readJson(req);
-  return { result: await runTool({ boardId: req.params.id, actor: u.name, userId: u.id }, req.params.name, input) };
+  return { result: await runTool({ boardId: req.params.id, actor: u.name, userId: u.id, role: isPerson(req, u) ? "human" : "agent" }, req.params.name, input) };
 });
 
 // ---------- files ----------
@@ -573,7 +573,7 @@ server.on("upgrade", (rawReq, socket, head) => {
   const access = syncAccess(req.query.get("epoch"), boardEpoch(m[1]), canWrite(user.id, m[1]));
   wss.handleUpgrade(req, socket, head, (ws) => {
     if (access === "refuse") return ws.close(4002, "this board was reset");
-    attachConnection(m[1], ws, access === "read", user.id);
+    attachConnection(m[1], ws, access === "read", user.id, user.name);
   });
 });
 

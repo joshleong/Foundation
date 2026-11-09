@@ -58,6 +58,8 @@ export interface ToolCtx {
   userId: string;
   /** the crew member (a visible agent) acting, when it's one of Foundation's own runs */
   crew?: string;
+  /** a person pressing something in the app (HTTP with their sign-in cookie); otherwise an agent */
+  role?: "human" | "agent";
 }
 
 export interface BoardTool<S extends z.ZodTypeAny = z.ZodTypeAny> {
@@ -139,6 +141,11 @@ function touch(ctx: ToolCtx, objectId: string | undefined, text: string) {
     // a crew member: its own cursor lands on what it touched, and the board says who
     aim(member, objectId ? resolveTarget(ctx.boardId, objectId) : null);
     editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: member.name, role: "agent", text, objectId }));
+    return;
+  }
+  if (ctx.role === "human") {
+    // a person's own call: logged as theirs, and no agent ring (their cursor is already there)
+    editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: ctx.actor, role: "human", text, objectId }));
     return;
   }
   // the agent's presence: a ring on whatever it's touching
