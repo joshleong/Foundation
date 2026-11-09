@@ -1,7 +1,7 @@
 {
   "about": "Foundation's plan as a kanban. GitHub issues are where the team moves cards; this file is the local copy the app shows in Settings → Plan. `npm run plan:push` writes it to GitHub, `npm run plan:pull` reads the issues back. Columns: needs-you (waits on a person: a key, an install, a decision), backlog, next, doing, review (built, waiting to merge or to be checked by a person), done.",
   "repo": "joshleong/Foundation",
-  "syncedAt": "2026-11-09T00:51:14.014Z",
+  "syncedAt": "2026-11-09T01:46:05.889Z",
   "columns": [
     {
       "id": "needs-you",
@@ -674,7 +674,8 @@
       "milestone": "polish",
       "area": "grid",
       "status": "backlog",
-      "body": "`feat/grid-interactions-and-persistence` (2026-10-04, merged into the upstream org repo, not into this one) was written on the app before the monorepo: multi-select and merging sections, dragging a card across sections, media ingest, local persistence, a voice command bar and sound effects (`src/sound/sfx.ts`). It can't be merged (different layout and store); compare it with today's app and port the parts that are still missing."
+      "body": "`feat/grid-interactions-and-persistence` (2026-10-04, merged into the upstream org repo, not into this one) was written on the app before the monorepo: multi-select and merging sections, dragging a card across sections, media ingest, local persistence, a voice command bar and sound effects (`src/sound/sfx.ts`). It can't be merged (different layout and store); compare it with today's app and port the parts that are still missing.",
+      "issue": 85
     },
     {
       "id": "codemirror-notes",
