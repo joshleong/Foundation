@@ -16,6 +16,9 @@ import { PlanBoard } from "../settings/SettingsPage";
 import type { Plan } from "../settings/plan";
 import { SectionEmpty } from "../panels/SectionEmpty";
 import { COMMANDS_GLYPH, IS_MAC, keys } from "../lib/keys";
+import * as Y from "yjs";
+import { loadNoteEditor } from "../components/NoteView";
+import { renderMarkdown } from "../utils/markdown";
 
 const SURFACES = ["void", "abyss", "panel", "raise"];
 const INKS = ["frost", "mist", "dim"];
@@ -786,40 +789,8 @@ export function DesignPage() {
         <CrewDemo />
       </Section>
 
-      <Section title="Writing together" note={`Each person keeps their own colour. In a note you're writing in, someone else's caret is a 2 px bar in their colour, named while it moves and quiet once it rests; their selection is a 22 % tint. A note at rest names whoever is writing in it with a breathing chip at the bottom right, clear of the bar that drops in at the top. ${keys("mod+Z")} takes back only your own words.`}>
-        <div className="adapt-row">
-          <div className="frame-card" style={{ width: 400 }}>
-            <div className="note-inner" style={{ height: 220 }}>
-              <div className="note-editor note-caret-mirror" aria-hidden style={{ color: "var(--ink)" }}>
-                {"Goals:\n- ship the fan\n"}
-                <span className="note-caret" style={{ ["--peer" as string]: "var(--viz-3)" }}>
-                  <span className="note-caret-name" style={{ animation: "none" }}>Kai</span>
-                </span>
-                {"\nRisks:\n- "}
-                <mark className="note-peer-sel" style={{ ["--peer" as string]: "var(--viz-5)", color: "var(--ink)" }}>
-                  supplier slip
-                </mark>
-                {"\n"}
-              </div>
-              <div className="note-editor" style={{ background: "var(--color-abyss)" }} />
-            </div>
-          </div>
-          <div className="frame-card" style={{ width: 260 }}>
-            <div className="note-inner" style={{ height: 220 }}>
-              <div className="note-writers">
-                <span className="note-writer" style={{ ["--peer" as string]: "var(--viz-3)" }}>
-                  Kai
-                </span>
-              </div>
-              <div className="note-rendered">
-                <p>Goals:</p>
-                <ul>
-                  <li>ship the fan</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </div>
+      <Section title="Writing together" note={`A note at rest is its markdown, tables included. Double-click and it opens as a CodeMirror editor on the note's shared text: monospace, the markdown's own marks dimmed, headings and strong text in weight, links blue — no colour of its own. Every keystroke is shared as it's typed, so two people can write in one note, even in one word, and both keep their words whole. Each person keeps their own colour: someone else's caret is a 2 px bar in it, named while it moves and quiet once it rests; their selection is a 22 % tint. A note at rest names whoever is writing in it with a breathing chip at the bottom right, clear of the bar that drops in at the top. ${keys("mod+Z")} takes back only your own words. The two editors below share one text: type in either.`}>
+        <NoteEditorDemo />
       </Section>
 
       <Section title="Plan board" note="Settings → Plan: Foundation's own kanban, the local copy of the issues on GitHub. Columns sit on the panel well; cards are raised paper with the title in 13/600 and a meta line in dim 11: a kind dot (red bug, blue plan, amber when it waits on a person), the milestone, the area in code type and the issue number. Needs you reads amber, Done green. An admin drags a card to another column (the column rings blue) or picks Move to… on the opened card; a moved card keeps an amber hairline and says who moved it until it's pushed. Cards travel on the camera spring. Under 720 px the columns stack.">
@@ -991,6 +962,114 @@ function CrewDemo() {
           </div>
         </div>
         <div className="effect-label">A tap of Space: typing</div>
+      </div>
+    </div>
+  );
+}
+
+const DEMO_NOTE = [
+  "## Fan programme",
+  "",
+  "Goals:",
+  "- ship the fan",
+  "- **tooling** by the 14th",
+  "",
+  "Risks:",
+  "- supplier slip, see [the tracker](https://example.com)",
+  "",
+  "| Part | Qty |",
+  "|---|---|",
+  "| Shroud | 2 |",
+  "| Hub | 1 |",
+  "",
+].join("\n");
+
+/**
+ * Two live note editors on one Y.Text (as Ada's and Kai's browsers would be),
+ * each drawing the other's caret, beside the same note at rest: rendered
+ * markdown with its table and the chip naming who's writing.
+ */
+function NoteEditorDemo() {
+  const ada = useRef<HTMLDivElement>(null);
+  const kai = useRef<HTMLDivElement>(null);
+  const [text, setText] = useState(DEMO_NOTE);
+  useEffect(() => {
+    let gone = false;
+    const handles: Array<{ destroy(): void }> = [];
+    const doc = new Y.Doc();
+    const ytext = doc.getText("note");
+    ytext.insert(0, DEMO_NOTE);
+    const sync = () => setText(ytext.toString());
+    ytext.observe(sync);
+    // each person's selection as relative positions, as the board's awareness carries them
+    const people = [
+      { clientId: 1, name: "Ada", color: "var(--viz-5)", sel: null as null | { anchor: Y.RelativePosition; head: Y.RelativePosition } },
+      { clientId: 2, name: "Kai", color: "var(--viz-3)", sel: null as null | { anchor: Y.RelativePosition; head: Y.RelativePosition } },
+    ];
+    const rel = (i: number) => Y.createRelativePositionFromTypeIndex(ytext, i);
+    const abs = (r: Y.RelativePosition) => Y.createAbsolutePositionFromRelativePosition(r, doc)?.index ?? 0;
+    // where each starts: Kai after "ship the fan", Ada selecting "supplier slip"
+    const kaiAt = DEMO_NOTE.indexOf("ship the fan") + "ship the fan".length;
+    people[1].sel = { anchor: rel(kaiAt), head: rel(kaiAt) };
+    people[0].sel = { anchor: rel(DEMO_NOTE.indexOf("supplier")), head: rel(DEMO_NOTE.indexOf(", see")) };
+    const listeners = new Set<() => void>();
+    const source = (me: number) => ({
+      get: () =>
+        people
+          .filter((p) => p.clientId !== me && p.sel)
+          .map((p) => {
+            const [a, h] = [abs(p.sel!.anchor), abs(p.sel!.head)];
+            return { clientId: p.clientId, name: p.name, color: p.color, from: Math.min(a, h), to: Math.max(a, h), head: h };
+          }),
+      subscribe: (fn: () => void) => (listeners.add(fn), () => void listeners.delete(fn)),
+      publish: (sel: { anchor: number; head: number } | null) => {
+        const p = people.find((x) => x.clientId === me)!;
+        if (!sel) return;
+        p.sel = { anchor: rel(sel.anchor), head: rel(sel.head) };
+        for (const fn of listeners) fn();
+      },
+    });
+    void loadNoteEditor().then((m) => {
+      if (gone) return;
+      for (const [el, me, um] of [[ada.current, 1, new Y.UndoManager(ytext)], [kai.current, 2, new Y.UndoManager(ytext)]] as const)
+        if (el) handles.push(m.mountNoteEditor(el, { ytext, undoManager: um, carets: source(me), at: 0 }));
+    });
+    return () => {
+      gone = true;
+      for (const h of handles) h.destroy();
+      ytext.unobserve(sync);
+      doc.destroy();
+    };
+  }, []);
+  return (
+    <div className="adapt-row">
+      {(
+        [
+          ["Ada writing", ada],
+          ["Kai writing", kai],
+        ] as const
+      ).map(([label, ref]) => (
+        <div key={label} style={{ display: "grid", gap: 6 }}>
+          <span className="design-note">{label}</span>
+          <div className="frame-card" style={{ width: 400 }}>
+            <div className="note-inner" style={{ height: 300 }}>
+              <div ref={ref} className="note-cm" />
+            </div>
+          </div>
+        </div>
+      ))}
+      <div style={{ display: "grid", gap: 6 }}>
+        <span className="design-note">At rest, with Kai still writing</span>
+        <div className="frame-card" style={{ width: 300 }}>
+          <div className="note-inner" style={{ height: 300 }}>
+            <div className="note-writers">
+              <span className="note-writer" style={{ ["--peer" as string]: "var(--viz-3)" }}>
+                Kai
+              </span>
+            </div>
+            <div className="note-rendered" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -683,8 +683,8 @@
       "kind": "plan",
       "milestone": "polish",
       "area": "notes",
-      "status": "backlog",
-      "body": "Two people editing the very same word can interleave letters (each edit rebases as one change). A CodeMirror binding fixes that and brings syntax-aware editing; undo would last across reloads.",
+      "status": "done",
+      "body": "Done 2026-11-08 (branch `feat/codemirror-notes`): the open note is CodeMirror 6 bound to the note's Y.Text through y-codemirror.next, loaded only when a note is opened (~100 kB gzipped, its own chunk). Two people typing into one word keep two whole runs (`e2e/together.spec.ts`, `notes.test.ts`). Carets and selections keep the board's awareness shape; ⌘Z is still the board's per-note Y.UndoManager, so undo still lasts only while the board is open (not across reloads). Markdown is highlighted while writing; at rest it renders as before.",
       "issue": 63
     },
     {

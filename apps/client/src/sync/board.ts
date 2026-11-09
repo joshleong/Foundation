@@ -35,8 +35,8 @@ import * as awarenessProtocol from "y-protocols/awareness";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import { IndexeddbPersistence } from "y-indexeddb";
-import { BOARD_SCHEMA, boardMaps, huddleStateOf, noteTextOf, rebaseEdit, setNoteText, setTableCells, tableCellMap, tableCellsOf, type HuddleState, type ObjectDoc, type SectionDoc, type UserInfo } from "@foundation/protocol";
-import { applyRemote, getState, setSyncHook, updateNoteText, type AnyObject, type AppState, type PanelMeta, type Section } from "../state/store";
+import { BOARD_SCHEMA, boardMaps, huddleStateOf, noteTextOf, setNoteText, setTableCells, tableCellMap, tableCellsOf, type HuddleState, type ObjectDoc, type SectionDoc, type UserInfo } from "@foundation/protocol";
+import { applyRemote, getState, setSyncHook, type AnyObject, type AppState, type PanelMeta, type Section } from "../state/store";
 import { workbook } from "../engine/workbook";
 import { api, openSocket } from "../lib/api";
 import { toast } from "../state/ui";
@@ -572,42 +572,34 @@ class BoardSync {
     }
   }
 
-  /**
-   * A keystroke in a note: the edit that turned `base` (what the editor showed)
-   * into `next`, applied to the shared text — rebased past anything that
-   * arrived in between, so nobody's characters are lost. Returns the text now.
-   */
-  editNote(id: string, base: string, next: string): string {
-    const t = boardMaps(this.doc).noteText.get(id);
-    if (this.readOnly) return t?.toString() ?? base;
-    if (!this.ready || !t) return next;
-    const e = rebaseEdit(base, next, t.toString());
-    if (!e) return t.toString();
-    this.doc.transact(() => {
-      if (e.remove) t.delete(e.at, e.remove);
-      if (e.insert) t.insert(e.at, e.insert);
-    }, LOCAL);
-    return t.toString();
-  }
+  // ---------- writing in a note ----------
 
-  // ---------- your own undo in a note ----------
+  /**
+   * A note's shared text, for an editor to bind to (CodeMirror through
+   * y-codemirror.next: each keystroke is its own Yjs insert/delete). Null
+   * while the board isn't wired yet, or for a viewer.
+   */
+  noteYText(id: string): Y.Text | null {
+    if (this.readOnly || !this.ready) return null;
+    const m = boardMaps(this.doc);
+    if (!m.noteText.has(id)) {
+      // a legacy note with no Y.Text yet: give it one, from what the card shows
+      const n = getState().notes[id];
+      if (!n) return null;
+      this.doc.transact(() => setNoteText(this.doc, id, n.text), LOCAL);
+    }
+    return m.noteText.get(id) ?? null;
+  }
 
   private undoers = new Map<string, Y.UndoManager>();
 
   /**
    * Undo (or redo) in a note takes back only what *you* typed there: other
-   * people's words stay. One stack per note, kept while the board is open;
-   * keystrokes within half a second are one step. Returns whether anything
-   * changed (the store hears of it through the note's text observer).
+   * people's words stay. One stack per note, kept while the board is open
+   * (across closing and reopening the editor); keystrokes within half a second
+   * are one step. The editor adds its own origin to it while it's open.
    */
-  undoNote(id: string, redo = false): boolean {
-    if (this.readOnly) return false;
-    const u = this.undoerFor(id);
-    if (!u) return false;
-    return (redo ? u.redo() : u.undo()) !== null;
-  }
-
-  private undoerFor(id: string): Y.UndoManager | null {
+  noteUndoManager(id: string): Y.UndoManager | null {
     const t = boardMaps(this.doc).noteText.get(id);
     let u = this.undoers.get(id);
     if (u && t && u.scope[0] === t) return u;
@@ -617,11 +609,6 @@ class BoardSync {
     u = new Y.UndoManager(t, { trackedOrigins: new Set([LOCAL]), captureTimeout: 500 });
     this.undoers.set(id, u);
     return u;
-  }
-
-  /** start tracking a note's edits before the first keystroke, so that keystroke can be undone */
-  watchNoteUndo(id: string) {
-    this.undoerFor(id);
   }
 
   // ---------- carets in notes ----------
@@ -811,18 +798,6 @@ export function onBoardChange(fn: () => void) {
 }
 
 export type { BoardSync };
-
-/** ⌘Z / ⇧⌘Z in a note: only your own typing (see BoardSync.undoNote) */
-export function undoNoteText(id: string, redo = false): boolean {
-  return current?.undoNote(id, redo) ?? false;
-}
-
-/** a keystroke in a note, through the board's shared text (see BoardSync.editNote) */
-export function editNoteText(id: string, base: string, next: string) {
-  const text = current ? current.editNote(id, base, next) : next;
-  updateNoteText(id, text);
-  return text;
-}
 
 let lastNotice = 0;
 function viewOnlyNotice() {
