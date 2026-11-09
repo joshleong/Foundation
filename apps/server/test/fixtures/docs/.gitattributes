@@ -1,3 +1,7 @@
-# hand-made documents: byte offsets matter (the PDF xref), never convert line endings
-* binary
-make.mjs text eol=lf
+# hand-made documents: byte offsets matter (the PDF xref), never convert their line endings
+*.pdf binary
+*.docx binary
+*.docm binary
+*.pptx binary
+*.xlsx binary
+*.odt binary

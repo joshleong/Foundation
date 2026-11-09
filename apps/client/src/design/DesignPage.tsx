@@ -16,6 +16,9 @@ import { PlanBoard } from "../settings/SettingsPage";
 import type { Plan } from "../settings/plan";
 import { SectionEmpty } from "../panels/SectionEmpty";
 import { COMMANDS_GLYPH, IS_MAC, keys } from "../lib/keys";
+import { TrayView } from "../shell/UploadTray";
+import type { UploadItem } from "../lib/uploads";
+import { snippetHtml } from "../lib/snippet";
 
 const SURFACES = ["void", "abyss", "panel", "raise"];
 const INKS = ["frost", "mist", "dim"];
@@ -473,6 +476,9 @@ export function DesignPage() {
         </div>
       </Section>
 
+      <Section title="Adding files" note={`Drop files or whole folders on a section, paste onto the board (${keys("mod+V")}: they land where the pointer is), or pick them (${keys("mod+U")}). A folder comes in as a group, in path order, under a note that names it. Every upload goes through one glass tray at the bottom right: how many and how much in its head, a 3 px meter (blue while sending, green when everything landed, red when something didn't), then a row per file (its folder in dim, a percentage while it goes, ✓ when it's there). Three go at a time. It folds to its head, and goes by itself a beat after the last one lands. A failure keeps it open with Retry; its card waits until Retry or Close. Documents (PDF, Word, PowerPoint, Excel, OpenDocument) are searchable by what's inside them a moment after they land, and a result shows the words that matched.`}>
+        <UploadsDemo />
+      </Section>
       <Section title="Huddles and Slack" note="A huddle is a video portal at a place on the board: Live (green) while people are in it, REC (red, the one convention read without a legend) while it records, tabs and controls along the bottom because the hover bar covers the top. A Slack card is a channel: posts carry the person's name, ours get a blue rule. Shown at 400 and 560 px; offline says why.">
         <div className="adapt-row">
           {[560, 400].map((w) => (
@@ -1144,6 +1150,70 @@ function HeldPageDemo(p: { width: number; word: string; tone: "ok" | "warn" | "b
             {p.viewer && <div className="machine-hold-note">View only: someone who can edit this board starts it.</div>}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+const MB = 1024 * 1024;
+const TRAY_SENDING: UploadItem[] = [
+  { id: 1, name: "front.png", path: "Renders/front.png", size: 2.4 * MB, loaded: 2.4 * MB, state: "done" },
+  { id: 2, name: "side.png", path: "Renders/side.png", size: 2.1 * MB, loaded: 1.3 * MB, state: "sending" },
+  { id: 3, name: "shroud-rev-c.step", path: "Renders/CAD/shroud-rev-c.step", size: 18 * MB, loaded: 4 * MB, state: "sending" },
+  { id: 4, name: "test-log.xlsx", path: "Renders/test-log.xlsx", size: 220 * 1024, loaded: 0, state: "waiting" },
+  { id: 5, name: "intake-spec.pdf", path: "Renders/intake-spec.pdf", size: 1.1 * MB, loaded: 0, state: "waiting" },
+];
+const TRAY_DONE: UploadItem[] = TRAY_SENDING.map((it) => ({ ...it, loaded: it.size, state: "done" }));
+const TRAY_FAILED: UploadItem[] = [
+  ...TRAY_DONE.slice(0, 3),
+  { id: 6, name: "flythrough.mov", size: 840 * MB, loaded: 312 * MB, state: "failed", error: "network error" },
+];
+
+function UploadsDemo() {
+  return (
+    <div className="oncall-row uploads-demo">
+      <div className="oncall-cell">
+        <TrayView items={TRAY_SENDING} folded={false} demo />
+        <div className="effect-label">A folder on its way: three at a time, the rest waiting; each row names its folder in dim</div>
+      </div>
+      <div className="oncall-cell">
+        <TrayView items={TRAY_SENDING} folded demo />
+        <TrayView items={TRAY_DONE} folded demo />
+        <div className="effect-label">Folded to its head while it works; all landed (it leaves by itself 2.6 s later)</div>
+      </div>
+      <div className="oncall-cell">
+        <TrayView items={TRAY_FAILED} folded={false} demo />
+        <div className="effect-label">Something didn't make it: the tray stays, red, with Retry; its card waits for it</div>
+      </div>
+      <div className="oncall-cell" style={{ width: 420 }}>
+        <div className="search-results">
+          <div className="search-row">
+            <span className="search-row-glyph">▤</span>
+            <span className="search-row-main">
+              <span className="search-row-title">intake-spec.pdf</span>
+              <span className="search-row-snip" dangerouslySetInnerHTML={{ __html: snippetHtml("Page two of the assembly notes for the rear housing and the clamp bands: the «Osterlund» fan shroud is printed in PETG") }} />
+            </span>
+            <span className="search-row-src">file</span>
+          </div>
+          <div className="search-row">
+            <span className="search-row-glyph">▤</span>
+            <span className="search-row-main">
+              <span className="search-row-title">bom.xlsx</span>
+              <span className="search-row-snip" dangerouslySetInnerHTML={{ __html: snippetHtml("BOM Part Qty Ventura gasket 12 «03304»-10027") }} />
+            </span>
+            <span className="search-row-src">file</span>
+          </div>
+        </div>
+        <div className="cmd f-glass design-cmd-specimen">
+          <div className="cmd-list">
+            <div className="cmd-row is-hit is-sel">
+              <span className="cmd-src src-file">File</span>
+              <span className="cmd-row-label">bracket.docx</span>
+              <span className="cmd-row-hint" dangerouslySetInnerHTML={{ __html: snippetHtml("«Zephyrine» bracket assembly Torque the M6 bolts to 9 Nm then check & sign.") }} />
+            </div>
+          </div>
+        </div>
+        <div className="effect-label">What matched, inside the document: the search pane ({keys("mod+F")}) and {keys("mod+K")}, the match in blue and brought forward on its line</div>
       </div>
     </div>
   );

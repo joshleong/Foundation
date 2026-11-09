@@ -913,6 +913,7 @@ button.tab,
 .search-row-snip mark {
   background: transparent;
   color: var(--color-pulse);
+  font-weight: 600;
 }
 .search-row-src {
   color: var(--color-dim);
@@ -3595,4 +3596,225 @@ body.is-viewer .port {
 }
 .agent-handoff .f-pill {
   text-decoration: none;
+}
+
+/* ---------- the upload tray (passing chrome: glass), bottom right ---------- */
+
+.upload-tray-place {
+  position: fixed;
+  z-index: 62;
+  bottom: 16px;
+  width: min(340px, calc(100vw - 32px));
+}
+/* above the call chip while you're in a huddle */
+.huddle-pip ~ .upload-tray-place {
+  bottom: 76px;
+}
+.upload-tray {
+  border-radius: var(--radius-pane);
+  overflow: hidden;
+  color: var(--color-frost);
+  font: 500 var(--text-12) / 1.3 var(--font-sans);
+}
+.upload-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 40px;
+  padding: 0 var(--space-2) 0 var(--space-4);
+}
+.upload-state {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  font: 700 var(--text-12) / 1 var(--font-sans);
+}
+.upload-tray.is-ok .upload-state {
+  color: var(--color-ok);
+}
+.upload-tray.is-bad .upload-state {
+  color: var(--color-bad);
+}
+.upload-spin {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--color-line);
+  border-top-color: var(--color-pulse);
+  animation: spin 0.8s linear infinite;
+}
+.upload-title {
+  font: 600 var(--text-13) / 1 var(--font-sans);
+  white-space: nowrap;
+}
+.upload-size {
+  margin-left: auto;
+  color: var(--color-mist);
+  font-size: var(--text-11);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.upload-btn {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-mist);
+  font: 500 var(--text-13) / 1 var(--font-sans);
+  cursor: pointer;
+}
+.upload-btn:hover {
+  color: var(--color-frost);
+  background: var(--color-pulse-dim);
+}
+.upload-chev {
+  display: inline-block;
+  margin-top: -4px;
+  transition: transform var(--dur-quick) var(--ease-out-soft);
+}
+.upload-chev.is-up {
+  transform: rotate(180deg) translateY(-4px);
+}
+.upload-meter {
+  height: 3px;
+  margin: 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--color-line);
+  overflow: hidden;
+}
+.upload-meter i,
+.upload-row-bar i {
+  display: block;
+  height: 100%;
+  background: var(--color-pulse);
+  transform-origin: left center;
+  transition: transform var(--dur-quick) var(--ease-out-soft);
+}
+.upload-tray.is-ok .upload-meter i {
+  background: var(--color-ok);
+}
+.upload-tray.is-bad .upload-meter i {
+  background: var(--color-bad);
+}
+.upload-tray.is-folded .upload-meter {
+  margin-bottom: var(--space-4);
+}
+.upload-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-3) var(--space-2) var(--space-3);
+  max-height: 212px; /* six rows, then it scrolls */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.upload-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 34px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-card);
+}
+.upload-row-glyph {
+  width: 14px;
+  flex: none;
+  text-align: center;
+  color: var(--color-dim);
+  font-weight: 700;
+}
+.upload-row.is-sending .upload-row-glyph {
+  color: var(--color-pulse);
+}
+.upload-row.is-done .upload-row-glyph {
+  color: var(--color-ok);
+}
+.upload-row.is-failed .upload-row-glyph {
+  color: var(--color-bad);
+}
+.upload-row-main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.upload-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upload-row.is-waiting .upload-row-name {
+  color: var(--color-mist);
+}
+.upload-row-dir {
+  color: var(--color-dim);
+}
+.upload-row-err {
+  color: var(--color-bad);
+  font-size: var(--text-11);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upload-row-pct {
+  flex: none;
+  color: var(--color-dim);
+  font-size: var(--text-11);
+  font-variant-numeric: tabular-nums;
+}
+.upload-row-bar {
+  position: absolute;
+  left: 30px;
+  right: var(--space-3);
+  bottom: 3px;
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--color-line);
+  overflow: hidden;
+}
+.upload-row-retry {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--color-pulse);
+  font: 600 var(--text-12) / 1 var(--font-sans);
+  cursor: pointer;
+  padding: var(--space-2);
+}
+.upload-row-retry:hover {
+  text-decoration: underline;
+}
+.upload-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border-top: 1px solid var(--color-line);
+  color: var(--color-mist);
+  font-size: var(--text-11);
+}
+.upload-retry-all {
+  margin-left: auto;
+  flex: none;
+}
+/* #/design specimens: the tray at its own width, ⌘K's row outside its scrim */
+.oncall-cell > .upload-tray {
+  width: 340px;
+}
+.design-cmd-specimen {
+  width: 100%;
+  border-radius: var(--radius-pane);
+}
+.uploads-demo .oncall-cell {
+  padding-bottom: 68px;
+}
+.uploads-demo .effect-label {
+  right: var(--space-4);
 }
