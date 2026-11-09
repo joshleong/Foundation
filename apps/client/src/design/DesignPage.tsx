@@ -8,7 +8,9 @@ import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { durations, easings, isNight, setNight, springs } from "@foundation/ui";
 import { initAsciiWind2 } from "../login/asciiWind2";
-import { Mark } from "../login/Login";
+import { Mark } from "../brand/Mark";
+import { UpdateCard } from "../update/UpdateCard";
+import type { UpdatePhase } from "../update/updater";
 import { NightOrb } from "../shell/NightOrb";
 import { pipeCrossings, polyline, route, routeSides, sideToward, type Side } from "../shell/wireGeometry";
 import { tunnelGeometry } from "../shell/wireGeometry";
@@ -826,6 +828,10 @@ export function DesignPage() {
         <PlanBoardDemo />
       </Section>
 
+      <Section title="Desktop updates" note="The desktop app checks its signed feed a few seconds after it opens and puts this card up under the top bar, on glass, when a new version is ready: Update and restart is the one blue action, Later hides it until the next launch, Skip this version until a newer one. Nothing downloads until a person presses Update. The bar fills on the compositor; the mark's courses settle while it works. After the restart it says what changed, once. Settings → Updates shows the same card inline on paper, with Check for updates. Shown at 260, 400 and 560 px.">
+        <UpdateDemo />
+      </Section>
+
       <Section title="Panels that adapt" note="Design for the narrowest width first; container queries, never the window. Check 260, 400 and 560 px.">
         <div className="adapt-row">
           {[260, 400, 560].map((w) => (
@@ -1145,6 +1151,50 @@ function HeldPageDemo(p: { width: number; word: string; tone: "ok" | "warn" | "b
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+const UPDATE_NOTES = ["## Foundation 0.3.0", "- Desktop updates: this card", "- A new icon: an F laid in masonry", "- Signed installers, checked before they run"].join("\n");
+const UPDATE_PHASES: Array<{ phase: UpdatePhase; width: number; layout?: "floating" | "inline"; extra?: Record<string, unknown> }> = [
+  { phase: "available", width: 400 },
+  { phase: "available", width: 260 },
+  { phase: "downloading", width: 400, extra: { received: 4.2 * 1048576, total: 9.6 * 1048576 } },
+  { phase: "downloading", width: 260 },
+  { phase: "installing", width: 400 },
+  { phase: "failed", width: 400, extra: { message: "The download's signature didn't match Foundation's key, so nothing was installed." } },
+  { phase: "updated", width: 560 },
+  { phase: "checking", width: 400, layout: "inline" },
+  { phase: "current", width: 400, layout: "inline" },
+  { phase: "unreachable", width: 400, layout: "inline" },
+  { phase: "off", width: 400, layout: "inline", extra: { message: "This is a development build (tauri dev): pull main to update it." } },
+];
+
+function UpdateDemo() {
+  const noop = () => {};
+  return (
+    <div className="update-demo">
+      {UPDATE_PHASES.map((d, i) => (
+        <div key={i} style={{ width: d.width }}>
+          <div className="f-eyebrow update-demo-label">
+            {d.phase} · {d.width} px{d.layout === "inline" ? " · inline" : ""}
+          </div>
+          <UpdateCard
+            phase={d.phase}
+            layout={d.layout ?? "floating"}
+            version={d.phase === "current" ? "0.3.0" : "0.3.0"}
+            current="0.2.0"
+            date="2026-11-09T08:00:00Z"
+            notes={UPDATE_NOTES}
+            onUpdate={noop}
+            onLater={noop}
+            onSkip={noop}
+            onCheck={noop}
+            onClose={noop}
+            {...d.extra}
+          />
+        </div>
+      ))}
     </div>
   );
 }

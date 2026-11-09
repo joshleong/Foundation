@@ -496,15 +496,3 @@ export function Login({
     </div>
   );
 }
-
-export function Mark({ size = 30 }: { size?: number }) {
-  // the Foundation mark: a grid cell lifting off the paper
-  return (
-    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden>
-      <rect x="4" y="4" width="10" height="10" rx="2" fill="currentColor" opacity=".9" />
-      <rect x="18" y="4" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.6" opacity=".55" />
-      <rect x="4" y="18" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.6" opacity=".55" />
-      <rect x="18" y="18" width="10" height="10" rx="2" fill="var(--color-pulse)" />
-    </svg>
-  );
-}

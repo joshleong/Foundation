@@ -34,7 +34,10 @@ pub fn run() {
                 let _ = w.set_focus();
             }
         }))
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        // updates (SPEC: Desktop updates): the page asks the signed feed and a person presses Update
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
     // the plugin's server panics on its own thread if it can't bind; check first and say why instead
     let port_free = dev || TcpListener::bind(("localhost", PORT)).is_ok();
     if !dev && port_free {

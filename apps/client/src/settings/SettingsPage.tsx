@@ -17,6 +17,7 @@ import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { isNight, setNight, springs } from "@foundation/ui";
 import { api } from "../lib/api";
 import { NightOrb } from "../shell/NightOrb";
+import { UpdatesSection } from "../update/UpdateCard";
 import { renderMarkdown } from "../utils/markdown";
 import { boardColumns, counts, issueUrl, PLAN, type CardKind, type Plan, type PlanCard, type PlanFilter } from "./plan";
 
@@ -49,6 +50,7 @@ export function SettingsPage({ route }: { route: string }) {
         </a>
       </header>
       {tab === "plan" ? <PlanTab /> : <ServicesTab />}
+      <UpdatesSection />
     </div>
   );
 }
