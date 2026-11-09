@@ -101,6 +101,7 @@ export function getBoard(id: string): Board {
   });
 
   boards.set(id, board);
+  guardServerMaps(board);
   for (const fn of openListeners) fn(board);
   // the board's lineage: a device's offline copy only merges into the board it came from
   if (!boardMaps(doc).meta.get("epoch")) doc.transact(() => boardMaps(doc).meta.set("epoch", `ep_${randomUUID()}`), "system");
@@ -216,6 +217,38 @@ export function attachConnection(boardId: string, ws: WebSocket, readOnly = fals
     encoding.writeVarUint(aw, MSG_AWARENESS);
     encoding.writeVarUint8Array(aw, awarenessProtocol.encodeAwarenessUpdate(board.awareness, [...states.keys()]));
     send(ws, encoding.toUint8Array(aw));
+  }
+}
+
+/**
+ * Maps only the server writes (`huddles`: who's in a portal; `machineAsks`: commands agents asked
+ * to run). A person's sync socket can still send a change to them (the Yjs wire has no per-map
+ * permissions), so a change that came from a socket is put back the way the server left it, and
+ * everyone, the sender included, gets the correction. Without this, someone with edit rights could
+ * make a fake ask appear on a machine card or rewrite who is in a huddle.
+ */
+export const SERVER_MAPS = ["huddles", "machineAsks"] as const;
+function guardServerMaps(board: Board) {
+  for (const name of SERVER_MAPS) {
+    const map = board.doc.getMap<unknown>(name);
+    const kept = new Map<string, unknown>();
+    for (const [k, v] of map.entries()) kept.set(k, structuredClone(v));
+    map.observe((e) => {
+      const fromSocket = e.transaction.origin && board.conns.has(e.transaction.origin as WebSocket);
+      if (!fromSocket) {
+        for (const k of e.keysChanged) {
+          if (map.has(k)) kept.set(k, structuredClone(map.get(k)));
+          else kept.delete(k);
+        }
+        return;
+      }
+      board.doc.transact(() => {
+        for (const k of e.keysChanged) {
+          if (kept.has(k)) map.set(k, structuredClone(kept.get(k)));
+          else map.delete(k);
+        }
+      }, "server-map-guard");
+    });
   }
 }
 
