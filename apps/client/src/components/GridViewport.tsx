@@ -31,7 +31,7 @@ import { SectionView } from "./SectionView";
 import { WireLayer } from "./WireLayer";
 import { camera, publishCamera, publishPointer } from "../state/camera";
 import { isNight, onNight } from "@foundation/ui";
-import { floorInsets, getUi, setUi, useUi } from "../state/ui";
+import { floorInsets, getUi, setUi, toggleSession, useUi } from "../state/ui";
 import { TalkButton } from "../shell/Talk";
 import { PeerCursors } from "../shell/Presence";
 import { CrewCursors, CrewFollow, CrewGuide } from "../shell/Crew";
@@ -991,6 +991,10 @@ export function GridViewport() {
             <span className="f-kbd">{keys("mod+F")}</span>
           </button>
         )}
+        <button className={`hud-ask f-glass${ui.session ? " is-on" : ""}`} onClick={toggleSession} aria-pressed={!!ui.session} data-tip={ui.session ? "Put the conversation away" : "Ask the agent: a conversation beside the canvas"} data-kbd={keys("mod+J")}>
+          <span className="hud-glyph">✦</span>
+          <span className="hud-label">Ask</span>
+        </button>
         <TalkButton />
         <button
           className="hud-zoom f-glass"

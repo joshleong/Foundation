@@ -2,6 +2,11 @@
  * Shell UI state — what's open, which layer is showing. Tiny external store;
  * nothing here is shared with other people (that's the board doc).
  *
+ * The top bar's tabs are spaces (boards: a grid, a deck, a web page). The left
+ * pane lists them (recent, or by project folder) or shows the open space's own
+ * people and activity. A session with the agent is a column of its own, opened
+ * from the bottom bar.
+ *
  * The floor: the side pane, the top bar, an open session and the search pane
  * are drawn on the paper itself, not floated over it. `floorInsets()` says how
  * much of the screen they take on each side; the grid masks its cards out of
@@ -10,7 +15,10 @@
 
 import { useSyncExternalStore } from "react";
 
-/** a tab in the top bar: the board is always first and isn't one of these */
+/**
+ * A conversation with the agent (or a Vision Code thread), shown in the session
+ * column. Opened from the bottom bar; it is not a tab: the tabs are spaces.
+ */
 export interface SessionTab {
   id: string;
   /** "agent": a Foundation agent session on this board · "t3": a Vision Code thread, read-only */
@@ -27,12 +35,17 @@ export interface UiState {
   /** a card whose app frame is "engaged" (live input); others show a still */
   engaged: string | null;
   toast: { text: string; tone?: "ok" | "warn" | "bad" | "agent"; at: number } | null;
-  /** the side pane (sessions, boards, activity, settings): open or folded away */
+  /** the left pane: open or folded away, and which of its two faces shows */
   pane: boolean;
   paneW: number;
-  /** open session tabs, and which one is showing (null: just the board) */
-  tabs: SessionTab[];
-  tab: string | null;
+  /** "spaces": every space, by recent or by project folder · "info": the open space's own people and activity */
+  paneView: "spaces" | "info";
+  spacesView: "recent" | "folders";
+  /** the top bar's tabs: the spaces open in this window (board ids), in order */
+  spaces: string[];
+  /** sessions opened in this window, and the one showing in the session column (null: none) */
+  sessions: SessionTab[];
+  session: string | null;
   sessionW: number;
   /** text queued into the showing agent session's composer */
   draft: string;
@@ -53,11 +66,13 @@ export const WIDTHS = {
 };
 
 const KEY = "foundation-floor";
-type Stored = Pick<UiState, "pane" | "paneW" | "tabs" | "tab" | "sessionW" | "search" | "searchW">;
+type Stored = Pick<UiState, "pane" | "paneW" | "paneView" | "spacesView" | "spaces" | "sessions" | "session" | "sessionW" | "search" | "searchW">;
 
 function stored(): Partial<Stored> {
   try {
-    const s = JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<Stored>;
+    const s = JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<Stored> & { tabs?: SessionTab[]; tab?: string | null };
+    // before spaces, sessions were the top bar's tabs
+    if (s.sessions === undefined && Array.isArray(s.tabs)) s.sessions = s.tabs;
     // the old key, from before the floor
     if (s.pane === undefined && localStorage.getItem("foundation-pane") === "open") s.pane = true;
     return s;
@@ -79,8 +94,11 @@ let ui: UiState = {
   toast: null,
   pane: s0.pane ?? false,
   paneW: clampW(s0.paneW, WIDTHS.pane),
-  tabs: Array.isArray(s0.tabs) ? s0.tabs.filter((t) => t && typeof t.id === "string").slice(0, 12) : [],
-  tab: null,
+  paneView: s0.paneView === "info" ? "info" : "spaces",
+  spacesView: s0.spacesView === "folders" ? "folders" : "recent",
+  spaces: Array.isArray(s0.spaces) ? s0.spaces.filter((id) => typeof id === "string").slice(0, 24) : [],
+  sessions: Array.isArray(s0.sessions) ? s0.sessions.filter((t) => t && typeof t.id === "string").slice(0, 12) : [],
+  session: null,
   sessionW: clampW(s0.sessionW, WIDTHS.session),
   draft: "",
   search: s0.search ?? false,
@@ -88,7 +106,7 @@ let ui: UiState = {
   touched: [],
   role: "member",
 };
-if (s0.tab && ui.tabs.some((t) => t.id === s0.tab)) ui.tab = s0.tab;
+if (s0.session && ui.sessions.some((t) => t.id === s0.session)) ui.session = s0.session;
 
 const listeners = new Set<() => void>();
 
@@ -101,9 +119,9 @@ export const MIN_PAPER = 440;
 export function setUi(patch: Partial<UiState>) {
   const before = ui;
   ui = { ...ui, ...patch };
-  if (patch.tab !== undefined && patch.tab !== before.tab) ui.touched = patch.touched ?? [];
+  if (patch.session !== undefined && patch.session !== before.session) ui.touched = patch.touched ?? [];
   // opening a session or search (or widening one) on a narrow screen: the side pane gives way
-  const opened = (ui.tab && !before.tab) || (ui.search && !before.search) || ui.sessionW > before.sessionW || ui.searchW > before.searchW;
+  const opened = (ui.session && !before.session) || (ui.search && !before.search) || ui.sessionW > before.sessionW || ui.searchW > before.searchW;
   if (opened && ui.pane && patch.pane === undefined && typeof window !== "undefined") {
     const f = floorInsets(ui);
     if (window.innerWidth - f.left - f.right < MIN_PAPER) ui.pane = false;
@@ -112,13 +130,13 @@ export function setUi(patch: Partial<UiState>) {
   // then search closes, then the pane itself narrows, so the grid keeps its paper instead of a sliver
   if (patch.pane === true && !before.pane && typeof window !== "undefined") {
     const short = () => MIN_PAPER - (window.innerWidth - floorInsets(ui).left - floorInsets(ui).right);
-    if (short() > 0 && ui.tab) ui.sessionW = Math.max(WIDTHS.session.min, ui.sessionW - short());
+    if (short() > 0 && ui.session) ui.sessionW = Math.max(WIDTHS.session.min, ui.sessionW - short());
     if (short() > 0 && ui.search) ui.search = false;
     if (short() > 0) ui.paneW = Math.max(WIDTHS.pane.min, ui.paneW - short());
   }
-  if ((["pane", "paneW", "tabs", "tab", "sessionW", "search", "searchW"] as const).some((k) => k in patch)) {
+  if ((["pane", "paneW", "paneView", "spacesView", "spaces", "sessions", "session", "sessionW", "search", "searchW"] as const).some((k) => k in patch)) {
     try {
-      const keep: Stored = { pane: ui.pane, paneW: ui.paneW, tabs: ui.tabs, tab: ui.tab, sessionW: ui.sessionW, search: ui.search, searchW: ui.searchW };
+      const keep: Stored = { pane: ui.pane, paneW: ui.paneW, paneView: ui.paneView, spacesView: ui.spacesView, spaces: ui.spaces, sessions: ui.sessions, session: ui.session, sessionW: ui.sessionW, search: ui.search, searchW: ui.searchW };
       localStorage.setItem(KEY, JSON.stringify(keep));
     } catch { /* private window */ }
   }
@@ -144,7 +162,7 @@ export function fitFloor() {
   const room = () => window.innerWidth - floorInsets(ui).left - floorInsets(ui).right;
   const patch: Partial<UiState> = {};
   if (room() < MIN_PAPER && ui.pane) patch.pane = false;
-  if (room() - (patch.pane === false ? ui.paneW : 0) < MIN_PAPER && ui.search && ui.tab) patch.search = false;
+  if (room() - (patch.pane === false ? ui.paneW : 0) < MIN_PAPER && ui.search && ui.session) patch.search = false;
   if (Object.keys(patch).length) setUi(patch);
 }
 if (typeof window !== "undefined") {
@@ -155,7 +173,7 @@ if (typeof window !== "undefined") {
 /** how much of the screen the floor chrome takes on each side (px) */
 export function floorInsets(u: UiState = ui) {
   if (u.presenting) return { left: 0, top: 0, right: 0, bottom: 0 };
-  const session = u.tab ? u.sessionW : 0;
+  const session = u.session ? u.sessionW : 0;
   return { left: (u.pane ? u.paneW : 0) + session, top: TOP_BAR, right: u.search ? u.searchW : 0, bottom: 0 };
 }
 
@@ -167,38 +185,73 @@ export function toast(text: string, tone?: NonNullable<UiState["toast"]>["tone"]
 }
 
 const sid = () => `ses_${Math.random().toString(36).slice(2, 12)}`;
-/** a session id for a turn that runs without a tab (the crew: asked from the voice sheet) */
+/** a session id for a turn that runs without the column open (the crew: asked from the voice sheet) */
 export const newSessionId = sid;
 
-/** open a tab (or show it if it's already open) */
-export function openTab(t: SessionTab) {
-  const tabs = ui.tabs.some((x) => x.id === t.id) ? ui.tabs : [...ui.tabs, t];
-  setUi({ tabs, tab: t.id, command: false });
+/** show a session in the column (adding it to this window's if it's new here) */
+export function openSession(t: SessionTab) {
+  const sessions = ui.sessions.some((x) => x.id === t.id) ? ui.sessions : [...ui.sessions, t].slice(-12);
+  setUi({ sessions, session: t.id, command: false });
 }
 
-/** a fresh agent session tab, with an optional first message waiting in its composer */
+/** a fresh agent session, with an optional first message waiting in its composer */
 export function newSession(draft = "") {
   const t: SessionTab = { id: sid(), kind: "agent", title: "New session" };
-  setUi({ tabs: [...ui.tabs, t], tab: t.id, draft, command: false });
+  setUi({ sessions: [...ui.sessions, t].slice(-12), session: t.id, draft, command: false });
   return t;
 }
 
-export function closeTab(id: string) {
-  const i = ui.tabs.findIndex((t) => t.id === id);
-  if (i < 0) return;
-  const tabs = ui.tabs.filter((t) => t.id !== id);
-  const tab = ui.tab === id ? (tabs[Math.min(i, tabs.length - 1)]?.id ?? null) : ui.tab;
-  setUi({ tabs, tab });
+/** the bottom bar's button: put the conversation away if it's showing, else bring back the last one (or start one) */
+export function toggleSession() {
+  if (ui.session) return setUi({ session: null });
+  const last = ui.sessions[ui.sessions.length - 1];
+  if (last) setUi({ session: last.id });
+  else newSession();
 }
 
-export function renameTab(id: string, title: string) {
-  if (!ui.tabs.some((t) => t.id === id && t.title !== title)) return;
-  setUi({ tabs: ui.tabs.map((t) => (t.id === id ? { ...t, title } : t)) });
+/** drop a session from this window (the server keeps it; the history lists it) */
+export function closeSession(id: string) {
+  if (!ui.sessions.some((t) => t.id === id)) return;
+  setUi({ sessions: ui.sessions.filter((t) => t.id !== id), session: ui.session === id ? null : ui.session });
+}
+
+export function renameSession(id: string, title: string) {
+  if (!ui.sessions.some((t) => t.id === id && t.title !== title)) return;
+  setUi({ sessions: ui.sessions.map((t) => (t.id === id ? { ...t, title } : t)) });
 }
 
 /** "ask the agent": into the agent session that's showing, else a new one */
 export function askAgent(text: string) {
-  const showing = ui.tabs.find((t) => t.id === ui.tab);
+  const showing = ui.sessions.find((t) => t.id === ui.session);
   if (showing?.kind === "agent") setUi({ draft: text, command: false });
   else newSession(text);
+}
+
+// ---------- spaces: the top bar's tabs ----------
+
+const OPENED = "foundation-space-opened";
+/** when each space was last opened on this device (for Recent) */
+export function spaceOpenedAt(): Record<string, number> {
+  try {
+    return JSON.parse(localStorage.getItem(OPENED) ?? "{}") as Record<string, number>;
+  } catch {
+    return {};
+  }
+}
+
+/** a space is showing: it has a tab, and it's the most recent */
+export function noteSpaceOpen(id: string) {
+  try {
+    localStorage.setItem(OPENED, JSON.stringify({ ...spaceOpenedAt(), [id]: Date.now() }));
+  } catch { /* private window */ }
+  if (!ui.spaces.includes(id)) setUi({ spaces: [...ui.spaces, id].slice(-24) });
+}
+
+/** close a tab; says which space to show now when the closed one was showing (null: nothing changes) */
+export function closeSpaceTab(id: string, current: string): string | null {
+  const i = ui.spaces.indexOf(id);
+  if (i < 0 || ui.spaces.length < 2) return null;
+  const spaces = ui.spaces.filter((x) => x !== id);
+  setUi({ spaces });
+  return id === current ? spaces[Math.min(i, spaces.length - 1)] : null;
 }

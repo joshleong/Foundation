@@ -12,6 +12,7 @@ import { Mark } from "../brand/Mark";
 import { UpdateCard } from "../update/UpdateCard";
 import type { UpdatePhase } from "../update/updater";
 import { NightOrb } from "../shell/NightOrb";
+import { InfoGlyph } from "../shell/TopBar";
 import { WindowControls } from "../shell/WindowControls";
 import { pipeCrossings, polyline, route, routeSides, sideToward, type Side } from "../shell/wireGeometry";
 import { tunnelGeometry } from "../shell/wireGeometry";
@@ -240,7 +241,7 @@ export function DesignPage() {
         </div>
       </Section>
 
-      <Section title="The floor" note="The top bar, the side pane, an open session and search are drawn on the grid's own paper — no glass, no card. The dots run underneath; the cards stop at a pane's edge, cut clean behind a hairline (no fade), like an editor's panels, and the view slides over to stay in the middle of what's left. That hairline is the edge you drag: it turns blue under the pointer, and a double-click resets the width.">
+      <Section title="The floor" note="A tab is a space (a grid ▦, a presentation ▶, a web page ◳); ＋ makes a grid space. The left pane files spaces by recent or by project folder; the ⓘ on a space's tab opens that space's own people and activity in its place; a session with the agent opens from Ask in the bottom bar. The top bar, the panes, an open session and search are drawn on the grid's own paper — no glass, no card. The dots run underneath; the cards stop at a pane's edge, cut clean behind a hairline (no fade), like an editor's panels, and the view slides over to stay in the middle of what's left. That hairline is the edge you drag: it turns blue under the pointer, and a double-click resets the width.">
         <div className="floor-demo">
           <header className="top-bar">
             <span className="top-btn is-on">
@@ -250,28 +251,44 @@ export function DesignPage() {
               </svg>
             </span>
             <nav className="tabs">
-              <span className="tab is-board">
+              <span className="tab is-space is-current is-board">
                 <span className="tab-main">
-                  <span className="tab-glyph">▦</span>
+                  <span className="tab-glyph">◉</span>
                   <span className="tab-title">Form Industries</span>
                   <span className="f-dot is-ok" />
                 </span>
-              </span>
-              <span className="tab is-agent is-current">
-                <span className="tab-main">
-                  <span className="tab-glyph is-running">✦</span>
-                  <span className="tab-title">Organize the fan work</span>
+                <span className="tab-info">
+                  <InfoGlyph />
                 </span>
                 <span className="tab-close">✕</span>
               </span>
-              <span className="tab is-t3">
+              <span className="tab is-space">
                 <span className="tab-main">
-                  <span className="tab-glyph">⌥</span>
-                  <span className="tab-title">Heat exchanger viewer</span>
+                  <span className="tab-glyph">▦</span>
+                  <span className="tab-title">Rim-drive fan</span>
                 </span>
               </span>
-              <span className="top-btn tab-new">＋</span>
+              <span className="tab is-space">
+                <span className="tab-main">
+                  <span className="tab-glyph">▶</span>
+                  <span className="tab-title">Design review</span>
+                </span>
+              </span>
+              <span className="tab is-space">
+                <span className="tab-main">
+                  <span className="tab-glyph">◳</span>
+                  <span className="tab-title">FactoryForm</span>
+                </span>
+              </span>
             </nav>
+            <span className="tab-new-wrap">
+              <span className="top-btn tab-new">＋</span>
+              <span className="top-btn tab-new-more">
+                <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden>
+                  <path d="M1 2.5l3 3 3-3" />
+                </svg>
+              </span>
+            </span>
             <div className="top-tools">
               <span className="top-btn is-on">⌕</span>
               <span className="top-btn">{COMMANDS_GLYPH}</span>
@@ -284,24 +301,43 @@ export function DesignPage() {
           <aside className="side-pane floor-pane" style={{ width: 200 }}>
             <div className="pane-scroll">
               <section className="pane-group">
-                <div className="pane-eyebrow is-agent">Sessions</div>
-                <span className="pane-row is-session is-current">
-                  <span className="f-dot is-agent is-pulse" />
-                  <span className="pane-label">Organize the fan work</span>
-                </span>
-              </section>
-              <section className="pane-group">
-                <div className="pane-eyebrow">Vision Code</div>
-                <span className="pane-row is-session">
-                  <span className="f-dot is-warn" />
-                  <span className="pane-label">Heat exchanger viewer</span>
-                  <span className="pane-when">1 ask</span>
-                </span>
-                <span className="pane-row is-session">
-                  <span className="f-dot" />
-                  <span className="pane-label">Valve gear redesign</span>
-                  <span className="pane-when">3d</span>
-                </span>
+                <div className="pane-eyebrow">
+                  Spaces
+                  <span className="pane-eyebrow-acts">
+                    <span className="pane-eyebrow-act">▱</span>
+                    <span className="pane-eyebrow-act">＋</span>
+                  </span>
+                </div>
+                <div className="pane-seg">
+                  <span className="pane-seg-btn">Recent</span>
+                  <span className="pane-seg-btn is-on">Folders</span>
+                </div>
+                <div className="space-row is-folder">
+                  <span className="pane-row space-open">
+                    <span className="pane-glyph folder-caret is-open">›</span>
+                    <span className="pane-label">Fans</span>
+                    <span className="pane-when">2</span>
+                  </span>
+                </div>
+                <div className="space-row" style={{ paddingLeft: 14 }}>
+                  <span className="pane-row space-open">
+                    <span className="pane-glyph">▦</span>
+                    <span className="pane-label">Rim-drive fan</span>
+                  </span>
+                </div>
+                <div className="space-row" style={{ paddingLeft: 14 }}>
+                  <span className="pane-row space-open">
+                    <span className="pane-glyph">▶</span>
+                    <span className="pane-label">Design review</span>
+                  </span>
+                </div>
+                <div className="pane-sub">Not in a folder</div>
+                <div className="space-row is-current">
+                  <span className="pane-row space-open">
+                    <span className="pane-glyph">◉</span>
+                    <span className="pane-label">Form Industries</span>
+                  </span>
+                </div>
               </section>
             </div>
           </aside>
@@ -363,6 +399,10 @@ export function DesignPage() {
                 <span className="hud-glyph">⌕</span>
                 <span className="hud-label">Search</span>
                 <span className="f-kbd">{keys("mod+F")}</span>
+              </button>
+              <button className="hud-ask f-glass">
+                <span className="hud-glyph">✦</span>
+                <span className="hud-label">Ask</span>
               </button>
               <button className="hud-talk f-glass">
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>

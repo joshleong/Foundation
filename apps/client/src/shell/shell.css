@@ -342,7 +342,6 @@ button.tab,
   flex: 1;
   overflow-y: auto;
   padding: var(--space-2) var(--space-3) var(--space-4) var(--space-3);
-  scrollbar-width: thin;
 }
 .pane-group {
   display: flex;
@@ -624,7 +623,6 @@ button.tab,
   flex-direction: column;
   gap: var(--space-4);
   user-select: text;
-  scrollbar-width: thin;
 }
 .session-empty p {
   color: var(--color-mist);
@@ -877,7 +875,6 @@ button.tab,
   display: flex;
   flex-direction: column;
   gap: 1px;
-  scrollbar-width: thin;
 }
 .search-results > .pane-eyebrow {
   padding: 0 var(--space-3);
@@ -3910,7 +3907,6 @@ body.is-viewer .port {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  scrollbar-width: thin;
 }
 .places > .pane-eyebrow {
   padding: 0 var(--space-3);

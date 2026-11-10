@@ -14,7 +14,7 @@ import { config } from "./config.ts";
 import { one } from "./db.ts";
 import { HttpError, json, readJson, Router, sse, type Req } from "./http.ts";
 import { clearSession, createSession, googleAuthUrl, googleCallback, isAllowed, requireUser, setSessionCookie, signIn, upsertUser, userFromRequest } from "./auth.ts";
-import { boardEpoch, editBoard, ensureBoardRow, getBoard, listBoards, presence } from "./boards.ts";
+import { SPACE_KINDS, boardEpoch, cleanFolder, cleanPageUrl, createBoardRow, editBoard, ensureBoardRow, getBoard, listBoards, presence, updateBoardRow, type SpaceKind } from "./boards.ts";
 import { archiveFile, listFiles, reindexFilesIfNeeded, serveFile, uploadFile } from "./files.ts";
 import { integrationStatus, searchAll } from "./search.ts";
 import { listApps, probeApp, saveApp } from "./apps.ts";
@@ -165,13 +165,53 @@ r.post("/api/boards/:id/people", async (req) => {
 });
 r.post("/api/boards", async (req) => {
   requireWriter(requireUser(req));
-  const { name } = await readJson<{ name?: string }>(req);
-  const id = (name ?? "board").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || `board-${Date.now().toString(36)}`;
-  ensureBoardRow(id, name ?? id);
-  // the server lays the first section, so two people opening a new board at once don't both seed it
-  const doc = getBoard(id).doc;
-  if (boardMaps(doc).sections.size === 0) editBoard(id, "system", (d) => appendSection(d, "Section 1"));
+  const body = await readJson<{ name?: string; kind?: string; folder?: string | null; url?: string }>(req);
+  const kind: SpaceKind = SPACE_KINDS.includes(body.kind as SpaceKind) ? (body.kind as SpaceKind) : "grid";
+  const url = kind === "page" ? cleanPageUrl(body.url) : null;
+  if (kind === "page" && !url) throw new HttpError(400, "A page space needs a web address (http or https)");
+  let name = (body.name ?? "").trim().slice(0, 80);
+  if (!name) {
+    // an unnamed space takes a name nothing else has: "Untitled grid", then "Untitled grid 2"…
+    const base = kind === "page" ? new URL(url!).hostname : kind === "deck" ? "Untitled presentation" : "Untitled grid";
+    const taken = new Set(listBoards().map((b) => b.name));
+    name = base;
+    for (let n = 2; taken.has(name); n++) name = `${base} ${n}`;
+  }
+  const id = createBoardRow(name, { kind, folder: cleanFolder(body.folder), url });
+  // the server lays the first sections, so two people opening a new space at once don't both seed it
+  // (a deck's sections are its slides; a page space keeps a board for its people and activity, with nothing on it)
+  if (kind !== "page") {
+    const doc = getBoard(id).doc;
+    if (boardMaps(doc).sections.size === 0) {
+      editBoard(id, "system", (d) => {
+        if (kind === "deck") for (const s of ["Title", "Slide 2", "Slide 3"]) appendSection(d, s);
+        else appendSection(d, "Section 1");
+      });
+    }
+  }
   return { id };
+});
+// rename a space, move it between project folders, or re-point a page space: anyone who can write it
+r.post("/api/boards/:id", async (req) => {
+  const u = requireUser(req);
+  const id = req.params.id;
+  if (!listBoards().some((b) => b.id === id)) throw new HttpError(404, "No such space");
+  requireWriter(u, id);
+  const body = await readJson<{ name?: string; folder?: string | null; url?: string }>(req);
+  const patch: { name?: string; folder?: string | null; url?: string } = {};
+  if (body.name !== undefined) {
+    const name = String(body.name).trim().slice(0, 80);
+    if (!name) throw new HttpError(400, "A space needs a name");
+    patch.name = name;
+  }
+  if (body.folder !== undefined) patch.folder = cleanFolder(body.folder);
+  if (body.url !== undefined) {
+    const url = cleanPageUrl(body.url);
+    if (!url) throw new HttpError(400, "A web address (http or https) required");
+    patch.url = url;
+  }
+  updateBoardRow(id, patch);
+  return { board: listBoards().find((b) => b.id === id) };
 });
 r.get("/api/boards/:id/presence", (req) => {
   requireBoard(requireUser(req), req.params.id);

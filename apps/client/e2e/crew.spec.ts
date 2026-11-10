@@ -320,12 +320,12 @@ test("two helpers see the lead's plan and each other's work: one supplier list, 
   const agentLines = (await acts()).filter((a) => a.role === "agent" && names.includes(a.who));
   expect(new Set(agentLines.map((a) => a.who)).size, "each of the three signed its work").toBe(3);
   expect(agentLines.every((a) => a.for === "Ada Test"), "every agent line says whom it worked for").toBeTruthy();
-  // Ada's side pane shows it
-  await ada.keyboard.press("Control+Backslash");
+  // the space's own pane shows it (people and activity left the side pane, 2026-11-10)
+  await ada.keyboard.press("Control+i");
   await expect(ada.locator(".activity-row").first()).toBeVisible({ timeout: 4000 });
   await settle(ada, 700);
-  await ada.locator(".side-pane").screenshot({ path: `${SHOTS2}/21_activity-person-and-agents.png` });
-  await ada.keyboard.press("Control+Backslash");
+  await ada.locator(".space-info").screenshot({ path: `${SHOTS2}/21_activity-person-and-agents.png` });
+  await ada.keyboard.press("Control+i");
 });
 
 test("the crew on #/design, day and night", async ({ browser }) => {

@@ -15,9 +15,12 @@ import "./App.css";
 import "./shell/shell.css";
 import "./panels/live.css";
 import "./shell/crew.css";
+import "./shell/spaces.css";
+import { initScrollbars } from "./lib/scrollbars";
 import "./settings/settings.css";
 
 initNight();
+initScrollbars();
 // the desktop app asks its signed feed for a new version a few seconds after it opens (inert in a browser)
 startUpdates();
 

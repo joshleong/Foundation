@@ -255,6 +255,11 @@ const FTS_SQL = `create virtual table search_fts using fts5(
 // additive migrations — each is idempotent
 for (const sql of [
   "alter table asks add column stage_panel_id text",
+  // spaces (2026-11-10): a board is a space; its canvas is a grid, a deck of slides or a web page (url),
+  // and it may sit in a project folder ("Fans/Rim drive"); null kind = grid, null folder = loose
+  "alter table boards add column kind text",
+  "alter table boards add column folder text",
+  "alter table boards add column url text",
   "alter table users add column flowform_user_id text",
   // agent sessions: each tab is its own conversation, resumable after a restart
   "alter table agent_runs add column session_id text",

@@ -551,8 +551,6 @@ a.kb-card-issue:hover {
 .settings-page,
 .kb-board,
 .kb-col-cards {
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-line-strong) transparent;
 }
 
 /* #/design's sample board */

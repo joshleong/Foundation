@@ -1,12 +1,14 @@
 /**
- * The Foundation shell: the grid edge to edge, and the floor drawn on its
- * paper — the top bar (fold, tabs, tools), the side pane (sessions, boards,
- * activity, settings), an open session beside the grid, and search at the
- * right — then the layers above: the agent layer, ⌘K, presentation mode, the
- * repo drawer and toasts.
+ * The Foundation shell: the open space's canvas edge to edge (a grid, a deck
+ * or a web page), and the floor drawn on its paper — the top bar (the spaces
+ * pane's fold, a tab per open space, tools), the left pane (every space by
+ * recent or project folder; or the open space's own people and activity), a
+ * session with the agent beside the canvas (opened from the bottom bar), and
+ * search at the right — then the layers above: the agent layer, ⌘K,
+ * presentation mode, the repo drawer and toasts.
  *
- * Keys (⌘ is Ctrl off a Mac, and lib/keys.ts labels it so): ⌘K commands · ⌘F search · ⌘\ side pane · ⌘J new agent session · ⌘1 the board ·
- * ⌘2…9 tabs · ⌘W close the tab · A agent layer · P present · ⌘U upload ·
+ * Keys (⌘ is Ctrl off a Mac, and lib/keys.ts labels it so): ⌘K commands · ⌘F search · ⌘\ spaces pane · ⌘I this space · ⌘J the agent ·
+ * ⌘1…9 the tabs · ⌘W close the tab · A agent layer · P present · ⌘U upload ·
  * Esc releases an engaged app (then steps up the grid's levels).
  */
 
@@ -25,10 +27,12 @@ import { RepoDrawer } from "./RepoDrawer";
 import { HuddlePip } from "./HuddlePip";
 import { UploadTray } from "./UploadTray";
 import { SidePane } from "./SidePane";
+import { SpaceInfo } from "./SpaceInfo";
+import { PageCanvas } from "./PageCanvas";
 import { api } from "../lib/api";
 import { ingest } from "../lib/ingest";
 import { getState, requestSnap } from "../state/store";
-import { closeTab, getUi, newSession, setUi, useUi } from "../state/ui";
+import { closeSpaceTab, getUi, noteSpaceOpen, setUi, toast, toggleSession, useUi } from "../state/ui";
 import { activeBoard, joinBoard, onBoardChange } from "../sync/board";
 
 function typing(e: KeyboardEvent) {
@@ -36,10 +40,22 @@ function typing(e: KeyboardEvent) {
   return !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
 }
 
+/** what a space's canvas is: the grid, a deck of slides (a grid whose sections are the slides), or a web page */
+export type SpaceKind = "grid" | "deck" | "page";
+export const KIND_GLYPH: Record<SpaceKind, string> = { grid: "▦", deck: "▶", page: "◳" };
+export const KIND_NAME: Record<SpaceKind, string> = { grid: "Grid space", deck: "Presentation", page: "Web page" };
+
+/** a space: one board, its canvas kind, and where it's filed */
 export interface BoardRow {
   id: string;
   name: string;
   role: "admin" | "member" | "viewer";
+  kind?: SpaceKind;
+  /** its project folder, "/"-separated; null when loose */
+  folder?: string | null;
+  /** a page space's address */
+  url?: string | null;
+  updated_at?: number;
 }
 
 export function Shell({ user }: { user: UserInfo }) {
@@ -59,6 +75,7 @@ export function Shell({ user }: { user: UserInfo }) {
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("board") || localStorage.getItem("foundation-board") || "company";
     joinBoard(id, user);
+    noteSpaceOpen(id);
     const onSwitch = (e: Event) => switchBoard((e as CustomEvent<string>).detail);
     const onUpload = () => fileRef.current?.click();
     window.addEventListener("foundation:board", onSwitch);
@@ -116,16 +133,44 @@ export function Shell({ user }: { user: UserInfo }) {
     url.searchParams.set("board", id);
     window.history.replaceState(null, "", url);
     joinBoard(id, user);
+    noteSpaceOpen(id);
     requestSnap({ kind: "all" });
   };
 
-  const newBoard = async () => {
-    const name = window.prompt("Name the new board");
-    if (!name) return;
-    const { id } = await api<{ id: string }>("/api/boards", { method: "POST", json: { name } });
-    setBoards((b) => [{ id, name, role: user.role === "admin" ? "admin" : "member" }, ...b]);
-    switchBoard(id);
+  /** a new space, opened in a new tab: a grid at once; a web page asks for its address first */
+  const newSpace = async (kind: SpaceKind = "grid", folder: string | null = null) => {
+    let url: string | undefined;
+    if (kind === "page") {
+      url = window.prompt("The page's web address")?.trim();
+      if (!url) return;
+    }
+    try {
+      const { id } = await api<{ id: string }>("/api/boards", { method: "POST", json: { kind, folder, url } });
+      window.dispatchEvent(new Event("foundation:boards"));
+      switchBoard(id);
+    } catch (e) {
+      toast((e as Error).message, "bad");
+    }
   };
+
+  /** rename a space or move it between folders; the list reloads from the server */
+  const updateSpace = async (id: string, patch: { name?: string; folder?: string | null }) => {
+    setBoards((bs) => bs.map((b) => (b.id === id ? { ...b, ...patch } : b)));
+    try {
+      await api(`/api/boards/${encodeURIComponent(id)}`, { method: "POST", json: patch });
+    } catch (e) {
+      toast((e as Error).message, "bad");
+    }
+    window.dispatchEvent(new Event("foundation:boards"));
+  };
+
+  const closeSpace = (id: string) => {
+    const next = closeSpaceTab(id, board?.boardId ?? "");
+    if (next) switchBoard(next);
+  };
+  // the keys below are bound once; they reach the latest of these through a ref
+  const acts = useRef({ switchBoard, closeSpace });
+  acts.current = { switchBoard, closeSpace };
 
   // global keys
   useEffect(() => {
@@ -136,23 +181,29 @@ export function Shell({ user }: { user: UserInfo }) {
         setUi({ command: !getUi().command });
       } else if (mod && e.key.toLowerCase() === "j") {
         e.preventDefault();
-        newSession();
+        toggleSession();
+      } else if (mod && e.key.toLowerCase() === "i" && !e.shiftKey) {
+        e.preventDefault();
+        const u = getUi();
+        setUi(u.pane && u.paneView === "info" ? { pane: false } : { pane: true, paneView: "info" });
       } else if (mod && e.key.toLowerCase() === "f" && !e.shiftKey) {
         e.preventDefault();
         setUi({ search: !getUi().search });
-      } else if (mod && e.key.toLowerCase() === "w" && getUi().tab) {
+      } else if (mod && e.key.toLowerCase() === "w" && getUi().spaces.length > 1) {
         e.preventDefault();
-        closeTab(getUi().tab!);
+        const id = activeBoard()?.boardId;
+        if (id) acts.current.closeSpace(id);
       } else if (mod && /^[1-9]$/.test(e.key)) {
         e.preventDefault();
-        const n = Number(e.key);
-        setUi({ tab: n === 1 ? null : (getUi().tabs[n - 2]?.id ?? getUi().tab) });
+        const id = getUi().spaces[Number(e.key) - 1];
+        if (id && id !== activeBoard()?.boardId) acts.current.switchBoard(id);
       } else if (mod && e.key.toLowerCase() === "u") {
         e.preventDefault();
         fileRef.current?.click();
       } else if (mod && e.key === "\\") {
         e.preventDefault();
-        setUi({ pane: !getUi().pane });
+        const u = getUi();
+        setUi(u.pane && u.paneView === "spaces" ? { pane: false } : { pane: true, paneView: "spaces" });
       } else if (mod && e.key.toLowerCase() === "l") {
         e.preventDefault();
         setUi({ command: true });
@@ -179,11 +230,16 @@ export function Shell({ user }: { user: UserInfo }) {
     return () => window.removeEventListener("pointerdown", off, true);
   }, [ui.engaged]);
 
+  const current = board?.boardId ?? "";
+  const space = boards.find((b) => b.id === current) ?? null;
+
   return (
-    <div className={`app shell${ui.agentLayer ? " agent-layer-on" : ""}${ui.presenting ? " presenting" : ""}`} onContextMenu={(e) => e.preventDefault()}>
+    <div className={`app shell${space?.kind === "page" ? " is-page-space" : ""}${ui.agentLayer ? " agent-layer-on" : ""}${ui.presenting ? " presenting" : ""}`} onContextMenu={(e) => e.preventDefault()}>
       <GridViewport />
-      {!ui.presenting && <TopBar boardName={boards.find((b) => b.id === board?.boardId)?.name ?? board?.boardId ?? ""} />}
-      {!ui.presenting && <SidePane user={user} boards={boards} current={board?.boardId ?? ""} onSwitch={switchBoard} onNew={newBoard} onUpload={() => fileRef.current?.click()} />}
+      {space?.kind === "page" && !ui.presenting && <PageCanvas space={space} />}
+      {!ui.presenting && <TopBar boards={boards} current={current} onSwitch={switchBoard} onNew={newSpace} onClose={closeSpace} onRename={(id, name) => void updateSpace(id, { name })} />}
+      {!ui.presenting && ui.paneView === "spaces" && <SidePane user={user} boards={boards} current={current} onSwitch={switchBoard} onNew={newSpace} onUpdate={updateSpace} onUpload={() => fileRef.current?.click()} />}
+      {!ui.presenting && ui.paneView === "info" && <SpaceInfo user={user} space={space} boards={boards} onUpdate={updateSpace} />}
       <SessionView />
       <SearchPane />
       <TouchedRings />

@@ -13,8 +13,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentEvent } from "@foundation/protocol";
 import { api } from "../lib/api";
 import { getState, requestSnap, useObjectSetVersion } from "../state/store";
-import { WIDTHS, getUi, setUi, useUi, type SessionTab } from "../state/ui";
-import { READ_ONLY, TOOL_WORDS, loadSession, objectIn, planOf, sendToSession, stopSession, touchedBy, useSession, type Plan, type Turn } from "../state/sessions";
+import { WIDTHS, getUi, newSession, openSession, setUi, useUi, type SessionTab } from "../state/ui";
+import { keys } from "../lib/keys";
+import { READ_ONLY, TOOL_WORDS, loadSession, refreshLists, useLists, objectIn, planOf, sendToSession, stopSession, touchedBy, useSession, type Plan, type Turn } from "../state/sessions";
 import { renderMarkdown } from "../utils/markdown";
 import { listen, type Listening } from "../lib/voice";
 import { FloorEdge } from "./FloorEdge";
@@ -29,13 +30,70 @@ const SUGGESTIONS = [
 
 export function SessionView() {
   const ui = useUi();
-  const tab = ui.tabs.find((t) => t.id === ui.tab);
+  const tab = ui.sessions.find((t) => t.id === ui.session);
   if (!tab || ui.presenting) return null;
   return (
     <section className="session floor-pane" style={{ left: ui.pane ? ui.paneW : 0, width: ui.sessionW }} aria-label={tab.title}>
       {tab.kind === "agent" ? <AgentSession key={tab.id} tab={tab} /> : <T3Session key={tab.id} tab={tab} />}
       <FloorEdge side="right" value={ui.sessionW} {...WIDTHS.session} onChange={(w) => setUi({ sessionW: w })} label="Session" />
     </section>
+  );
+}
+
+// ---------- the column's own tools: earlier sessions, a new one, put it away ----------
+
+function SessionTools() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <span className="session-tools">
+        <button className={`top-btn${open ? " is-on" : ""}`} onClick={() => setOpen((o) => !o)} aria-label="Earlier sessions" data-tip="Earlier sessions and Vision Code threads">
+          ◷
+        </button>
+        <button className="top-btn" onClick={() => newSession()} aria-label="New session" data-tip="New session">
+          ＋
+        </button>
+        <button className="top-btn" onClick={() => setUi({ session: null })} aria-label="Put the conversation away" data-tip="Put the conversation away" data-kbd={keys("mod+J")}>
+          ✕
+        </button>
+      </span>
+      {open && <SessionHistory onPick={() => setOpen(false)} />}
+    </>
+  );
+}
+
+/** this space's agent sessions and Vision Code's threads; a press shows one in the column */
+function SessionHistory({ onPick }: { onPick(): void }) {
+  const ui = useUi();
+  const lists = useLists();
+  useEffect(() => {
+    void refreshLists();
+  }, []);
+  const pick = (t: SessionTab) => {
+    openSession(t);
+    onPick();
+  };
+  return (
+    <div className="session-history">
+      <div className="pane-eyebrow is-agent">Sessions on this space</div>
+      {lists.sessions.length === 0 && <div className="pane-empty">None yet. What you ask here is kept, with its goal, its steps and what it changed.</div>}
+      {lists.sessions.slice(0, 10).map((s) => (
+        <button key={s.id} className={`pane-row is-session${ui.session === s.id ? " is-current" : ""}`} onClick={() => pick({ id: s.id, kind: "agent", title: s.title })}>
+          <span className={`f-dot ${s.status === "running" ? "is-agent is-pulse" : s.status === "error" ? "is-bad" : "is-agent-dim"}`} />
+          <span className="pane-label">{s.title}</span>
+          <span className="pane-when">{ago(s.updatedAt)}</span>
+        </button>
+      ))}
+      <div className="pane-eyebrow">Vision Code</div>
+      {lists.t3Available === false && <div className="pane-empty is-paths">{lists.t3Missing ?? "Vision Code isn't on this computer (or its store moved). Set T3CODE_HOME on the server to point at it."}</div>}
+      {lists.t3.slice(0, 8).map((t) => (
+        <button key={t.id} className={`pane-row is-session${ui.session === `t3:${t.id}` ? " is-current" : ""}`} onClick={() => pick({ id: `t3:${t.id}`, kind: "t3", title: t.title })} title={`${t.project} · ${t.title}`}>
+          <span className={`f-dot ${t.status === "running" ? "is-live is-pulse" : t.status === "waiting" ? "is-warn" : t.status === "error" ? "is-bad" : ""}`} />
+          <span className="pane-label">{t.title}</span>
+          <span className="pane-when">{t.pending > 0 ? `${t.pending} ask` : ago(t.updatedAt)}</span>
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -168,6 +226,7 @@ function AgentSession({ tab }: { tab: SessionTab }) {
             API credits
           </option>
         </select>
+        <SessionTools />
       </header>
 
       {plan && <PlanCard plan={plan} running={run.busy} />}
@@ -373,6 +432,7 @@ function T3Session({ tab }: { tab: SessionTab }) {
             Open in Vision Code ↗
           </a>
         )}
+        <SessionTools />
       </header>
       {data && (
         <div className="session-sub">
@@ -425,7 +485,7 @@ function T3Session({ tab }: { tab: SessionTab }) {
 /** rings on the cards the showing session touched (DESIGN.md → Sessions) */
 export function TouchedRings() {
   const ui = useUi();
-  if (!ui.tab || ui.touched.length === 0) return null;
+  if (!ui.session || ui.touched.length === 0) return null;
   const st = getState();
   // a hosted app is its section: ring the section
   const home = (id: string) => (st.panels[id] && st.sections[st.panels[id].sectionId]?.host === id ? st.panels[id].sectionId : id);
