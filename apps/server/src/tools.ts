@@ -44,7 +44,8 @@ import { callMcpTool, listMcpTools } from "./mcpclient.ts";
 import { companySnapshot, readConnector } from "./connectors.ts";
 import { createAsk } from "./hermes.ts";
 import { queueJob } from "./jobs.ts";
-import { readFileText } from "./files.ts";
+import { isCad, readFileText } from "./files.ts";
+import { bringForCard, listPlace, listPlaces, readPlaceText } from "./places.ts";
 import { attachToStage, chooseArtifact, completeStage, describePipeline, setChecklist, startPipeline, updateStageSettings } from "./pipeline.ts";
 import { stageDef } from "@foundation/protocol";
 import { huddleArchive, transcriptText } from "./huddles.ts";
@@ -52,6 +53,7 @@ import { channelHistory, channelInfo, listChannels } from "./slack.ts";
 import { describeMachines, proposeMachine, validImage } from "./machines.ts";
 import { askToRun } from "./machineasks.ts";
 import { writeDigest } from "./digest.ts";
+import { flowformCall, flowformTools } from "./flowformlink.ts";
 import { aim, canCallHelp, crewMember, crewWork, describeStep, guide, resolveTarget, setDoing, stepTarget, travel, type CrewMember } from "./crew.ts";
 
 export interface ToolCtx {
@@ -509,6 +511,61 @@ export const TOOLS: BoardTool[] = [
       }
       touch(ctx, panel, `called ${tool}`);
       return result.text.slice(0, 8000);
+    },
+  }),
+  def({
+    name: "places",
+    description:
+      "Look in the folders on this computer that a person approved for Foundation (Settings → Places). With no arguments: the approved places. With `place`: what's in it (or in `dir` inside it). With `place` and `read`: the start of a text file there. Read-only, and only inside approved places; hidden files, keys and credentials are never shown. If nothing is approved, say so: only an admin can approve a place, in Settings → Places.",
+    schema: z.object({ place: z.string().optional().describe("a place's id or name"), dir: z.string().optional().describe("a folder inside the place"), read: z.string().optional().describe("a text file's path inside the place") }),
+    run: async (_ctx, { place, dir, read }) => {
+      const places = listPlaces();
+      if (!place) return places.length ? places.map((p) => ({ id: p.id, name: p.name, path: p.path, reachable: p.reachable })) : "No places are approved yet. An admin approves folders in Settings → Places.";
+      const p = places.find((x) => x.id === place || x.name.toLowerCase() === place.toLowerCase());
+      if (!p) throw new Error(`no approved place “${place}” (approved: ${places.map((x) => x.name).join(", ") || "none"})`);
+      if (read) return readPlaceText(p.id, read);
+      const { entries, more } = await listPlace(p.id, dir ?? "");
+      return { place: p.name, dir: dir ?? "", entries: entries.slice(0, 400).map((e) => (e.dir ? { folder: e.path } : { file: e.path, size: e.size, modified: new Date(e.modified).toISOString().slice(0, 10) })), more: more + Math.max(0, entries.length - 400) };
+    },
+  }),
+  def({
+    name: "bring_file",
+    description:
+      "Bring one file from an approved place on this computer onto the board: its bytes are copied into Foundation's archive (the original is only read) and it lands as a card — a picture as an image, anything else as a file card (CAD shows in 3D, documents become searchable). Find the path with `places` first.",
+    schema: z.object({ place: z.string(), path: z.string().describe("the file's path inside the place"), section: z.string().optional(), request_id: z.string().optional() }),
+    write: true,
+    run: async (ctx, { place, path, section }) => {
+      const p = listPlaces().find((x) => x.id === place || x.name.toLowerCase() === place.toLowerCase());
+      if (!p) throw new Error(`no approved place “${place}”`);
+      const { file, image } = await bringForCard({ id: ctx.userId }, p.id, path, ctx.boardId);
+      let id = "";
+      editBoard(ctx.boardId, "agent", (doc) => {
+        const sec = cardSection(doc, section);
+        const base = { sectionId: sec.id, x: 0, y: 0, float: false, bornAt: Date.now(), ...(madeBy(ctx) ? { createdBy: madeBy(ctx) } : {}) };
+        const m = boardMaps(doc);
+        if (image) {
+          const w = 440;
+          id = uid("media");
+          m.objects.set(id, { ...base, id, kind: "media", name: file.name, w, h: Math.round((w * image.h) / image.w), src: `/files/${file.id}`, media: "image", autoplay: false, muted: true });
+        } else {
+          id = uid("pnl");
+          const cad = isCad(file.name);
+          m.objects.set(id, { ...base, id, kind: "panel", panel: "file", name: file.name, w: cad ? 460 : 420, h: cad ? 380 : 340, fileId: file.id, mime: file.mime, ports: [] } satisfies PanelDoc);
+        }
+      });
+      touch(ctx, id, `brought ${file.name} from “${p.name}”`);
+      return { id, file: file.id, name: file.name, size: file.size };
+    },
+  }),
+  def({
+    name: "flowform",
+    description:
+      "Read the person's Flowform (the canvas app Foundation grew out of): their boards, cards and files, through Flowform's own tools, as them and read-only. Call it with no `tool` first to list Flowform's tools and their inputs; then call one by name. To bring something into Foundation, read it here and write it with Foundation's own tools (add_section, add_note, add_table…). It works only once the person has connected Flowform in Settings → Services; if it says they haven't, tell them that instead of retrying.",
+    schema: z.object({ tool: z.string().optional().describe("one of Flowform's tool names; leave out to list them"), args: z.record(z.any()).default({}) }),
+    run: async (ctx, { tool, args }) => {
+      if (!tool) return flowformTools(ctx.userId);
+      const result = await flowformCall(ctx.userId, tool, args);
+      return (result.isError ? "Flowform refused: " : "") + result.text.slice(0, 24_000);
     },
   }),
   def({

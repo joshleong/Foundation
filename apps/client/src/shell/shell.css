@@ -20,8 +20,9 @@ body {
 
 /* ---------- the floor: chrome drawn on the paper (DESIGN.md → The floor) ----------
    The top bar, side pane, an open session and search sit on the grid's own
-   paper — no glass, no card; the dots run underneath. The cards fade out at
-   the floor's edge (.world-mask) and the camera frames into what's left. */
+   paper — no glass, no card; the dots run underneath. The cards stop at the
+   floor's edge (.world-mask clips them) behind a hairline, like an editor's
+   panels, and the camera frames into what's left. */
 
 @property --floor-l {
   syntax: "<length>";
@@ -58,27 +59,16 @@ body.is-resizing-floor {
   inset: 0;
   z-index: 1;
   pointer-events: none;
-  /* its own compositor layer: Chrome skips a mask over composited cards otherwise */
+  /* its own compositor layer, so the clip moves without repainting the cards */
   will-change: transform;
-  --fade-x: 56px;
-  /* fade only where a pane is (0 wide: no fade at the screen's edge) */
-  -webkit-mask-image:
-    linear-gradient(to right, transparent var(--floor-l), #000 calc(var(--floor-l) + min(var(--fade-x), var(--floor-l) * 100))),
-    linear-gradient(to bottom, transparent var(--floor-t), #000 calc(var(--floor-t) + min(28px, var(--floor-t) * 100))),
-    linear-gradient(to left, transparent var(--floor-r), #000 calc(var(--floor-r) + min(var(--fade-x), var(--floor-r) * 100)));
-  -webkit-mask-composite: source-in;
-  mask-image:
-    linear-gradient(to right, transparent var(--floor-l), #000 calc(var(--floor-l) + min(var(--fade-x), var(--floor-l) * 100))),
-    linear-gradient(to bottom, transparent var(--floor-t), #000 calc(var(--floor-t) + min(28px, var(--floor-t) * 100))),
-    linear-gradient(to left, transparent var(--floor-r), #000 calc(var(--floor-r) + min(var(--fade-x), var(--floor-r) * 100)));
-  mask-composite: intersect;
+  /* the cards stop at a pane's edge, cut clean (no fade): the pane's own hairline marks the edge */
+  clip-path: inset(var(--floor-t) var(--floor-r) 0 var(--floor-l));
 }
 .world-mask > .world {
   pointer-events: auto;
 }
 body.is-presenting .world-mask {
-  -webkit-mask-image: none;
-  mask-image: none;
+  clip-path: none;
 }
 
 /* every floor surface: transparent on the paper, ink on the dots */
@@ -93,36 +83,44 @@ body.is-presenting .world-mask {
   color: var(--color-frost);
 }
 
-/* the edge you drag: a hairline and a knob when the pointer finds it */
+/* a pane's inner edge is a hairline, always there (an editor's panel edge) */
+.floor-pane.side-pane,
+.floor-pane.session {
+  border-right: 1px solid var(--color-line);
+}
+.floor-pane.search-pane {
+  border-left: 1px solid var(--color-line);
+}
+
+/* …and it's the edge you drag: under the pointer the hairline turns blue and doubles */
 .floor-edge {
   position: absolute;
   z-index: 2;
   top: 0;
   bottom: 0;
-  width: 12px;
+  width: 9px;
   cursor: col-resize;
   touch-action: none;
 }
 .floor-edge.is-right {
-  right: -6px;
+  right: -5px;
 }
 .floor-edge.is-left {
-  left: -6px;
+  left: -5px;
 }
 .floor-edge-line {
   position: absolute;
-  top: var(--space-5);
-  bottom: var(--space-5);
-  left: 5.5px;
-  width: 1px;
-  background: var(--color-line);
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: var(--color-pulse);
   opacity: 0;
-  transition: opacity var(--dur-quick) var(--ease-out-soft);
+  transition: opacity var(--dur-quick) var(--ease-out-soft) 120ms;
 }
 .floor-edge:hover .floor-edge-line,
-body.is-resizing-floor .floor-edge-line {
+.floor-edge.is-dragging .floor-edge-line {
   opacity: 1;
-  background: var(--color-pulse);
 }
 
 /* ---------- top bar: fold · tabs · tools ---------- */
@@ -139,6 +137,8 @@ body.is-resizing-floor .floor-edge-line {
   gap: var(--space-2);
   padding: 0 var(--space-3) 0 var(--space-4);
   pointer-events: none;
+  /* the bar's edge is a hairline too: the cards stop under it, cut clean */
+  border-bottom: 1px solid var(--color-line);
 }
 .top-bar > * {
   pointer-events: auto;
@@ -3362,8 +3362,7 @@ body.is-connecting .port-in.is-snap {
   flex-direction: column;
   gap: var(--space-5);
   padding: var(--space-6) 0 0;
-  -webkit-mask-image: linear-gradient(to right, transparent, #000 56px, #000 calc(100% - 56px), transparent);
-  mask-image: linear-gradient(to right, transparent, #000 56px, #000 calc(100% - 56px), transparent);
+  overflow: hidden;
 }
 .floor-demo-card {
   margin-left: 16px;
@@ -3830,4 +3829,73 @@ body.is-viewer .port {
 }
 .uploads-demo .effect-label {
   right: var(--space-4);
+}
+
+/* ---------- This computer: approved places, in the search pane (PlacesBrowser) ---------- */
+
+.search-results[hidden] {
+  display: none;
+}
+.places {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-2) var(--space-3) var(--space-4) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  scrollbar-width: thin;
+}
+.places > .pane-eyebrow {
+  padding: 0 var(--space-3);
+  margin-top: var(--space-2);
+}
+/* a folder is pressed, not dragged */
+.places .search-row.is-folder {
+  cursor: pointer;
+}
+.places button.search-row[disabled] {
+  opacity: 0.55;
+  cursor: default;
+}
+.places-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  color: var(--color-dim);
+  font-size: var(--text-12);
+}
+.places-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.places-crumbs button {
+  border: 0;
+  padding: 2px 0;
+  background: transparent;
+  color: var(--color-mist);
+  font: 500 var(--text-12) / 1.3 var(--font-sans);
+  cursor: pointer;
+}
+.places-crumbs button:hover {
+  color: var(--color-pulse);
+}
+.places-crumbs button.is-here {
+  color: var(--color-frost);
+  font-weight: 600;
+}
+.places-size {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.places-foot {
+  padding: var(--space-3);
+  font-size: var(--text-12);
+}
+.places a {
+  color: var(--color-pulse);
 }

@@ -9,6 +9,13 @@
 import { spawn } from "node:child_process";
 import { startWatchdog } from "./dev-watchdog.mjs";
 import { startKiri } from "./kiri.mjs";
+import { nodeIsNewEnough, oldNodeMessage } from "./node-check.mjs";
+
+// before anything starts: on a Node that can't run the server, say so plainly and stop (node-check.mjs)
+if (!nodeIsNewEnough()) {
+  console.error(oldNodeMessage());
+  process.exit(1);
+}
 
 const win = process.platform === "win32";
 const desktop = process.argv.includes("--desktop");

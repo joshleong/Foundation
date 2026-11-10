@@ -946,6 +946,78 @@
       "status": "backlog",
       "body": "Left over from #68 (the wires now travel with the card). A card dropped far right in the fitted view stays there when the section opens, so the open section is wide and the camera frames it smaller. Docked cards reflow; floating ones could be brought within the open width, or the open width could ignore outliers.",
       "issue": 90
+    },
+    {
+      "id": "panel-edges-line",
+      "title": "Panel edges: a hairline and a clean cut, not a fade",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "floor",
+      "status": "done",
+      "body": "Josh, 2026-11-09: the left and right panels shouldn't fade the edge; a line, like a VS Code panel that resizes. The cards are clipped at the pane, each pane's edge is a hairline that turns blue under the pointer and drags to resize. Checked in the browser day and night (`docs/evidence/2026-11-09_edges-places-flowform/`)."
+    },
+    {
+      "id": "places-approved-folders",
+      "title": "Places: approved folders on this computer, browsed and dragged from",
+      "kind": "plan",
+      "milestone": "apps",
+      "area": "search",
+      "status": "review",
+      "body": "Settings → Places approves a folder (admins, as a person). The search pane's This computer chip browses it; a file dragged out is copied into the archive and lands as a card. Agents get `places` and `bring_file`. Read-only, nothing outside a place, secrets left where they are (`test/places.test.ts`). To check: a real folder on Josh's machine, a real model using the tools."
+    },
+    {
+      "id": "flowform-link",
+      "title": "Flowform link: read your boards and files through its MCP endpoint",
+      "kind": "plan",
+      "milestone": "company",
+      "area": "auth",
+      "status": "review",
+      "body": "`flowformlink.ts`: OAuth (PKCE, registered once) to flowform-server's `/mcp`, `search:read canvas:read` only, tokens encrypted at rest; Connect/Disconnect in Settings → Services; agents get `flowform`. Tested against a stand-in (`test/flowformlink.test.ts`). Waits on a person approving it against production."
+    },
+    {
+      "id": "flowform-connect",
+      "title": "Connect Flowform once, in Settings → Services",
+      "kind": "hookup",
+      "milestone": "company",
+      "area": "auth",
+      "status": "needs-you",
+      "body": "Press Connect Flowform and approve on Flowform's page (reading only). It's the first run against production: it shows which tools Flowform offers, which the files browser and the board pull are built on."
+    },
+    {
+      "id": "flowform-files-browser",
+      "title": "Flowform's files in the search pane, to drag onto a board",
+      "kind": "plan",
+      "milestone": "search",
+      "area": "search",
+      "status": "next",
+      "body": "Josh, 2026-11-09: \"pull in the same file system that we had so we can drag those out into foundation\". A Flowform chip beside This computer, listing and searching the person's Flowform files through their link, with a dropped file copied into the archive. Needs the link connected first, to see Flowform's file tools (and whether they need a scope beyond `search:read`)."
+    },
+    {
+      "id": "flowform-boards-live",
+      "title": "Pull a Flowform board in from the app, and keep it in step",
+      "kind": "plan",
+      "milestone": "company",
+      "area": "auth",
+      "status": "next",
+      "body": "Josh, 2026-11-09: \"pull the existing flowform boards into here and make sure they are connected\". List the person's rooms through their link and bring one in as a board (the importer's mapping in `docs/flowform-import.md`, fed from Flowform's canvas tools instead of the backup archive), re-runnable, with the ledger's rules: nothing edited here is overwritten, nothing is deleted. Needs the link connected first."
+    },
+    {
+      "id": "desktop-starts-server",
+      "title": "The desktop app starts its own server",
+      "kind": "plan",
+      "milestone": "ship",
+      "area": "desktop",
+      "status": "next",
+      "body": "The installed app expects a server at http://localhost:4410 and starts none, so on its own nothing in it connects (2026-11-09). Bundle the server (a Node sidecar with FTS5, or a single executable) and start it with the window, on a port outside Windows' reserved ranges; keep `Server` on the sign-in page for a hosted one."
+    },
+    {
+      "id": "node-upgrade-windows",
+      "title": "Upgrade Node on the Windows machine to 22.16 or newer",
+      "kind": "hookup",
+      "milestone": "ship",
+      "area": "desktop",
+      "status": "needs-you",
+      "body": "System Node is 22.13.1 (no FTS5 in node:sqlite): the server can't start on it, which is why agents, Claude and data sources all failed to fetch. `winget install OpenJS.NodeJS.LTS`, then a new terminal. The launcher now says this itself."
     }
   ]
 }

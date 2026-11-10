@@ -17,8 +17,9 @@ import { activeBoard } from "../sync/board";
 import { snippetHtml, snippetText } from "../lib/snippet";
 import { openHit, openUrlAsPanel } from "./CommandBar";
 import { FloorEdge } from "./FloorEdge";
+import { PlacesBrowser } from "./PlacesBrowser";
 
-type Filter = "all" | SearchHit["source"];
+type Filter = "all" | "place" | SearchHit["source"];
 const FILTERS: Array<{ id: Filter; label: string }> = [
   { id: "all", label: "All" },
   { id: "board", label: "Board" },
@@ -26,6 +27,8 @@ const FILTERS: Array<{ id: Filter; label: string }> = [
   { id: "app", label: "Apps" },
   { id: "slack", label: "Slack" },
   { id: "github", label: "GitHub" },
+  // not a kind of result: the folders on this computer an admin approved, to browse and drag from (PlacesBrowser)
+  { id: "place", label: "This computer" },
 ];
 const GLYPH: Record<SearchHit["source"], string> = { board: "▦", file: "▤", app: "◳", slack: "#", github: "⌥", activity: "•", huddle: "◉" };
 const IMAGE = /\.(png|jpe?g|gif|webp|avif|svg)$/i;
@@ -126,7 +129,8 @@ function Pane() {
           </button>
         ))}
       </div>
-      <div className="search-results">
+      {filter === "place" && <PlacesBrowser board={board} filter={q.trim()} />}
+      <div className="search-results" hidden={filter === "place"}>
         {!q.trim() && shown.length > 0 && <div className="pane-eyebrow">Recent on this board</div>}
         {q.trim() && !loading && shown.length === 0 && <div className="pane-empty">Nothing for “{q.trim()}”{filter !== "all" ? ` in ${FILTERS.find((f) => f.id === filter)?.label}` : ""}.</div>}
         {images.length > 0 && (
@@ -159,7 +163,21 @@ function Pane() {
 // ---------- drag a result onto the grid ----------
 
 /** a result you can press (open) or pull out onto the grid (place) */
-function Draggable({ hit, className, children }: { hit: SearchHit; className: string; children: React.ReactNode }) {
+export function Draggable({
+  hit,
+  className,
+  children,
+  onPress,
+  resolve,
+}: {
+  hit: SearchHit;
+  className: string;
+  children: React.ReactNode;
+  /** a press that isn't a drag (default: open the hit, as ⌘K does) */
+  onPress?: () => void;
+  /** a hit that has to be fetched before it can be placed (a file brought from a place): called on drop */
+  resolve?: () => Promise<SearchHit | null>;
+}) {
   const d = useRef<{ x: number; y: number; ghost: HTMLElement | null; target: string | null } | null>(null);
 
   const end = () => {
@@ -173,7 +191,7 @@ function Draggable({ hit, className, children }: { hit: SearchHit; className: st
   return (
     <button
       className={className}
-      title={hit.title}
+      data-tip={hit.title}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         d.current = { x: e.clientX, y: e.clientY, ghost: null, target: null };
@@ -201,9 +219,11 @@ function Draggable({ hit, className, children }: { hit: SearchHit; className: st
         if (!g) return;
         const dragged = !!g.ghost;
         end();
-        if (!dragged) return openHit(hit);
+        if (!dragged) return onPress ? onPress() : openHit(hit);
         const over = gridPoint(e.clientX, e.clientY);
-        if (over) void place(hit, over.wx, over.wy);
+        if (!over) return;
+        if (!resolve) return void place(hit, over.wx, over.wy);
+        void resolve().then((h) => h && place(h, over.wx, over.wy));
       }}
       onPointerCancel={end}
     >

@@ -521,14 +521,28 @@ a.kb-card-issue:hover {
   color: var(--color-dim);
   font-size: var(--text-12);
 }
+.services-how.is-bad {
+  color: var(--color-bad);
+}
+/* a row you act on (your Flowform link): its one button sits at the row's right, level with the name */
+.services-row:has(.services-act) {
+  grid-template-columns: 8px 220px 1fr auto;
+}
+.services-act {
+  align-self: center;
+}
 /* narrow: the detail and how-to sit under the name, full width */
 @container (max-width: 560px) {
   .services-row {
     grid-template-columns: 8px 1fr;
     row-gap: var(--space-1);
   }
+  .services-row:has(.services-act) {
+    grid-template-columns: 8px 1fr;
+  }
   .services-detail,
-  .services-how {
+  .services-how,
+  .services-act {
     grid-column: 2;
   }
 }
@@ -640,4 +654,50 @@ a.kb-card-issue:hover {
 .design-releases {
   max-width: 1100px;
   container-type: inline-size;
+}
+
+/* ---------- places: folders on this computer Foundation may read ---------- */
+
+.places-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  max-width: 820px;
+  margin-bottom: var(--space-5);
+}
+.places-field {
+  flex: 1 1 160px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: var(--radius-card);
+  background: var(--color-raise);
+  box-shadow: 0 0 0 1px var(--color-line);
+  color: var(--color-frost);
+  font: 400 var(--text-13) / 1 var(--font-sans);
+  outline: none;
+}
+.places-field.is-path {
+  flex: 3 1 320px;
+  font-family: var(--font-code);
+  font-size: var(--text-12);
+}
+.places-field:focus {
+  box-shadow: 0 0 0 1px var(--color-pulse);
+}
+.places-field::placeholder {
+  color: var(--color-dim);
+}
+.places-path {
+  font-family: var(--font-code);
+  font-size: var(--text-12);
+  overflow-wrap: anywhere;
+}
+.places-tab .services-act {
+  display: flex;
+  gap: var(--space-2);
+}
+.places-tab .f-pill.is-danger {
+  color: var(--color-bad);
 }

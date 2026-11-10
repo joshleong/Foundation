@@ -30,6 +30,8 @@ export const READ_TOOLS = new Set([
   "read_repo",
   "find_repo",
   "app_tools",
+  "places", // approved folders on this computer; reads only
+  "flowform", // the person's own Flowform, through a read-only token; writes nothing here
   "pipeline_status",
   "huddle_transcript",
   "slack_read",

@@ -239,7 +239,7 @@ export function DesignPage() {
         </div>
       </Section>
 
-      <Section title="The floor" note="The top bar, the side pane, an open session and search are drawn on the grid's own paper — no glass, no card. The dots run underneath; the cards fade out at the floor's edge, and the view slides over to stay in the middle of what's left. Every pane's inner edge drags to resize.">
+      <Section title="The floor" note="The top bar, the side pane, an open session and search are drawn on the grid's own paper — no glass, no card. The dots run underneath; the cards stop at a pane's edge, cut clean behind a hairline (no fade), like an editor's panels, and the view slides over to stay in the middle of what's left. That hairline is the edge you drag: it turns blue under the pointer, and a double-click resets the width.">
         <div className="floor-demo">
           <header className="top-bar">
             <span className="top-btn is-on">

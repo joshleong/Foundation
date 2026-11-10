@@ -35,6 +35,8 @@ import { boardLink, channelHistory, channelInfo, inviteText, listChannels, postM
 import { appendSection, boardMaps, huddleStateOf } from "@foundation/protocol";
 import { migrateAllBoards } from "./migrate.ts";
 import * as flowform from "./flowform.ts";
+import { approvePlace, bringFromPlace, listPlace, listPlaces, removePlace } from "./places.ts";
+import { beginLink, finishLink, flowformCall, flowformTools, landingPage, linkStatus, unlink } from "./flowformlink.ts";
 import { canSeeBoard, hiddenBoards, requireBoard } from "./members.ts";
 import { isPerson, requirePerson } from "./auth.ts";
 import { startGridLog } from "./gridlog.ts";
@@ -78,6 +80,32 @@ r.get("/auth/flowform/start", (req, res) => flowform.startWeb(req, res));
 r.post("/auth/flowform/begin", (req) => flowform.beginDesktop(req));
 r.get("/auth/flowform/done/:nonce", (req, res) => flowform.done(req, res));
 r.post("/auth/flowform/poll", (req, res) => flowform.poll(req, res));
+// a person's link to Flowform's boards and files, read-only, through its MCP endpoint (flowformlink.ts)
+r.get("/api/flowform/link", (req) => linkStatus(requireUser(req).id));
+r.post("/api/flowform/link", (req) => beginLink(requirePerson(req, "Connecting Flowform").id));
+r.post("/api/flowform/unlink", async (req) => {
+  await unlink(requirePerson(req, "Disconnecting Flowform").id);
+  return { ok: true };
+});
+r.get("/auth/flowform/link/callback", async (req, res) => {
+  // Flowform sends the person's browser here. No session is needed: the state names who started it, once
+  let ok = true;
+  let message = "Your Flowform boards and files can now be opened from Foundation. You can close this window.";
+  try {
+    const refused = req.query.get("error");
+    if (refused) throw new HttpError(400, refused === "access_denied" ? "You didn't approve it on Flowform, so nothing was connected." : `Flowform said: ${req.query.get("error_description") ?? refused}`);
+    await finishLink(req.query.get("code") ?? "", req.query.get("state") ?? "");
+  } catch (e) {
+    ok = false;
+    message = e instanceof HttpError ? e.message : "Something went wrong finishing the connection. Try again from Foundation.";
+    if (!(e instanceof HttpError)) console.error("flowform link:", (e as Error).message);
+  }
+  const page = landingPage(ok, message);
+  res.writeHead(ok ? 200 : 400, { "content-type": "text/html; charset=utf-8", "content-length": Buffer.byteLength(page), "cache-control": "no-store", "referrer-policy": "no-referrer" });
+  res.end(page);
+});
+r.get("/api/flowform/tools", async (req) => ({ tools: await flowformTools(requireUser(req).id) }));
+r.post("/api/flowform/tools/:name", async (req) => flowformCall(requireUser(req).id, req.params.name, await readJson(req)));
 r.post("/auth/logout", (req, res) => {
   clearSession(req, res);
   return { ok: true };
@@ -193,6 +221,33 @@ r.get("/files/:id", (req, res) => {
 function requireFileBoard(user: UserInfo, fileId: string) {
   requireBoard(user, one<{ board_id: string | null }>("select board_id from files where id = ?", fileId)?.board_id);
 }
+
+// ---------- places: folders on this computer a person approved (places.ts) ----------
+
+r.get("/api/places", (req) => {
+  const u = requireUser(req);
+  return { places: listPlaces(), canApprove: u.role === "admin" && isPerson(req) };
+});
+r.post("/api/places", async (req) => ({ place: approvePlace(requireUser(req), isPerson(req), await readJson(req)) }));
+r.post("/api/places/:id/remove", async (req) => {
+  const { confirm } = await readJson<{ confirm?: boolean }>(req);
+  removePlace(requireUser(req), isPerson(req), req.params.id, confirm);
+  return { ok: true };
+});
+r.get("/api/places/:id/list", (req) => {
+  requireUser(req);
+  return listPlace(req.params.id, req.query.get("dir") ?? "");
+});
+/** copy one file from a place into the archive for a board (?board=; a viewer of it is refused by the write gate) */
+r.post("/api/places/:id/bring", async (req) => {
+  const u = requireUser(req);
+  const board = req.query.get("board");
+  requireBoard(u, board);
+  const { path } = await readJson<{ path?: string }>(req);
+  if (!path) throw new HttpError(400, "which file?");
+  const file = await bringFromPlace(u, req.params.id, path, board);
+  return { file: { ...file, url: `/files/${file.id}` } };
+});
 
 // ---------- search ----------
 
@@ -527,7 +582,7 @@ r.post("/api/agent/runs/:id/stop", (req) => {
  * viewer's sync socket is read-only either way). The board is the
  * route's :id, or ?board=, else the person's account role decides.
  */
-const READ_POSTS = [/^\/api\/agent$/, /^\/api\/agent\/runs\/[^/]+\/stop$/, /^\/api\/agent\/token$/, /^\/api\/boards\/[^/]+\/tools\//, /^\/api\/boards\/[^/]+\/people$/, /^\/api\/apps\/probe$/, /^\/api\/ws-ticket$/];
+const READ_POSTS = [/^\/api\/agent$/, /^\/api\/agent\/runs\/[^/]+\/stop$/, /^\/api\/agent\/token$/, /^\/api\/boards\/[^/]+\/tools\//, /^\/api\/boards\/[^/]+\/people$/, /^\/api\/apps\/probe$/, /^\/api\/ws-ticket$/, /^\/api\/flowform\//];
 function gateWrites(req: Req, path: string) {
   if (req.method === "GET" || req.method === "OPTIONS" || !path.startsWith("/api/")) return;
   if (READ_POSTS.some((p) => p.test(path))) return;
