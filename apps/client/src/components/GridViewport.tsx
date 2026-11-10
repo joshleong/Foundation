@@ -457,7 +457,9 @@ export function GridViewport() {
 
   // ----- pan / zoom gestures: the camera rests wherever the person leaves it -----
 
-  const panDrag = useRef({ active: false, lastX: 0, lastY: 0, vx: 0, vy: 0, lastT: 0 });
+  const panDrag = useRef({ active: false, button: 0, pointerId: 0, moved: false, downX: 0, downY: 0, lastX: 0, lastY: 0, vx: 0, vy: 0, lastT: 0 });
+  /** a right-drag just panned: the menu its release would open stays shut */
+  const menuEaten = useRef(0);
 
   // hold Space to pan from anywhere — over cards, frames and sections too
   const spaceHeld = useRef(false);
@@ -487,16 +489,25 @@ export function GridViewport() {
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     const target = e.target as HTMLElement;
-    if (!spaceHeld.current && target.closest(".section-card, button, input, select, .viewport-toolbar, .gutter")) return;
-    if (e.button !== 0 && e.button !== 1) return;
-    setFocusGrid(); // clicking the void addresses the grid level
+    // the middle and right buttons pan from anywhere, like Space; the left only from the paper
+    const held = e.button === 1 || e.button === 2;
+    if (!spaceHeld.current && !held && target.closest(".section-card, button, input, select, .viewport-toolbar, .gutter")) return;
+    if (e.button !== 0 && !held) return;
+    if (!held) setFocusGrid(); // clicking the void addresses the grid level
     const d = panDrag.current;
     d.active = true;
+    d.button = e.button;
+    d.pointerId = e.pointerId;
+    d.downX = e.clientX;
+    d.downY = e.clientY;
     d.lastX = e.clientX;
     d.lastY = e.clientY;
     d.vx = 0;
     d.vy = 0;
     d.lastT = performance.now();
+    // a right press may still be a right-click (the menu): it becomes a pan once it has moved
+    d.moved = e.button !== 2;
+    if (!d.moved) return;
     containerRef.current?.classList.add("panning");
     try {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -516,6 +527,18 @@ export function GridViewport() {
       }
       const d = panDrag.current;
       if (!d.active) return;
+      if (!d.moved) {
+        if (Math.hypot(e.clientX - d.downX, e.clientY - d.downY) < 4) return;
+        d.moved = true;
+        d.lastX = e.clientX;
+        d.lastY = e.clientY;
+        d.lastT = performance.now();
+        container?.classList.add("panning");
+        try {
+          container?.setPointerCapture(d.pointerId);
+        } catch { /* synthetic */ }
+        return;
+      }
       const now = performance.now();
       const dt = Math.max(now - d.lastT, 1);
       const dx = e.clientX - d.lastX;
@@ -534,6 +557,8 @@ export function GridViewport() {
     const d = panDrag.current;
     if (!d.active) return;
     d.active = false;
+    if (!d.moved) return; // a right-click that never moved: the menu's
+    if (d.button === 2) menuEaten.current = performance.now();
     containerRef.current?.classList.remove("panning");
     // a throw glides on to where it was heading and rests there — no snapping
     camera.to(camera.x.value + d.vx / 8, camera.y.value + d.vy / 8);
@@ -578,6 +603,27 @@ export function GridViewport() {
     },
     [camera, zoom],
   );
+
+  // a right-drag is a pan, not a menu; and the middle button never starts the browser's auto-scroll
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const menu = (e: MouseEvent) => {
+      if (performance.now() - menuEaten.current > 400) return;
+      menuEaten.current = 0;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    const middle = (e: MouseEvent) => {
+      if (e.button === 1) e.preventDefault();
+    };
+    el.addEventListener("contextmenu", menu, true);
+    el.addEventListener("mousedown", middle);
+    return () => {
+      el.removeEventListener("contextmenu", menu, true);
+      el.removeEventListener("mousedown", middle);
+    };
+  }, []);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -757,8 +803,8 @@ export function GridViewport() {
       className={`grid-viewport ctx-${state.focusLevel}`}
       onPointerDown={onPointerDown}
       onPointerDownCapture={(e) => {
-        // Space held: the grid takes the pointer before any card can
-        if (spaceHeld.current) {
+        // Space held, or the middle or right button: the grid takes the pointer before any card can
+        if (spaceHeld.current || e.button === 1 || e.button === 2) {
           e.stopPropagation();
           onPointerDown(e);
         }

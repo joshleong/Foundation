@@ -12,6 +12,7 @@ import { Mark } from "../brand/Mark";
 import { UpdateCard } from "../update/UpdateCard";
 import type { UpdatePhase } from "../update/updater";
 import { NightOrb } from "../shell/NightOrb";
+import { WindowControls } from "../shell/WindowControls";
 import { pipeCrossings, polyline, route, routeSides, sideToward, type Side } from "../shell/wireGeometry";
 import { tunnelGeometry } from "../shell/wireGeometry";
 import { PlanBoard, ReleasesTab, type NewCardInput, type SyncState } from "../settings/SettingsPage";
@@ -276,7 +277,9 @@ export function DesignPage() {
               <span className="top-btn">{COMMANDS_GLYPH}</span>
               <span className="top-btn">◇</span>
               <span className="top-btn">▶</span>
+              <NightOrb onToggle={() => setNight(!isNight())} />
             </div>
+            <WindowControls demo />
           </header>
           <aside className="side-pane floor-pane" style={{ width: 200 }}>
             <div className="pane-scroll">

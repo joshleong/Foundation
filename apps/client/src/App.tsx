@@ -7,6 +7,7 @@ import { Shell } from "./shell/Shell";
 import { DesignPage } from "./design/DesignPage";
 import { SettingsPage } from "./settings/SettingsPage";
 import { Tip } from "./shell/Tip";
+import { WindowControls } from "./shell/WindowControls";
 import { rememberMe, whoAmI } from "./lib/api";
 import { UpdateShelf } from "./update/UpdateCard";
 import { startUpdates } from "./update/updater";
@@ -56,16 +57,25 @@ function App() {
     return (
       <>
         <DesignPage />
+        <WindowControls />
         <Tip />
       </>
     );
   }
-  if (user === undefined && !preview) return <div className="boot" />;
+  if (user === undefined && !preview) {
+    return (
+      <>
+        <div className="boot" />
+        <WindowControls />
+      </>
+    );
+  }
   if (user && route.startsWith("#/settings")) {
     return (
       <>
         <SettingsPage route={route} />
         <UpdateShelf />
+        <WindowControls />
         <Tip />
       </>
     );
@@ -90,6 +100,7 @@ function App() {
       )}
       {/* over the sign-in page (always day), the card wears day too */}
       <UpdateShelf day={preview || !user || veil} />
+      <WindowControls day={preview || !user || veil} />
       <Tip />
     </>
   );

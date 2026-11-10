@@ -265,6 +265,73 @@ button.tab,
 .top-tools .presence-stack {
   margin-right: var(--space-3);
 }
+.top-tools .night-orb {
+  margin-left: var(--space-2);
+}
+
+/* ---------- the window's frame (desktop): the top bar is the title bar ---------- */
+
+/* the bar's open stretch moves the window, so it takes the pointer; the three controls sit past its end */
+.is-desktop .top-bar {
+  pointer-events: auto;
+}
+.has-window-controls .top-bar {
+  padding-right: calc(138px + var(--space-3));
+}
+/* a Mac keeps its own lights, at the left */
+.is-mac .top-bar {
+  padding-left: 84px;
+}
+.window-controls {
+  position: fixed;
+  z-index: 920;
+  top: 0;
+  right: 0;
+  height: 44px;
+  display: flex;
+}
+/* a short hairline parts them from the tools */
+.window-controls::before {
+  content: "";
+  align-self: center;
+  width: 1px;
+  height: 20px;
+  background: var(--color-line);
+}
+.win-btn {
+  width: 46px;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--color-mist);
+  cursor: default;
+}
+.win-btn:hover {
+  background: var(--color-pulse-dim);
+  color: var(--color-frost);
+}
+/* closing is the one that can't be taken back: red under the pointer */
+.win-btn.is-close:hover {
+  background: var(--color-bad);
+  color: var(--color-on-fill);
+}
+.window-controls.is-demo {
+  position: static;
+  align-self: stretch;
+  height: auto;
+  margin: 0 calc(-1 * var(--space-3)) 0 var(--space-2);
+}
+/* pages with no top bar leave the corner to the controls */
+.has-window-controls .settings-page,
+.has-window-controls .design-page {
+  padding-top: 56px;
+}
+.has-window-controls .present-exit {
+  top: 56px;
+}
 
 /* ---------- side pane: sessions, boards, activity, tools ---------- */
 

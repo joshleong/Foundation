@@ -2,15 +2,21 @@
  * The top bar, drawn on the floor: the side pane's fold, the tabs (the board
  * first, then each open session), and the tools on the right — search, the
  * command bar, a new agent session, the agent layer, present — with the
- * people here and the sync dot. The way Claude Code's desktop bar carries its
- * sidebar toggle, sessions and panes.
+ * people here and the sync dot, then the day/night orb at the far right. The
+ * way Claude Code's desktop bar carries its sidebar toggle, sessions and panes.
+ *
+ * In the desktop app this is the window's title bar too: its open stretch
+ * moves the window, and minimize, maximize and close sit past its right end
+ * (shell/WindowControls.tsx), all on the one line.
  */
 
 import { COMMANDS_GLYPH, keys } from "../lib/keys";
 import { motion, AnimatePresence } from "motion/react";
 import { closeTab, newSession, setUi, useUi } from "../state/ui";
 import { useSession } from "../state/sessions";
+import { isNight, setNight } from "@foundation/ui";
 import { PresenceStack, useBoardTick } from "./Presence";
+import { NightOrb } from "./NightOrb";
 
 export function TopBar({ boardName }: { boardName: string }) {
   const ui = useUi();
@@ -82,6 +88,7 @@ export function TopBar({ boardName }: { boardName: string }) {
         <button className="top-btn" onClick={() => setUi({ presenting: true })} data-tip="Present (P)">
           ▶
         </button>
+        <NightOrb onToggle={() => setNight(!isNight())} />
       </div>
     </header>
   );

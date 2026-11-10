@@ -12,12 +12,10 @@ import { keys } from "../lib/keys";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import type { UserInfo } from "@foundation/protocol";
-import { isNight, setNight } from "@foundation/ui";
 import { appendSectionLocal, requestSnap } from "../state/store";
 import { WIDTHS, newSession, openTab, setUi, useUi } from "../state/ui";
 import { refreshLists, useLists } from "../state/sessions";
 import { api, logout } from "../lib/api";
-import { NightOrb } from "./NightOrb";
 import { initials, useBoardTick } from "./Presence";
 import { copyMcpCommand } from "./CommandBar";
 import { FloorEdge } from "./FloorEdge";
@@ -112,7 +110,6 @@ export function SidePane({ user, boards, current, onSwitch, onNew, onUpload }: P
                 Sign out
               </button>
             </span>
-            <NightOrb onToggle={() => setNight(!isNight())} />
           </footer>
 
           <FloorEdge side="right" value={ui.paneW} {...WIDTHS.pane} onChange={(w) => setUi({ paneW: w })} label="Side pane" />
