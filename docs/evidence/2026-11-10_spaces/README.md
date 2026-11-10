@@ -23,4 +23,4 @@ Josh: the architecture was disorganized. The tab system should only make new gri
 
 `npm test` on Node 22.22 (client 102; server 167: 161 pass, 6 skipped), `npm run typecheck`.
 
-**Not re-run:** the Playwright e2e suite (two specs were edited to the new shape: `build.spec`, `crew.spec`), the GPU frames check, the desktop window. **Stubs and gaps** are in SPEC §7: a presentation is a seeded grid; a page that forbids framing shows blank.
+`E2E_CLIENT_PORT=15450 npm run e2e -w @foundation/client`: 40 passed, 2 skipped (the GPU frames check, which needs `PERF_GPU=1`; a drop with no empty cell), after two specs were edited to the new shape (`build.spec`, `crew.spec`). **Not re-run:** the GPU frames check, the desktop window. **Stubs and gaps** are in SPEC §7: a presentation is a seeded grid; a page that forbids framing shows blank.
