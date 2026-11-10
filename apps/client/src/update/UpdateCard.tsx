@@ -13,6 +13,7 @@
  */
 import { AnimatePresence, motion } from "motion/react";
 import { springs } from "@foundation/ui";
+import { MARK_VIEWBOX, MarkPanels } from "../brand/Mark";
 import { noteLines, progressLabel, shortDate } from "./policy";
 import { checkForUpdate, closeCard, installUpdate, later, skipVersion, useUpdate, type UpdatePhase } from "./updater";
 import "./update.css";
@@ -39,15 +40,11 @@ export interface UpdateCardProps {
   onClose?: () => void;
 }
 
-/** the app's own mark, small: the masonry F (apps/client/assets/foundation-icon.svg) */
+/** the app's own mark, small: the four panels, in the tile's phase colour */
 function Mark() {
   return (
-    <svg viewBox="200 128 624 768" aria-hidden>
-      <rect x="200" y="128" width="392" height="176" rx="12" />
-      <rect x="636" y="128" width="188" height="176" rx="12" />
-      <rect x="200" y="348" width="248" height="240" rx="12" />
-      <rect x="492" y="436" width="232" height="152" rx="12" />
-      <rect x="200" y="632" width="248" height="264" rx="12" />
+    <svg viewBox={MARK_VIEWBOX} aria-hidden>
+      <MarkPanels />
     </svg>
   );
 }

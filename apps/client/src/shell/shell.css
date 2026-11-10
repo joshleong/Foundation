@@ -2544,6 +2544,24 @@ body.is-connecting .port-in.is-snap {
 .design-head a {
   text-decoration: none;
 }
+.mark-specimens {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+.mark-specimen {
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: var(--color-raise);
+}
+.mark-specimen[data-ground="fill"] {
+  border-color: transparent;
+  background: var(--color-volt);
+}
 .design-lede {
   max-width: 760px;
   color: var(--color-mist);

@@ -1,10 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <title>Foundation: an F laid in masonry</title>
-  <g fill="#325bb4">
-    <rect x="200" y="128" width="392" height="176" rx="12"/>
-    <rect x="636" y="128" width="188" height="176" rx="12"/>
-    <rect x="200" y="348" width="248" height="240" rx="12"/>
-    <rect x="492" y="436" width="232" height="152" rx="12"/>
-    <rect x="200" y="632" width="248" height="264" rx="12"/>
+  <title>Foundation: four panels on a grid</title>
+  <style>
+    g { fill: #325bb4; }
+    @media (prefers-color-scheme: dark) { g { fill: #fff; } }
+  </style>
+  <g>
+    <rect x="128" y="156" width="768" height="212" rx="9"/>
+    <rect x="128" y="406" width="768" height="212" rx="9"/>
+    <rect x="128" y="656" width="368" height="212" rx="9"/>
+    <rect x="528" y="656" width="368" height="212" rx="9"/>
   </g>
 </svg>

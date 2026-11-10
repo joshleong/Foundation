@@ -928,6 +928,15 @@
       "issue": 88
     },
     {
+      "id": "app-icon-panels",
+      "title": "Josh's icon: four panels on a grid, in place of the masonry F",
+      "kind": "plan",
+      "milestone": "ship",
+      "area": "desktop",
+      "status": "review",
+      "body": "apps/client/assets/foundation-mark.svg is the drawing (white). The desktop icons and the in-app mark are federal blue where white wouldn't show; the browser tab is white in a dark browser. Shown on #/design → The mark, day and night (docs/evidence/2026-11-10_icon/). The installed app shows it after the next release build."
+    },
+    {
       "id": "files-search",
       "title": "Search inside documents; paste, folders and one upload tray",
       "kind": "plan",

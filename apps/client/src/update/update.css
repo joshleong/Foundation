@@ -64,8 +64,8 @@
   background: var(--color-pulse-dim);
 }
 .update-card-glyph svg {
-  width: 16px;
-  height: 18px;
+  width: 18px;
+  height: 17px;
   fill: currentColor;
 }
 .update-card-glyph[data-phase="failed"] {
@@ -82,7 +82,7 @@
   color: var(--color-dim);
   background: color-mix(in srgb, var(--color-dim) 12%, transparent);
 }
-/* the mark's courses settle in while something is happening */
+/* the mark's panels settle in while something is happening */
 .update-card-glyph[data-phase="downloading"] rect,
 .update-card-glyph[data-phase="installing"] rect,
 .update-card-glyph[data-phase="checking"] rect {
@@ -93,7 +93,6 @@
 .update-card-glyph rect:nth-child(2) { animation-delay: 0.08s; }
 .update-card-glyph rect:nth-child(3) { animation-delay: 0.16s; }
 .update-card-glyph rect:nth-child(4) { animation-delay: 0.24s; }
-.update-card-glyph rect:nth-child(5) { animation-delay: 0.32s; }
 @keyframes update-card-course {
   0%, 100% { opacity: 1; transform: none; }
   40% { opacity: 0.45; transform: translateY(-14%); }

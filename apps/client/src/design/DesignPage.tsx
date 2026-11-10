@@ -70,6 +70,21 @@ export function DesignPage() {
         Agents wear violet. Everything floats on glass over a living grid. This page renders the real tokens; <code>DESIGN.md</code> is the contract.
       </p>
 
+      <Section title="The mark" note="Four panels on a grid: two full rows over a row split in two. Blue on paper and glass; the white original on a solid fill or dark ground.">
+        <div className="mark-specimens">
+          {[64, 32, 20, 16].map((n) => (
+            <span key={n} className="mark-specimen">
+              <Mark size={n} />
+            </span>
+          ))}
+          {[64, 32, 20, 16].map((n) => (
+            <span key={`f${n}`} className="mark-specimen" data-ground="fill">
+              <Mark size={n} tone="on-fill" />
+            </span>
+          ))}
+        </div>
+      </Section>
+
       <Section title="Surfaces" note="Paper by day, navy by night. The orb mixes every token — try it.">
         <div className="swatches">
           {SURFACES.map((s) => (
@@ -853,7 +868,7 @@ export function DesignPage() {
         <PlanBoardDemo />
       </Section>
 
-      <Section title="Desktop updates" note="The desktop app checks its signed feed a few seconds after it opens and puts this card up under the top bar, on glass, when a new version is ready: Update and restart is the one blue action, Later hides it until the next launch, Skip this version until a newer one. Nothing downloads until a person presses Update. The bar fills on the compositor; the mark's courses settle while it works. After the restart it says what changed, once. Settings → Updates shows the same card inline on paper, with Check for updates. Shown at 260, 400 and 560 px.">
+      <Section title="Desktop updates" note="The desktop app checks its signed feed a few seconds after it opens and puts this card up under the top bar, on glass, when a new version is ready: Update and restart is the one blue action, Later hides it until the next launch, Skip this version until a newer one. Nothing downloads until a person presses Update. The bar fills on the compositor; the mark's panels settle while it works. After the restart it says what changed, once. Settings → Updates shows the same card inline on paper, with Check for updates. Shown at 260, 400 and 560 px.">
         <UpdateDemo />
       </Section>
 
@@ -1372,7 +1387,7 @@ function HeldPageDemo(p: { width: number; word: string; tone: "ok" | "warn" | "b
   );
 }
 
-const UPDATE_NOTES = ["## Foundation 0.3.0", "- Desktop updates: this card", "- A new icon: an F laid in masonry", "- Signed installers, checked before they run"].join("\n");
+const UPDATE_NOTES = ["## Foundation 0.3.0", "- Desktop updates: this card", "- A new icon: four panels on a grid", "- Signed installers, checked before they run"].join("\n");
 const UPDATE_PHASES: Array<{ phase: UpdatePhase; width: number; layout?: "floating" | "inline"; extra?: Record<string, unknown> }> = [
   { phase: "available", width: 400 },
   { phase: "available", width: 260 },
