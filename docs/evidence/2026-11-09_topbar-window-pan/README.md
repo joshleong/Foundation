@@ -22,7 +22,7 @@ Checked in the browser (a test server with its own data, :24430) with pointer ev
 
 `apps/client/src-tauri/src/lib.rs` opens the window without the system frame (`decorations(false)`; on a Mac, an overlay title bar with the title hidden). The port-taken page, which has no bar of its own, keeps the frame. `shell/WindowControls.tsx` draws the three buttons and moves the window from the top 44 px; the capability gained `allow-minimize`, `allow-toggle-maximize`, `allow-close` and `allow-start-dragging`.
 
-**Not checked: the real window.** `cargo check` passes and the controls are shown on `#/design`, but the desktop app was not run: dragging by the bar, the three buttons, resizing by the edges, a Mac and Linux all still need a person.
+**The real window, on Windows** (2026-11-10): Josh ran it under `tauri dev` and confirmed dragging by the bar, the three buttons and resizing by the edges. Not checked: a Mac and Linux. (`npm run desktop` itself failed here on a stuck port 1430; the window was started on :15430, see SPEC §7.)
 
 ## Checked with
 
