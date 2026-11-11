@@ -44,6 +44,9 @@ db.exec(`
     issuer text primary key, client_id text not null, redirect_uri text not null, at integer not null
   );
 `);
+try {
+  db.exec("alter table flowform_links add column client_id text");
+} catch { /* already there */ }
 
 // ---------- the key, and sealing ----------
 
@@ -117,11 +120,14 @@ async function authServer(): Promise<AuthServer> {
   return v;
 }
 
-/** Foundation as an OAuth client of this Flowform: registered once per (Flowform, callback address) */
-async function clientId(): Promise<string> {
+/**
+ * Foundation as an OAuth client of this Flowform. Registered afresh for every connection: Flowform forgets a
+ * registration that goes unused (a day-old one got "This tool is not registered with Flowform"), and the approval
+ * page is the person's browser, so a stale id can't be noticed and retried from here. Each link keeps the id it
+ * was made with, for its refreshes.
+ */
+async function registerClient(): Promise<string> {
   const as = await authServer();
-  const row = one<{ client_id: string; redirect_uri: string }>("select client_id, redirect_uri from flowform_oauth_client where issuer = ?", as.issuer);
-  if (row && row.redirect_uri === redirectUri()) return row.client_id;
   if (!as.registration_endpoint) throw new HttpError(502, "This Flowform doesn't register clients, so Foundation can't connect to it");
   const reg = await getJson<{ client_id: string }>(as.registration_endpoint, {
     method: "POST",
@@ -143,18 +149,18 @@ async function clientId(): Promise<string> {
 // ---------- connecting ----------
 
 /** sign-ins in flight: state (hashed) → who started it and the PKCE verifier. Ten minutes, spent once, in memory. */
-const attempts = new Map<string, { userId: string; verifier: string; at: number }>();
+const attempts = new Map<string, { userId: string; verifier: string; clientId: string; at: number }>();
 const ATTEMPT_MS = 10 * 60_000;
 const sha = (s: string) => createHash("sha256").update(s).digest();
 
 /** the address to send this person's browser to: Flowform's own approval page */
 export async function beginLink(userId: string): Promise<{ url: string }> {
   const as = await authServer();
-  const id = await clientId();
+  const id = await registerClient();
   for (const [k, a] of attempts) if (Date.now() - a.at > ATTEMPT_MS) attempts.delete(k);
   const state = randomBytes(24).toString("base64url");
   const verifier = randomBytes(48).toString("base64url");
-  attempts.set(sha(state).toString("hex"), { userId, verifier, at: Date.now() });
+  attempts.set(sha(state).toString("hex"), { userId, verifier, clientId: id, at: Date.now() });
   const u = new URL(as.authorization_endpoint);
   u.searchParams.set("response_type", "code");
   u.searchParams.set("client_id", id);
@@ -174,10 +180,10 @@ interface TokenAnswer {
   scope?: string;
 }
 
-function keep(userId: string, t: TokenAnswer, connectedAt = Date.now()) {
+function keep(userId: string, t: TokenAnswer, clientId: string, connectedAt = Date.now()) {
   const old = one<{ refresh: string | null }>("select refresh from flowform_links where user_id = ?", userId);
   run(
-    "insert or replace into flowform_links (user_id, access, refresh, expires_at, scope, connected_at) values (?, ?, ?, ?, ?, ?)",
+    "insert or replace into flowform_links (user_id, access, refresh, expires_at, scope, connected_at, client_id) values (?, ?, ?, ?, ?, ?, ?)",
     userId,
     seal(t.access_token),
     // a refresh that doesn't hand back a new refresh token keeps the old one
@@ -185,15 +191,16 @@ function keep(userId: string, t: TokenAnswer, connectedAt = Date.now()) {
     Date.now() + (t.expires_in ?? 3600) * 1000,
     t.scope ?? SCOPE,
     connectedAt,
+    clientId,
   );
 }
 
-async function tokenRequest(params: Record<string, string>): Promise<TokenAnswer> {
+async function tokenRequest(params: Record<string, string>, clientId: string): Promise<TokenAnswer> {
   const as = await authServer();
   const t = await getJson<TokenAnswer>(as.token_endpoint, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
-    body: new URLSearchParams({ ...params, client_id: await clientId(), resource: mcpUrl() }).toString(),
+    body: new URLSearchParams({ ...params, client_id: clientId, resource: mcpUrl() }).toString(),
   });
   if (!t.access_token) throw new HttpError(502, "Flowform answered without a token");
   return t;
@@ -206,7 +213,7 @@ export async function finishLink(code: string, state: string): Promise<string> {
   attempts.delete(k);
   if (!a || Date.now() - a.at > ATTEMPT_MS) throw new HttpError(400, "That Flowform sign-in expired or was already used. Start it again from Foundation.");
   if (!code) throw new HttpError(400, "Flowform didn't send a code");
-  keep(a.userId, await tokenRequest({ grant_type: "authorization_code", code, redirect_uri: redirectUri(), code_verifier: a.verifier }));
+  keep(a.userId, await tokenRequest({ grant_type: "authorization_code", code, redirect_uri: redirectUri(), code_verifier: a.verifier }, a.clientId), a.clientId);
   return a.userId;
 }
 
@@ -228,10 +235,10 @@ const refreshing = new Map<string, Promise<string>>();
 
 /** this person's access token, refreshed when it's within a minute of expiring (one refresh at a time per person) */
 async function accessToken(userId: string, force = false): Promise<string> {
-  const row = one<{ access: string; refresh: string | null; expires_at: number; connected_at: number }>("select access, refresh, expires_at, connected_at from flowform_links where user_id = ?", userId);
+  const row = one<{ access: string; refresh: string | null; expires_at: number; connected_at: number; client_id: string | null }>("select access, refresh, expires_at, connected_at, client_id from flowform_links where user_id = ?", userId);
   if (!row) throw new HttpError(409, "Flowform isn't connected for you yet. Connect it in Settings → Services.");
   if (!force && row.expires_at - Date.now() > 60_000) return unseal(row.access);
-  if (!row.refresh) {
+  if (!row.refresh || !row.client_id) {
     run("delete from flowform_links where user_id = ?", userId);
     throw new HttpError(409, "Your Flowform connection expired. Connect it again in Settings → Services.");
   }
@@ -239,8 +246,8 @@ async function accessToken(userId: string, force = false): Promise<string> {
   if (!p) {
     p = (async () => {
       try {
-        const t = await tokenRequest({ grant_type: "refresh_token", refresh_token: unseal(row.refresh!) });
-        keep(userId, t, row.connected_at);
+        const t = await tokenRequest({ grant_type: "refresh_token", refresh_token: unseal(row.refresh!) }, row.client_id!);
+        keep(userId, t, row.client_id!, row.connected_at);
         return t.access_token;
       } catch (e) {
         // Flowform refused the refresh token (revoked there, or expired): the link is over
@@ -279,13 +286,13 @@ export const flowformCall = (userId: string, name: string, args: Record<string, 
 
 /** end the link: revoke at Flowform (best effort), then forget the tokens here */
 export async function unlink(userId: string): Promise<void> {
-  const row = one<{ access: string; refresh: string | null }>("select access, refresh from flowform_links where user_id = ?", userId);
+  const row = one<{ access: string; refresh: string | null; client_id: string | null }>("select access, refresh, client_id from flowform_links where user_id = ?", userId);
   if (!row) return;
   run("delete from flowform_links where user_id = ?", userId);
   try {
     const as = await authServer();
-    if (!as.revocation_endpoint) return;
-    const id = await clientId();
+    if (!as.revocation_endpoint || !row.client_id) return;
+    const id = row.client_id;
     for (const sealed of [row.refresh, row.access]) {
       if (!sealed) continue;
       await fetch(as.revocation_endpoint, {

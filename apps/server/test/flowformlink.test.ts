@@ -158,9 +158,9 @@ test("connecting asks Flowform for reading only, with PKCE, and keeps the tokens
   assert.ok(seen.access.has(link.unseal(row.access)), "and it opens with the key");
   assert.equal(Buffer.from(readFileSync(join(dataDir, "secret.key"), "utf8"), "base64").length, 32);
 
-  // a second sign-in doesn't register Foundation again
+  // every connection registers afresh (Flowform forgets a registration that goes unused)
   await link.beginLink("u-kai");
-  assert.equal(seen.registrations.length, 1);
+  assert.equal(seen.registrations.length, 2);
 });
 
 test("Flowform's tools are listed and called as the person; nobody else's link is used", async () => {
