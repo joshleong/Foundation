@@ -35,3 +35,14 @@ The files themselves. Flowform's tools say they never return URLs or storage key
 | `10_allow-file-downloads-night.png` | The same at night |
 
 The button's request answered with Flowform's own `https://server.formresearch.ai/auth/google/start`, returning to `/auth/flowform/done/<nonce>` (checked on the throwaway copy, not followed: it needs Josh's Google sign-in). `test/flowformfiles.test.ts` (5) runs the rest against a stand-in. **Not seen against production yet**: which rendition name Flowform's download route takes, and real bytes. `npm test`: client 106; server 184 (178 pass, 6 skipped). Typecheck clean.
+
+## Against production (Josh signed in through Flowform)
+
+| File | What it shows |
+|---|---|
+| `11_form-industries-with-its-files.jpg` | Form Industries in Josh's own Foundation: its 27 images and 4 videos (158 MB) arrived in about 30 s, and its cards are them |
+| `12_matterform-files-arrived-live.jpg` | MatterForm brought in while watching: its images and video replaced the stand-in notes without a reload |
+
+What production said on the way: `426 "Flowform 1.9.0 or newer is required"` until the request named a client version (`x-flowform-client-version`); renditions `source`, `display`, `playback`, `thumbnail` (anything else `400 unsupported asset role`); an older image had no `source` (`404 file rendition not available`) but its `display` was the full 6,560,408-byte file. A file card names its file at the top level, not under `media`. A STEP file came with no filename (no Content-Disposition, and its own header says only "Open CASCADE Shape Model"), so it's *Flowform file d0fb64c9.step*. A 3D model card had no file at all in Flowform.
+
+Also found and fixed: a card whose kind changes (note → image) showed twice in the open board until a reload (`apps/client/src/sync/board.ts`). Checked: `npm test` (client 106; server 184: 178 pass, 6 skipped), typecheck.

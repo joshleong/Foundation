@@ -1043,7 +1043,7 @@
       "kind": "plan",
       "milestone": "search",
       "area": "search",
-      "status": "review",
+      "status": "done",
       "body": "Search → Flowform: type and it searches your Flowform files through the link (Flowform's own `search`: uploads, board media, Slack, Figma); drag one out and it lands as a link card (Slack, Figma) or a note naming it. Checked in the browser against Josh's real files. The bytes don't come through: see `flowform-file-bytes`.",
       "issue": 99
     },
@@ -1053,18 +1053,18 @@
       "kind": "plan",
       "milestone": "company",
       "area": "auth",
-      "status": "review",
+      "status": "done",
       "body": "Search → Flowform lists your rooms; press one and it lands as board `ff-<room>` (the importer's ids and ledger): a section per surface, notes, tables with cells, app and link cards at their Flowform positions; read again every 5 minutes and on ↻; edits and removals here stand, nothing deleted; a Flowform viewer can't bring one in. `flowform-live.ts`, `test/flowform-live.test.ts` (5); Form Industries (57 cards) brought in on a throwaway copy, day and night. Images, videos, files and Flowform's older tables arrive as named notes. To do: Josh brings his rooms into his own Foundation.",
       "issue": 100
     },
     {
       "id": "flowform-file-bytes",
-      "title": "Allow Flowform file downloads once, in Settings → Services",
+      "title": "Flowform file downloads, through the person's kept Flowform session",
       "kind": "hookup",
       "milestone": "company",
       "area": "auth",
-      "status": "needs-you",
-      "body": "Josh chose to keep the Flowform session for downloads (2026-11-11). Built: `flowformfiles.ts`, the Allow file downloads button, rooms' files fetched into the archive in the background, dragged search files brought in (`test/flowformfiles.test.ts`). Needs Josh's Google sign-in once (Allow file downloads, or sign in through Flowform): it's the first run against production, showing which rendition Flowform's download route takes."
+      "status": "done",
+      "body": "Josh chose to keep the Flowform session for downloads (2026-11-11) and signed in through Flowform. Against production: Form Industries' 27 images and 4 videos (158 MB) and MatterForm's images, video and STEP file came into the archive and their cards became them. Flowform's file route needs `x-flowform-client-version` ≥ 1.9.0; renditions source → playback → display."
     },
     {
       "id": "desktop-starts-server",

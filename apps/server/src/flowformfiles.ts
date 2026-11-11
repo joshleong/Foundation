@@ -115,16 +115,30 @@ const sessionOf = (userId: string) => {
 };
 
 /**
- * The rendition asked for: Flowform's download route requires `role` (it said "missing field `role`"), and an
- * unknown one is a 400. The Flowform client names source, display and playback renditions; the original
- * (source) is wanted. Tried in order; the first Flowform takes is remembered.
+ * The rendition asked for. Flowform's download route requires `role`; asked on 2026-11-11 it knows `source`,
+ * `display`, `playback` and `thumbnail` ("unsupported asset role", 400, for anything else), and answers 404
+ * "file rendition not available" for one a file lacks (an older upload had no `source`, only `display`).
+ * The original is wanted: `source`, else `playback` (a video's), else `display`. `thumbnail` never.
  */
-const ROLES = ["source", "original", "display", "playback"];
-let roleThatWorks: string | null = null;
+const ROLES = ["source", "playback", "display"];
+/** roles Flowform said it doesn't know (400): not asked again */
+const unknownRoles = new Set<string>();
 
 export interface FlowformFile {
   body: Buffer;
   mime: string;
+  /** the file's own name, when the download says it (Content-Disposition) */
+  name?: string;
+}
+
+/** a filename from a Content-Disposition header (filename* first), without any path */
+export function dispositionName(h: string | null): string | undefined {
+  if (!h) return undefined;
+  const star = /filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)/.exec(h);
+  const plain = /filename\s*=\s*"?([^";]+)"?/.exec(h);
+  let name = star ? decodeURIComponent(star[1].trim()) : plain?.[1].trim();
+  name = name?.split(/[\\/]/).pop()?.trim();
+  return name || undefined;
 }
 
 /** one file revision's bytes, as this person (null when Flowform doesn't have it, or it's too big) */
@@ -132,11 +146,12 @@ export async function fileBytes(userId: string, fileId: string, revisionId: stri
   if (!/^[\w.-]{1,128}$/.test(fileId) || !/^[\w.-]{1,160}$/.test(revisionId)) throw new HttpError(400, "not a Flowform file id");
   const token = sessionOf(userId);
   let url: string | null = null;
-  for (const role of roleThatWorks ? [roleThatWorks] : ROLES) {
+  for (const role of ROLES.filter((r) => !unknownRoles.has(r))) {
     let res: Response;
     try {
       res = await fetch(`${base()}/me/files/${encodeURIComponent(fileId)}/revisions/${encodeURIComponent(revisionId)}/url?role=${role}`, {
-        headers: { authorization: `Bearer ${token}`, accept: "application/json" },
+        // Flowform's file routes refuse clients older than its minimum (426); the version is config.flowformClientVersion
+        headers: { authorization: `Bearer ${token}`, accept: "application/json", "x-flowform-client-version": config.flowformClientVersion },
         signal: AbortSignal.timeout(20_000),
       });
     } catch {
@@ -146,12 +161,19 @@ export async function fileBytes(userId: string, fileId: string, revisionId: stri
       run("delete from flowform_sessions where user_id = ?", userId);
       throw new HttpError(409, "Flowform ended the session Foundation downloads with. Allow file downloads again in Settings → Services.");
     }
-    if (res.status === 403 || res.status === 404) return null;
-    if (res.status === 400 || res.status === 422) continue; // not a rendition it knows: the next
+    if (res.status === 426) {
+      const said = (await res.text().catch(() => "")).slice(0, 160);
+      throw new HttpError(502, `Flowform wants a newer client for files (${said || "426"}). Set FLOWFORM_CLIENT_VERSION to the version it asks for.`);
+    }
+    if (res.status === 403) return null; // not theirs to read
+    if (res.status === 404) continue; // this file has no such rendition (or no such file): the next
+    if (res.status === 400 || res.status === 422) {
+      unknownRoles.add(role); // a rendition Flowform doesn't know: the next, and never again
+      continue;
+    }
     if (!res.ok) throw new HttpError(502, `Flowform answered ${res.status} for a file`);
     const j = (await res.json().catch(() => ({}))) as { url?: string };
-    if (!j.url) return null;
-    roleThatWorks = role;
+    if (!j.url) continue;
     url = j.url;
     break;
   }
@@ -162,5 +184,5 @@ export async function fileBytes(userId: string, fileId: string, revisionId: stri
   if (size > MAX_FILE) return null;
   const body = Buffer.from(await obj.arrayBuffer());
   if (body.length > MAX_FILE) return null;
-  return { body, mime: (obj.headers.get("content-type") ?? "application/octet-stream").split(";")[0].trim() };
+  return { body, mime: (obj.headers.get("content-type") ?? "application/octet-stream").split(";")[0].trim(), name: dispositionName(obj.headers.get("content-disposition")) };
 }

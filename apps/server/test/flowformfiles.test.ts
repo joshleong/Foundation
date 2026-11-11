@@ -48,12 +48,15 @@ before(async () => {
     const m = /^\/me\/files\/([^/]+)\/revisions\/([^/]+)\/url$/.exec(url.pathname);
     if (m) {
       if (bearer !== SESSION || flowform.revoked.includes(bearer)) return res.writeHead(401).end("missing bearer");
+      // as production answered on 2026-11-11: an old client is refused, an unknown role is a 400, a missing rendition a 404
+      if (req.headers["x-flowform-client-version"] !== "1.9.0") return res.writeHead(426).end("Flowform 1.9.0 or newer is required. Update the app to continue.");
       const role = url.searchParams.get("role") ?? "";
       flowform.roles.push(role);
-      // this Flowform knows "original", not "source": the client tries the next
-      if (role !== "original") return res.writeHead(400).end("unknown variant");
+      if (!["source", "display", "playback", "thumbnail"].includes(role)) return res.writeHead(400).end("unsupported asset role");
       const f = flowform.files[m[1]];
-      if (!f || f.rev !== m[2]) return res.writeHead(404).end();
+      if (!f || f.rev !== m[2]) return res.writeHead(404).end("file not found");
+      // f1 is an older upload: no source rendition, only display
+      if (m[1] === "f1" && role !== "display") return res.writeHead(404).end("file rendition not available");
       return json(200, { url: `${origin}/blob/${m[1]}` });
     }
     const b = /^\/blob\/(\w+)$/.exec(url.pathname);
@@ -78,7 +81,10 @@ before(async () => {
               : {
                   primitives: [
                     { id: "im-1", kind: "image", name: "Hyperform", rect: { x: 300, y: 300, w: 300, h: 200 }, media: { file_id: "f1", revision_id: "r1", byte_size: PNG.length } },
-                    { id: "fr-1", kind: "file_reference", name: "Drawing", rect: { x: 800, y: 300, w: 300, h: 200 }, media: { file_id: "f9", revision_id: "r9", byte_size: 16 } },
+                    // as Flowform answers a file card: its file at the top level, media all null
+                    { id: "fr-1", kind: "file_reference", name: "Drawing", rect: { x: 800, y: 300, w: 300, h: 200 }, file_id: "f9", revision_id: "r9", media: { file_id: null, revision_id: null, byte_size: null } },
+                    // a 3D model Flowform names no file for
+                    { id: "m3-1", kind: "model_3d", name: null, rect: { x: 800, y: 700, w: 300, h: 200 }, file_id: null, revision_id: null },
                     { id: "im-2", kind: "image", name: "Gone", rect: { x: 300, y: 700, w: 300, h: 200 }, media: { file_id: "f-gone", revision_id: "r0", byte_size: 10 } },
                   ],
                 };
@@ -137,12 +143,12 @@ test("allowing downloads keeps only your own Flowform account's session, encrypt
   assert.equal(link.unseal(row.token), SESSION);
 });
 
-test("a file's bytes come through the person's session; a rendition Flowform doesn't know is skipped", async () => {
+test("a file's bytes come through the person's session; a file without its original comes as the next rendition", async () => {
   const { ada, files } = await load();
   const got = await files.fileBytes(ada, "f1", "r1");
   assert.ok(got && got.body.equals(PNG));
   assert.equal(got!.mime, "image/png");
-  assert.deepEqual(flowform.roles.slice(0, 2), ["source", "original"]);
+  assert.deepEqual(flowform.roles.slice(0, 3), ["source", "playback", "display"], "the original first; a file without one, the next rendition");
   assert.equal(await files.fileBytes(ada, "f-gone", "r0"), null);
   await assert.rejects(files.fileBytes(ada, "../etc", "r1"), /not a Flowform file id/);
 });
@@ -165,6 +171,8 @@ test("a room's images and files arrive as themselves, in the background, and the
   const fr = m.objects.get("ff_fr-1") as { kind: string; panel: string; fileId: string };
   assert.equal(fr.panel, "file");
   assert.equal(fr.fileId, live.fileIdFor(ROOM, "f9"));
+  // a card Flowform names no file for says so
+  assert.match(String(protocol.noteTextOf(boards.getBoard("ff-room-shop").doc, m.objects.get("ff_m3-1") as { id: string })), /doesn't give its file to other apps/);
   // one Flowform wouldn't give stays a note naming it, and isn't asked for on every read
   assert.equal(m.objects.get("ff_im-2")?.kind, "note");
   const asked = flowform.roles.length;

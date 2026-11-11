@@ -94,6 +94,9 @@ interface FfCard {
   table?: { rows?: string[][]; columns?: Array<string | null> };
   url?: string;
   media?: { file_id?: string | null; revision_id?: string | null; byte_size?: number | null } | null;
+  /** a file card's file is here, not under media (whose fields Flowform leaves null for it) */
+  file_id?: string | null;
+  revision_id?: string | null;
   autoplay?: boolean;
   mute?: boolean;
 }
@@ -129,6 +132,13 @@ async function cardsOn(userId: string, roomId: string, s: Surface): Promise<FfCa
 }
 
 // ---------- the mapping ----------
+
+/** the Flowform file a card shows: images and videos carry it under `media`, a file card at its top level */
+export function fileRef(c: FfCard): { file_id: string; revision_id: string } | null {
+  const file_id = c.media?.file_id ?? c.file_id;
+  const revision_id = c.media?.revision_id ?? c.revision_id;
+  return file_id && revision_id ? { file_id, revision_id } : null;
+}
 
 const stable = (v: unknown): string =>
   v === null || typeof v !== "object"
@@ -188,6 +198,8 @@ export function mapCard(c: FfCard, base: { id: string; sectionId: string; x: num
       const what = { image: "image", video: "video", video_note: "video note", file_reference: "file", model_3d: "3D model", model_3d_v2: "3D model" }[c.kind];
       const size = c.media?.byte_size ? `, ${sizeWords(c.media.byte_size)}` : "";
       const an = `${/^[aeiou]/i.test(what) ? "An" : "A"} ${what}`;
+      // a card Flowform names no file for (its video notes) can't be fetched however downloads stand
+      if (!fileRef(c)) return note(`**${c.name || an}**\n\n${an} in Flowform. Flowform doesn't give its file to other apps, so it shows here by name.`, true);
       return note(`**${c.name || an}**\n\n${an} in Flowform${size}. Its file isn't here yet: it comes in once you allow Flowform file downloads (Settings → Services).`, true);
     }
     case "grid":
@@ -202,7 +214,7 @@ export function mapCard(c: FfCard, base: { id: string; sectionId: string; x: num
 /** the archive id a room's Flowform file gets: the importer's (`ff_` + digest of room and `file:<id>`), so the two share it */
 export const fileIdFor = (roomId: string, ffFileId: string) => `ff_${digest([roomId, `file:${ffFileId}`])}`;
 
-const EXT: Record<string, string> = { "image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp", "image/svg+xml": ".svg", "video/mp4": ".mp4", "video/quicktime": ".mov", "video/webm": ".webm", "application/pdf": ".pdf" };
+const EXT: Record<string, string> = { "image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp", "image/svg+xml": ".svg", "video/mp4": ".mp4", "video/quicktime": ".mov", "video/webm": ".webm", "application/pdf": ".pdf", "application/step": ".step", "model/step": ".step", "model/stl": ".stl", "model/gltf-binary": ".glb", "text/csv": ".csv", "text/plain": ".txt" };
 const hereFile = (id: string) => one<HereFile>("select id, mime, name from files where id = ?", id) ?? null;
 /** files Flowform didn't give (gone, refused, too big): not asked for again until the server restarts */
 const notThere = new Set<string>();
@@ -214,7 +226,7 @@ export async function bringFlowformFile(userId: string, boardId: string | null, 
   if (here) return here;
   const got = await fileBytes(userId, f.file_id, f.revision_id);
   if (!got) return null;
-  const base = (f.name || f.file_id).replace(/[\\/:*?"<>|]/g, "_").slice(0, 200);
+  const base = (f.name || got.name || `Flowform file ${f.file_id.slice(0, 8)}`).replace(/[\\/:*?"<>|]/g, "_").slice(0, 200);
   const name = /\.[a-z0-9]{2,5}$/i.test(base) ? base : base + (EXT[got.mime] ?? "");
   await storeImportedFile({ id, boardId, name, mime: got.mime, body: got.body, uploadedBy: userId, createdAt: Date.now(), archivedAt: null });
   return hereFile(id);
@@ -224,8 +236,8 @@ export async function bringFlowformFile(userId: string, boardId: string | null, 
 async function fetchMissing(userId: string, roomId: string, boardId: string, cards: FfCard[]): Promise<boolean> {
   let arrived = false;
   for (const c of cards) {
-    const m = c.media;
-    if (!m?.file_id || !m.revision_id) continue;
+    const m = fileRef(c);
+    if (!m) continue;
     const id = fileIdFor(roomId, m.file_id);
     if (hereFile(id) || notThere.has(id)) continue;
     try {
@@ -366,7 +378,8 @@ async function doPull(userId: string, roomId: string): Promise<PullReport> {
       // --- its cards, lowest first ---
       for (const c of [...cards].sort((a, b) => (a.stack_order ?? 0) - (b.stack_order ?? 0) || (a.id < b.id ? -1 : 1))) {
         const id = `ff_${safeId(c.id)}`.slice(0, 64);
-        const file = c.media?.file_id ? hereFile(fileIdFor(roomId, c.media.file_id)) : null;
+        const ref = fileRef(c);
+        const file = ref ? hereFile(fileIdFor(roomId, ref.file_id)) : null;
         const mapped = mapCard(c, { id, sectionId: o.section, x: Math.round(left(c) + o.dx), y: Math.round(top(c) + o.dy) }, file);
         if (!mapped) continue;
         const ck = `${roomId}:${c.id}`;
@@ -414,7 +427,10 @@ async function doPull(userId: string, roomId: string): Promise<PullReport> {
   // the files, in the background: the board is there already; once some arrive, the room is read again so they show
   const missing = read
     .flatMap((x) => x.cards)
-    .filter((c) => c.media?.file_id && c.media.revision_id && !hereFile(fileIdFor(roomId, c.media.file_id)) && !notThere.has(fileIdFor(roomId, c.media.file_id)));
+    .filter((c) => {
+      const ref = fileRef(c);
+      return ref && !hereFile(fileIdFor(roomId, ref.file_id)) && !notThere.has(fileIdFor(roomId, ref.file_id));
+    });
   r.filesComing = canDownload(userId) ? missing.length : 0;
   if (r.filesComing && !fetching.has(roomId)) {
     fetching.add(roomId);

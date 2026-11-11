@@ -496,6 +496,13 @@ class BoardSync {
       for (const id of keys) {
         const o = m.objects.get(id);
         if (o) {
+          // a card whose kind changed (a note that became an image, say) leaves its old kind, or it shows twice
+          for (const k of Object.keys(SLICE) as Kind[]) {
+            if (k !== o.kind && (st[SLICE[k]] as Record<string, AnyObject>)[id]) {
+              delete slice(k)[id];
+              if (k === "table") workbook.removeTable(id);
+            }
+          }
           slice(o.kind)[id] = fromObjectDoc(o, this.doc);
         } else {
           for (const k of Object.keys(SLICE) as Kind[]) {
