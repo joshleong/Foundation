@@ -934,7 +934,7 @@
       "milestone": "ship",
       "area": "desktop",
       "status": "review",
-      "body": "apps/client/assets/foundation-mark.svg is the drawing (white). The desktop icons and the in-app mark are federal blue where white wouldn't show; the browser tab is white in a dark browser. Shown on #/design → The mark, day and night (docs/evidence/2026-11-10_icon/). The installed app shows it after the next release build."
+      "body": "apps/client/assets/foundation-mark.svg is the drawing (white). The desktop icons and the browser tab are the white mark on a federal-blue tile; in the app the mark is blue on paper and white on fills. Shown on #/design → The mark, day and night (docs/evidence/2026-11-10_icon/). The installed app shows it after the next release build."
     },
     {
       "id": "files-search",
