@@ -1,7 +1,7 @@
 {
   "about": "Foundation's plan as a kanban. GitHub issues are where the team moves cards; this file is the local copy the app shows in Settings → Plan. `npm run plan:push` writes it to GitHub, `npm run plan:pull` reads the issues back. Columns: needs-you (waits on a person: a key, an install, a decision), backlog, next, doing, review (built, waiting to merge or to be checked by a person), done.",
   "repo": "joshleong/Foundation",
-  "syncedAt": "2026-11-09T05:40:28.652Z",
+  "syncedAt": "2026-11-11T04:05:55.046Z",
   "columns": [
     {
       "id": "needs-you",
@@ -84,7 +84,8 @@
       "milestone": "polish",
       "area": "panels",
       "status": "review",
-      "body": "Josh, 2026-11-10: \"Images don't need borders until they are rolled over, and if it is a transparent image on a dark background there should be the option to invert it.\" Media cards have no paper, border or shadow at rest (no well behind a loaded clear image); a hairline and the resize corner come with the pointer. An image with see-through pixels offers ◐ Invert on dark at night; MediaDoc.invert is shared and applies only at night (invert + hue-rotate by --night-hard). Checked day and night in the browser."
+      "body": "Josh, 2026-11-10: \"Images don't need borders until they are rolled over, and if it is a transparent image on a dark background there should be the option to invert it.\" Media cards have no paper, border or shadow at rest (no well behind a loaded clear image); a hairline and the resize corner come with the pointer. An image with see-through pixels offers ◐ Invert on dark at night; MediaDoc.invert is shared and applies only at night (invert + hue-rotate by --night-hard). Checked day and night in the browser.",
+      "issue": 91
     },
     {
       "id": "night-greyscale",
@@ -93,7 +94,8 @@
       "milestone": "polish",
       "area": "design",
       "status": "review",
-      "body": "Josh, 2026-11-10: \"The color pallete of dark mode should not use the neon blues and greens, but use white and grey-scale colors, with the eventual pops of orange or yellow.\" Night surfaces are graphite (#0f0f10 … #1f1f21), the accent and focus white, ok light grey, eyebrows grey, warn yellow, bad orange; on-fill turns dark at night. The paper shader's night is graphite with grey dots. Agents stay violet; data-viz and wire type tones are unchanged. Day is unchanged. #/design shows it (docs/evidence/2026-11-10_carry/12)."
+      "body": "Josh, 2026-11-10: \"The color pallete of dark mode should not use the neon blues and greens, but use white and grey-scale colors, with the eventual pops of orange or yellow.\" Night surfaces are graphite (#0f0f10 … #1f1f21), the accent and focus white, ok light grey, eyebrows grey, warn yellow, bad orange; on-fill turns dark at night. The paper shader's night is graphite with grey dots. Agents stay violet; data-viz and wire type tones are unchanged. Day is unchanged. #/design shows it (docs/evidence/2026-11-10_carry/12).",
+      "issue": 92
     },
     {
       "id": "carry-cards",
@@ -102,7 +104,8 @@
       "milestone": "polish",
       "area": "grid",
       "status": "review",
-      "body": "Josh, 2026-11-10: \"It doesn't look like I can actually drag items from one section to another, dragging should not only be able to be dragged to other boards but it should create new sections to be dropped in.\" A card dragged out of its section lifts into a copy that follows the pointer (lib/carry.ts): another section rings and takes it where it's let go; an empty cell or past an edge of the board makes a new section for it; another space's tab (or its spaces-pane row) sends it to that board, into a section named From <board> (server send_to_board: note text, cells, its file; machines, huddles and stages stay). Anywhere else it flies back. Checked in the browser on all four paths (docs/evidence/2026-11-10_carry/); apps/server/test/carry.test.ts (4). Not yet in the e2e suite, and not tried on a real trackpad."
+      "body": "Josh, 2026-11-10: \"It doesn't look like I can actually drag items from one section to another, dragging should not only be able to be dragged to other boards but it should create new sections to be dropped in.\" A card dragged out of its section lifts into a copy that follows the pointer (lib/carry.ts): another section rings and takes it where it's let go; an empty cell or past an edge of the board makes a new section for it; another space's tab (or its spaces-pane row) sends it to that board, into a section named From <board> (server send_to_board: note text, cells, its file; machines, huddles and stages stay). Anywhere else it flies back. Checked in the browser on all four paths (docs/evidence/2026-11-10_carry/); apps/server/test/carry.test.ts (4). Not yet in the e2e suite, and not tried on a real trackpad.",
+      "issue": 93
     },
     {
       "id": "machine-port-stale",
@@ -961,7 +964,8 @@
       "milestone": "ship",
       "area": "desktop",
       "status": "review",
-      "body": "apps/client/assets/foundation-mark.svg is the drawing (white). The desktop icons and the browser tab are the white mark on a glass squircle (translucent navy, sheen, lit rim; no blue); in the app the mark is blue on paper and white on fills. Shown on #/design → The mark, day and night (docs/evidence/2026-11-10_icon/). The installed app shows it after the next release build."
+      "body": "apps/client/assets/foundation-mark.svg is the drawing (white). The desktop icons and the browser tab are the white mark on a glass squircle (translucent navy, sheen, lit rim; no blue); in the app the mark is blue on paper and white on fills. Shown on #/design → The mark, day and night (docs/evidence/2026-11-10_icon/). The installed app shows it after the next release build.",
+      "issue": 94
     },
     {
       "id": "files-search",
@@ -990,7 +994,8 @@
       "milestone": "polish",
       "area": "floor",
       "status": "done",
-      "body": "Josh, 2026-11-09: the left and right panels shouldn't fade the edge; a line, like a VS Code panel that resizes. The cards are clipped at the pane, each pane's edge is a hairline that turns blue under the pointer and drags to resize. Checked in the browser day and night (`docs/evidence/2026-11-09_edges-places-flowform/`)."
+      "body": "Josh, 2026-11-09: the left and right panels shouldn't fade the edge; a line, like a VS Code panel that resizes. The cards are clipped at the pane, each pane's edge is a hairline that turns blue under the pointer and drags to resize. Checked in the browser day and night (`docs/evidence/2026-11-09_edges-places-flowform/`).",
+      "issue": 95
     },
     {
       "id": "places-approved-folders",
@@ -999,7 +1004,8 @@
       "milestone": "apps",
       "area": "search",
       "status": "review",
-      "body": "Settings → Places approves a folder (admins, as a person). The search pane's This computer chip browses it; a file dragged out is copied into the archive and lands as a card. Agents get `places` and `bring_file`. Read-only, nothing outside a place, secrets left where they are (`test/places.test.ts`). To check: a real folder on Josh's machine, a real model using the tools."
+      "body": "Settings → Places approves a folder (admins, as a person). The search pane's This computer chip browses it; a file dragged out is copied into the archive and lands as a card. Agents get `places` and `bring_file`. Read-only, nothing outside a place, secrets left where they are (`test/places.test.ts`). To check: a real folder on Josh's machine, a real model using the tools.",
+      "issue": 96
     },
     {
       "id": "flowform-link",
@@ -1008,7 +1014,8 @@
       "milestone": "company",
       "area": "auth",
       "status": "review",
-      "body": "`flowformlink.ts`: OAuth (PKCE, registered once) to flowform-server's `/mcp`, `search:read canvas:read` only, tokens encrypted at rest; Connect/Disconnect in Settings → Services; agents get `flowform`. Tested against a stand-in (`test/flowformlink.test.ts`). Waits on a person approving it against production."
+      "body": "`flowformlink.ts`: OAuth (PKCE, registered once) to flowform-server's `/mcp`, `search:read canvas:read` only, tokens encrypted at rest; Connect/Disconnect in Settings → Services; agents get `flowform`. Tested against a stand-in (`test/flowformlink.test.ts`). Waits on a person approving it against production.",
+      "issue": 97
     },
     {
       "id": "flowform-connect",
@@ -1017,7 +1024,8 @@
       "milestone": "company",
       "area": "auth",
       "status": "needs-you",
-      "body": "Press Connect Flowform and approve on Flowform's page (reading only). It's the first run against production: it shows which tools Flowform offers, which the files browser and the board pull are built on."
+      "body": "Press Connect Flowform and approve on Flowform's page (reading only). It's the first run against production: it shows which tools Flowform offers, which the files browser and the board pull are built on.",
+      "issue": 98
     },
     {
       "id": "flowform-files-browser",
@@ -1026,7 +1034,8 @@
       "milestone": "search",
       "area": "search",
       "status": "next",
-      "body": "Josh, 2026-11-09: \"pull in the same file system that we had so we can drag those out into foundation\". A Flowform chip beside This computer, listing and searching the person's Flowform files through their link, with a dropped file copied into the archive. Needs the link connected first, to see Flowform's file tools (and whether they need a scope beyond `search:read`)."
+      "body": "Josh, 2026-11-09: \"pull in the same file system that we had so we can drag those out into foundation\". A Flowform chip beside This computer, listing and searching the person's Flowform files through their link, with a dropped file copied into the archive. Needs the link connected first, to see Flowform's file tools (and whether they need a scope beyond `search:read`).",
+      "issue": 99
     },
     {
       "id": "flowform-boards-live",
@@ -1035,7 +1044,8 @@
       "milestone": "company",
       "area": "auth",
       "status": "next",
-      "body": "Josh, 2026-11-09: \"pull the existing flowform boards into here and make sure they are connected\". List the person's rooms through their link and bring one in as a board (the importer's mapping in `docs/flowform-import.md`, fed from Flowform's canvas tools instead of the backup archive), re-runnable, with the ledger's rules: nothing edited here is overwritten, nothing is deleted. Needs the link connected first."
+      "body": "Josh, 2026-11-09: \"pull the existing flowform boards into here and make sure they are connected\". List the person's rooms through their link and bring one in as a board (the importer's mapping in `docs/flowform-import.md`, fed from Flowform's canvas tools instead of the backup archive), re-runnable, with the ledger's rules: nothing edited here is overwritten, nothing is deleted. Needs the link connected first.",
+      "issue": 100
     },
     {
       "id": "desktop-starts-server",
@@ -1044,7 +1054,8 @@
       "milestone": "ship",
       "area": "desktop",
       "status": "next",
-      "body": "The installed app expects a server at http://localhost:4410 and starts none, so on its own nothing in it connects (2026-11-09). Bundle the server (a Node sidecar with FTS5, or a single executable) and start it with the window, on a port outside Windows' reserved ranges; keep `Server` on the sign-in page for a hosted one."
+      "body": "The installed app expects a server at http://localhost:4410 and starts none, so on its own nothing in it connects (2026-11-09). Bundle the server (a Node sidecar with FTS5, or a single executable) and start it with the window, on a port outside Windows' reserved ranges; keep `Server` on the sign-in page for a hosted one.",
+      "issue": 101
     },
     {
       "id": "node-upgrade-windows",
@@ -1053,7 +1064,8 @@
       "milestone": "ship",
       "area": "desktop",
       "status": "needs-you",
-      "body": "System Node is 22.13.1 (no FTS5 in node:sqlite): the server can't start on it, which is why agents, Claude and data sources all failed to fetch. `winget install OpenJS.NodeJS.LTS`, then a new terminal. The launcher now says this itself."
+      "body": "System Node is 22.13.1 (no FTS5 in node:sqlite): the server can't start on it, which is why agents, Claude and data sources all failed to fetch. `winget install OpenJS.NodeJS.LTS`, then a new terminal. The launcher now says this itself.",
+      "issue": 102
     }
   ]
 }
