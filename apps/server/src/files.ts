@@ -91,6 +91,28 @@ export async function storeFile(body: Buffer, f: { name: string; mime: string; b
 }
 
 /**
+ * The same file, kept for another board: a card carried to another board
+ * takes its file with it, so the people on that board can open it (a file
+ * answers to the board it belongs to). The bytes are shared (content-addressed);
+ * the source board's file stays as it was. Returns the id to use there.
+ */
+export function shareFileWith(fileId: string, boardId: string, userId: string): string {
+  const f = one<FileRow>("select * from files where id = ?", fileId);
+  if (!f || !f.board_id || f.board_id === boardId) return fileId;
+  const same = one<FileRow>("select * from files where sha256 = ? and board_id = ? and archived_at is null", f.sha256, boardId);
+  if (same) return same.id;
+  const id = `f_${randomBytes(8).toString("hex")}`;
+  run(
+    "insert into files (id, board_id, name, mime, size, sha256, uploaded_by, created_at, about) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    id, boardId, f.name, f.mime, f.size, f.sha256, userId, Date.now(), f.about ?? null,
+  );
+  const row = one<FileRow>("select * from files where id = ?", id)!;
+  const dest = filePath(f.sha256);
+  if (existsSync(dest)) indexFile(row, readFileSync(dest));
+  return id;
+}
+
+/**
  * Store bytes that came from elsewhere (the flowform importer) under a known
  * id. Content-addressed like an upload; an id that already exists is left as
  * it is (its bytes never change), and an archived source stays archived.

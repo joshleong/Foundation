@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { MINI_HEADER, liveObjPos, setActiveObject, setObjectFloat } from "../state/store";
 import { Spring2D, presets } from "../physics/spring";
 import { countRender } from "../state/renders";
+import { LIFT, MAX_LEAN, startCarry, type Carry } from "../lib/carry";
 
 /**
  * Shared card frame for the lightweight primitives (notes, images, videos,
@@ -91,14 +92,14 @@ export function ObjectFrame({
     if (!dragRef.current.active) spring.to(pos.x, pos.y);
   }, [pos.x, pos.y, spring]);
 
-  const dragRef = useRef({ active: false, moved: false, startX: 0, startY: 0, origX: 0, origY: 0, lastX: 0, lastT: 0, lean: 0 });
+  const dragRef = useRef({ active: false, moved: false, startX: 0, startY: 0, origX: 0, origY: 0, lastX: 0, lastT: 0, lean: 0, carry: null as Carry | null });
 
-  /** the held card lifts and leans into its motion (DESIGN.md §6: lean ≤ 6°) */
+  /** the held card lifts and leans into its motion: a little physicality, not a ton (DESIGN.md §6: lean ≤ 2.5°) */
   const setLean = (deg: number, lifted: boolean) => {
     const card = rootRef.current?.querySelector<HTMLElement>(".frame-card");
     if (!card) return;
     card.style.rotate = `${deg.toFixed(2)}deg`;
-    card.style.scale = lifted ? "1.015" : "";
+    card.style.scale = lifted ? String(LIFT) : "";
   };
 
   const onHeaderDown = useCallback(
@@ -134,7 +135,12 @@ export function ObjectFrame({
         if (Math.hypot(e.clientX - d.startX, e.clientY - d.startY) < 4) return; // still a tap
         d.moved = true;
         if (!float) setObjectFloat(id, true); // grabbing undocks it from the flow
+        const anchor = rootRef.current;
+        const card = anchor?.querySelector<HTMLElement>(".frame-card");
+        // out of its section, it lifts out and can land in another (lib/carry.ts)
+        if (anchor && card) d.carry = startCarry(id, anchor, card, e.clientX, e.clientY);
       }
+      if (d.carry?.move(e.clientX, e.clientY)) return;
       const s = getScale();
       spring.to(
         Math.max(0, d.origX + (e.clientX - d.startX) / s),
@@ -144,18 +150,25 @@ export function ObjectFrame({
       const vx = (e.clientX - d.lastX) / Math.max(1, now - d.lastT); // px/ms
       d.lastX = e.clientX;
       d.lastT = now;
-      d.lean = d.lean * 0.8 + Math.max(-6, Math.min(6, vx * 4)) * 0.2;
+      d.lean = d.lean * 0.8 + Math.max(-MAX_LEAN, Math.min(MAX_LEAN, vx * 2)) * 0.2;
       setLean(d.lean, true);
     },
     [spring, getScale, float, id],
   );
 
-  const onHeaderUp = useCallback(() => {
+  const onHeaderUp = useCallback((e: React.PointerEvent) => {
     const d = dragRef.current;
     if (!d.active) return;
     d.active = false;
     rootRef.current?.classList.remove("dragging");
     setLean(0, false);
+    const carry = d.carry;
+    d.carry = null;
+    if (carry && (e.type === "pointercancel" ? (carry.cancel(), false) : carry.end(e.clientX, e.clientY))) {
+      // it went somewhere else (or flew back): it rests where it was picked up
+      spring.set(d.origX, d.origY);
+      return;
+    }
     if (d.moved) onMove(spring.x.goal, spring.y.goal);
     else onTap?.();
   }, [spring, onMove, onTap]);
@@ -211,9 +224,9 @@ export function ObjectFrame({
       )}
       <motion.div
         className={"frame-card" + (isActive ? " ctx-active" : "") + (cardClass ? ` ${cardClass}` : "")}
-        initial={{ scale: 0.55, opacity: 0, y: 50 }}
+        initial={{ scale: 0.94, opacity: 0, y: 8 }}
         animate={{ scale: 1, opacity: 1, y: 0 }}
-        transition={{ type: "spring", stiffness: 240, damping: 20 }}
+        transition={{ type: "spring", stiffness: 380, damping: 30 }}
         onPointerDown={() => setActiveObject(id)}
       >
         {chrome === "bar" && (

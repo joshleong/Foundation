@@ -85,7 +85,7 @@ export function DesignPage() {
         </div>
       </Section>
 
-      <Section title="Surfaces" note="Paper by day, navy by night. The orb mixes every token — try it.">
+      <Section title="Surfaces" note="Paper by day, graphite by night: greys and white, with yellow and orange only where something needs you. The orb mixes every token — try it.">
         <div className="swatches">
           {SURFACES.map((s) => (
             <Swatch key={s} name={s} />

@@ -110,6 +110,11 @@ export interface MediaDoc extends ObjectBaseDoc {
   media: "image" | "video";
   autoplay: boolean;
   muted: boolean;
+  /**
+   * Images only: shown inverted on a dark ground (night), for a dark drawing
+   * or logo on a clear background that would vanish there. Day shows it as it is.
+   */
+  invert?: boolean;
 }
 
 /**

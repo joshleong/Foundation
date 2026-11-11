@@ -60,6 +60,8 @@ export interface MediaMeta extends ObjectBase {
   media: "image" | "video";
   autoplay: boolean; // video only
   muted: boolean; // video only
+  /** image only: inverted on a dark ground (protocol MediaDoc.invert) */
+  invert?: boolean;
 }
 
 /** apps, links, files, machines, agents, connectors and asks — see @foundation/protocol */
@@ -120,7 +122,7 @@ export interface AppState {
   activeObjectId: string | null;
   snapRequest: (SnapTarget & { nonce: number }) | null;
   /** cell (or board edge) highlighted while a section is being dragged to a new home */
-  sectionDragTarget: { sectionId: string; c: number; r: number; edge?: BoardEdge } | null;
+  sectionDragTarget: { sectionId: string; c: number; r: number; edge?: BoardEdge; /** what letting go there does, when it isn't the section moving (a carried card makes a section) */ label?: string } | null;
   /** section awaiting the remove-confirmation popover (e.g. via context menu) */
   pendingRemoval: string | null;
   /** the section opened as its own grid (local to this window, never shared) */
@@ -1348,6 +1350,77 @@ export function placeAtWorld(id: string, wx: number, wy: number) {
   } as Partial<AppState>);
 }
 
+/**
+ * Carry a card into another section (dragged out of its own and let go over
+ * this one). With `at` (the world point its top-left was let go at) it floats
+ * there; without, it joins the section's flow. A hosted app gives way to the
+ * card (unhostFor), and a section the card hosted lets it go.
+ */
+export function moveObjectToSection(id: string, sectionId: string, at?: { wx: number; wy: number } | null) {
+  const found = findObject(id);
+  const sec = state.sections[sectionId];
+  if (!found || !sec) return;
+  const from = state.sections[found.obj.sectionId];
+  let sections = state.sections;
+  if (from?.host === id) sections = { ...sections, [from.id]: { ...from, host: undefined } };
+  if (sec.host && sec.host !== id) sections = { ...sections, [sec.id]: { ...sec, host: undefined } };
+  let pos = { x: 0, y: 0, float: false };
+  if (at) {
+    const card = sectionCardRect(state.grid, sec);
+    const s = sectionFit(sec.id);
+    pos = {
+      x: Math.max(0, Math.round((at.wx - card.x - 1) / s - CONTENT_PAD)),
+      y: Math.max(0, Math.round((at.wy - card.y - 1 - SECTION_HEADER) / s - CONTENT_PAD)),
+      float: true,
+    };
+  }
+  set({
+    ...(sections !== state.sections ? { sections } : {}),
+    [found.key]: { ...(state[found.key] as Record<string, AnyObject>), [id]: { ...found.obj, sectionId, ...pos } },
+    activeSectionId: sectionId,
+    activeObjectId: id,
+  } as Partial<AppState>);
+}
+
+/** a fresh, empty section in an uncovered cell, without moving the camera (a card is about to land in it) */
+export function newSectionAt(c: number, r: number): string | null {
+  if (sectionCovering(c, r) || c < 0 || r < 0 || c >= state.grid.cols.length || r >= state.grid.rows.length) return null;
+  sectionCount++;
+  const fresh: Section = { id: uid("sec"), name: `Section ${sectionCount}`, c0: c, c1: c, r0: r, r1: r };
+  set({ sections: { ...state.sections, [fresh.id]: fresh } });
+  return fresh.id;
+}
+
+/**
+ * A fresh section along a whole side of the board: a new track opens there,
+ * a normal track's size, and the section spans the board beside it (as a
+ * section dropped past the edge does, moveSectionToEdge).
+ */
+export function newSectionAtEdge(edge: BoardEdge): string {
+  const grid: GridTracks = { cols: [...state.grid.cols], rows: [...state.grid.rows] };
+  const sections: Record<string, Section> = { ...state.sections };
+  sectionCount++;
+  const id = uid("sec");
+  const name = `Section ${sectionCount}`;
+  if (edge === "left" || edge === "right") {
+    if (edge === "left") {
+      grid.cols.unshift(DEFAULT_COL_W);
+      for (const o of Object.values(sections)) sections[o.id] = { ...o, c0: o.c0 + 1, c1: o.c1 + 1 };
+    } else grid.cols.push(DEFAULT_COL_W);
+    const c = edge === "left" ? 0 : grid.cols.length - 1;
+    sections[id] = { id, name, c0: c, c1: c, r0: 0, r1: grid.rows.length - 1 };
+  } else {
+    if (edge === "top") {
+      grid.rows.unshift(DEFAULT_ROW_H);
+      for (const o of Object.values(sections)) sections[o.id] = { ...o, r0: o.r0 + 1, r1: o.r1 + 1 };
+    } else grid.rows.push(DEFAULT_ROW_H);
+    const r = edge === "top" ? 0 : grid.rows.length - 1;
+    sections[id] = { id, name, r0: r, r1: r, c0: 0, c1: grid.cols.length - 1 };
+  }
+  set({ grid, sections });
+  return id;
+}
+
 // ---------- note actions ----------
 
 /**
@@ -1486,7 +1559,7 @@ export function resizeMedia(id: string, w: number, h: number) {
   });
 }
 
-export function setMediaFlag(id: string, patch: Partial<Pick<MediaMeta, "autoplay" | "muted">>) {
+export function setMediaFlag(id: string, patch: Partial<Pick<MediaMeta, "autoplay" | "muted" | "invert">>) {
   const m = state.media[id];
   if (!m) return;
   set({ media: { ...state.media, [id]: { ...m, ...patch } } });

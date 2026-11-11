@@ -88,7 +88,7 @@ export function SidePane({ user, boards, current, onSwitch, onNew, onUpdate, onU
   };
 
   const row = (b: BoardRow, depth = 0) => (
-    <div key={b.id} className={`space-row${b.id === current ? " is-current" : ""}`} style={{ paddingLeft: depth * 14 }}>
+    <div key={b.id} className={`space-row${b.id === current ? " is-current" : ""}`} style={{ paddingLeft: depth * 14 }} data-space-drop={b.id} data-space-name={b.name} data-space-kind={b.kind ?? "grid"}>
       <button className="pane-row space-open" onClick={() => onSwitch(b.id)} data-tip={`${KIND_NAME[b.kind ?? "grid"]}${b.folder ? ` · ${b.folder.replace(/\//g, " › ")}` : ""}`}>
         <span className="pane-glyph">{b.id === "company" ? "◉" : KIND_GLYPH[b.kind ?? "grid"]}</span>
         <span className="pane-label">{b.name}</span>

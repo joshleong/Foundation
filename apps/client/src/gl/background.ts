@@ -23,7 +23,7 @@ uniform vec2 uPointer;    // pointer in css px (panel-local)
 uniform float uPointerIn; // 0..1 pointer presence
 uniform float uTime;
 uniform float uDpr;
-uniform float uNight;   // 0 paper … 1 navy night (the design language's night engine)
+uniform float uNight;   // 0 paper … 1 graphite night (the design language's night engine)
 out vec4 outColor;
 
 float hash(vec2 p) {
@@ -37,8 +37,8 @@ void main() {
   css.y = uResolution.y - css.y; // flip to top-left origin
 
   // ----- paper base with a very soft diagonal tint -----
-  // Vision paper #f6f3ec by day, navy #0a111f by night
-  vec3 paper = mix(vec3(0.965, 0.953, 0.925), vec3(0.039, 0.067, 0.122), uNight);
+  // Vision paper #f6f3ec by day, graphite #0f0f10 by night
+  vec3 paper = mix(vec3(0.965, 0.953, 0.925), vec3(0.059, 0.059, 0.063), uNight);
   float diag = (css.x / uResolution.x + css.y / uResolution.y) * 0.5;
   paper -= diag * 0.012;
 
@@ -55,7 +55,7 @@ void main() {
   float dot_ = 1.0 - smoothstep(dotR - 0.7, dotR + 0.7, distToDot);
   // fade dots out when zoomed way out
   float gridFade = smoothstep(0.25, 0.5, uScale);
-  vec3 dotColor = mix(vec3(0.72, 0.71, 0.69), vec3(0.24, 0.29, 0.38), uNight);
+  vec3 dotColor = mix(vec3(0.72, 0.71, 0.69), vec3(0.27, 0.27, 0.28), uNight);
   paper = mix(paper, dotColor, dot_ * 0.55 * gridFade);
 
   // ----- pointer light: a soft warm glow that follows the cursor -----
@@ -64,7 +64,7 @@ void main() {
   paper += light;
   // brighten dots near pointer for a "magnetic" feel
   float near = exp(-d * d / (2.0 * 140.0 * 140.0)) * uPointerIn;
-  paper = mix(paper, mix(vec3(0.42, 0.40, 0.38), vec3(0.33, 0.72, 0.93), uNight), dot_ * near * 0.5 * gridFade);
+  paper = mix(paper, mix(vec3(0.42, 0.40, 0.38), vec3(0.62, 0.62, 0.62), uNight), dot_ * near * 0.5 * gridFade);
 
   // ----- vignette -----
   vec2 uv = css / uResolution;

@@ -25,6 +25,9 @@ import {
   isHostable,
   logActivity,
   MACHINE_DISTROS,
+  noteTextOf,
+  tableCellMap,
+  tableCellsOf,
   uid,
   type LinkDoc,
   type NoteDoc,
@@ -36,7 +39,9 @@ import {
   type PanelKind,
   type Port,
 } from "@foundation/protocol";
-import { editBoard, getBoard } from "./boards.ts";
+import { editBoard, getBoard, listBoards } from "./boards.ts";
+import { canSeeBoard } from "./members.ts";
+import type { UserInfo } from "@foundation/protocol";
 import { one } from "./db.ts";
 import { searchAll } from "./search.ts";
 import { discoverRepo, parseRepo, repoCommits, repoInfo, repoReadme } from "./github.ts";
@@ -44,7 +49,7 @@ import { callMcpTool, listMcpTools } from "./mcpclient.ts";
 import { companySnapshot, readConnector } from "./connectors.ts";
 import { createAsk } from "./hermes.ts";
 import { queueJob } from "./jobs.ts";
-import { isCad, readFileText } from "./files.ts";
+import { isCad, readFileText, shareFileWith } from "./files.ts";
 import { bringForCard, listPlace, listPlaces, readPlaceText } from "./places.ts";
 import { attachToStage, chooseArtifact, completeStage, describePipeline, setChecklist, startPipeline, updateStageSettings } from "./pipeline.ts";
 import { stageDef } from "@foundation/protocol";
@@ -415,6 +420,65 @@ export const TOOLS: BoardTool[] = [
       });
       touch(ctx, undefined, `removed a card`);
       return "deleted";
+    },
+  }),
+  def({
+    name: "send_to_board",
+    description:
+      "Move a card to another board (a person drags it onto that space's tab). It lands in a section named for the board it came from (made if missing) on the other board, with its note text, table cells and files; wires to it are let go. Machines, huddles and pipeline stages stay on their board.",
+    schema: z.object({ id: z.string(), to_board: z.string(), request_id: z.string().optional() }),
+    write: true,
+    run: (ctx, { id, to_board }) => {
+      if (to_board === ctx.boardId) throw new HttpError(400, "That card is already on this board");
+      const target = listBoards().find((b) => b.id === to_board);
+      // a board this person can't see answers like a missing one (members.ts)
+      const role = one<{ role: string }>("select role from users where id = ?", ctx.userId)?.role ?? "member";
+      if (!target || !canSeeBoard({ id: ctx.userId, role } as UserInfo, to_board)) throw new HttpError(404, "no such board");
+      if (target.kind !== "grid") throw new HttpError(400, `“${target.name}” isn't a grid, so it can't hold cards`);
+      if (!canWrite(ctx.userId, to_board)) throw new HttpError(403, `View only: you can read “${target.name}” but not change it`);
+      const from = getBoard(ctx.boardId).doc;
+      const src = boardMaps(from);
+      const card = src.objects.get(id);
+      if (!card) throw new HttpError(404, `no card ${id}`);
+      if (card.kind === "panel" && (card.panel === "machine" || card.panel === "huddle" || card.panel === "stage")) {
+        throw new HttpError(400, `A ${card.panel === "stage" ? "pipeline stage" : card.panel} stays on the board it was made on`);
+      }
+      const fromName = listBoards().find((b) => b.id === ctx.boardId)?.name ?? ctx.boardId;
+      const text = card.kind === "note" ? noteTextOf(from, card) : undefined;
+      const cells = card.kind === "table" ? tableCellsOf(from, id) : undefined;
+      // its file goes with it: the other board gets its own record of the same bytes
+      const moved = { ...card } as typeof card & { src?: string; fileId?: string; sourceTableId?: string | null };
+      if (card.kind === "media") {
+        const m = /^\/files\/([^/?#]+)/.exec(card.src);
+        if (m) moved.src = card.src.replace(m[1], shareFileWith(m[1], to_board, ctx.userId));
+      }
+      if (card.kind === "panel" && card.fileId) moved.fileId = shareFileWith(card.fileId, to_board, ctx.userId);
+      if (card.kind === "map") moved.sourceTableId = null; // its table stays behind
+      const landed = editBoard(to_board, "agent", (doc) => {
+        const sec = cardSection(doc, `From ${fromName}`);
+        const next = { ...moved, sectionId: sec.id, x: 0, y: 0, float: false } as typeof moved;
+        delete (next as { text?: string }).text;
+        const m = boardMaps(doc);
+        m.objects.set(id, next);
+        if (text !== undefined) setNoteText(doc, id, text);
+        if (cells) {
+          tableCellMap(doc, id);
+          setTableCells(doc, id, cells);
+        }
+        logActivity(doc, { who: ctx.actor, role: ctx.person ? "human" : "agent", text: `brought “${card.name}” from ${fromName}`, objectId: id });
+        return sec;
+      });
+      editBoard(ctx.boardId, "agent", (doc) => {
+        const m = boardMaps(doc);
+        m.objects.delete(id);
+        m.noteText.delete(id);
+        m.cells.delete(id);
+        for (const [lid, l] of m.links.entries()) if (l.from.panel === id || l.to.panel === id) m.links.delete(lid);
+        for (const s of m.sections.values()) if (s.host === id) m.sections.set(s.id, { ...s, host: undefined });
+        for (const o of m.objects.values()) if (o.kind === "map" && o.sourceTableId === id) m.objects.set(o.id, { ...o, sourceTableId: null });
+      });
+      touch(ctx, undefined, `sent “${card.name}” to ${target.name}`);
+      return { id, board: to_board, section: landed.name };
     },
   }),
   def({

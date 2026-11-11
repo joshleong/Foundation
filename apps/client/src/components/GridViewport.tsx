@@ -899,7 +899,7 @@ export function GridViewport() {
               : { x: 0, y: size.h + 12, w: size.w, h: band };
             return (
               <div className="cell-drop-highlight is-edge" style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}>
-                <span>Append along the {e} of the board</span>
+                <span>{state.sectionDragTarget.label ?? `Append along the ${e} of the board`}</span>
               </div>
             );
           })()}
@@ -911,7 +911,9 @@ export function GridViewport() {
               <div
                 className="cell-drop-highlight"
                 style={{ left: rect.x + 6, top: rect.y + 6, width: rect.w - 12, height: rect.h - 12 }}
-              />
+              >
+                {state.sectionDragTarget.label && <span>{state.sectionDragTarget.label}</span>}
+              </div>
             );
           })()}
 

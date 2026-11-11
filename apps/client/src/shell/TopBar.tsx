@@ -79,6 +79,9 @@ export function TopBar({ boards, current, onSwitch, onNew, onClose, onRename }: 
               <motion.div
                 key={b.id}
                 className={`tab is-space is-${kind}${on ? " is-current is-board" : ""}`}
+                data-space-drop={b.id}
+                data-space-name={b.name}
+                data-space-kind={kind}
                 initial={{ opacity: 0, y: -6 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.9 }}

@@ -1029,8 +1029,82 @@ body.is-dragging-hit * {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-[data-section-id].is-hit-target {
+[data-section-id].is-hit-target,
+[data-section-id].is-carry-target {
   box-shadow: 0 0 0 2px var(--color-pulse), 0 0 0 8px var(--color-pulse-dim) !important;
+}
+
+/* A card carried out of its section (lib/carry.ts): a copy of it in screen
+   space, lifted a little and leaning into the move, the card itself hidden
+   where it was until it lands. Over a space's tab it shrinks toward it. */
+body.is-carrying,
+body.is-carrying * {
+  cursor: grabbing !important;
+}
+.is-carried {
+  opacity: 0;
+}
+.carry-ghost {
+  position: fixed;
+  z-index: 950;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+.carry-lift {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lift);
+  transform-origin: var(--grab-x, 50%) var(--grab-y, 50%);
+  rotate: var(--lean, 0deg);
+  scale: 1;
+  transition:
+    scale var(--dur-quick) var(--ease-out-soft),
+    opacity var(--dur-quick) var(--ease-out-soft),
+    rotate 90ms linear;
+}
+/* a clear image casts no box */
+.carry-lift:has(> .media-card.is-clear) {
+  box-shadow: none;
+}
+.carry-copy {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  margin: 0;
+}
+.carry-ghost.is-lifted .carry-lift {
+  scale: 1.025;
+}
+.carry-ghost.is-nowhere .carry-lift {
+  opacity: 0.55;
+}
+.carry-ghost.is-leaving .carry-lift {
+  scale: 0.6;
+  opacity: 0.85;
+}
+.carry-ghost.is-sent .carry-lift {
+  scale: 0.06;
+  opacity: 0;
+  transition:
+    scale var(--dur-pane) var(--ease-move),
+    opacity var(--dur-pane) var(--ease-out-soft);
+}
+.carry-ghost.is-returning .carry-lift {
+  scale: 1;
+  rotate: 0deg;
+  transition:
+    scale var(--dur-pane) var(--ease-settle),
+    rotate var(--dur-pane) var(--ease-settle);
+}
+/* a space's tab, or its row in the spaces pane, while a card is held over it */
+[data-space-drop].is-carry-target {
+  background: var(--color-pulse-dim);
+  color: var(--color-frost);
+  box-shadow: inset 0 0 0 1px var(--color-pulse);
 }
 
 /* ---------- HUD: a small search pill and the zoom, bottom centre ---------- */
