@@ -235,7 +235,7 @@ export function Shell({ user }: { user: UserInfo }) {
 
   return (
     <div className={`app shell${space?.kind === "page" ? " is-page-space" : ""}${ui.agentLayer ? " agent-layer-on" : ""}${ui.presenting ? " presenting" : ""}`} onContextMenu={(e) => e.preventDefault()}>
-      <GridViewport />
+      <GridViewport boardName={space?.name} />
       {space?.kind === "page" && !ui.presenting && <PageCanvas space={space} />}
       {!ui.presenting && <TopBar boards={boards} current={current} onSwitch={switchBoard} onNew={newSpace} onClose={closeSpace} onRename={(id, name) => void updateSpace(id, { name })} />}
       {!ui.presenting && ui.paneView === "spaces" && <SidePane user={user} boards={boards} current={current} onSwitch={switchBoard} onNew={newSpace} onUpdate={updateSpace} onUpload={() => fileRef.current?.click()} />}

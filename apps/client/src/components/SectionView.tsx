@@ -1,5 +1,5 @@
 import { keys } from "../lib/keys";
-import { Suspense, lazy, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   CONTENT_PAD,
@@ -18,6 +18,11 @@ import {
   createTable,
   effectivePos,
   expandSection,
+  gridSize,
+  levelUp,
+  openLevel,
+  ROOT,
+  subscribe,
   holdSectionFit,
   liveFit,
   moveSectionTo,
@@ -62,7 +67,13 @@ interface Props {
   canRemove: boolean;
   getScale(): number;
   zoomSpring: Spring;
+  /** drawn in miniature inside a section that is a grid of its own (a preview: no tools, no moving) */
+  mini?: boolean;
 }
+
+/** the store's sections at every depth, and every grid's tracks (stable objects until they change) */
+const allSectionsOf = () => getState().allSections;
+const gridsOf = () => getState().grids;
 
 export const SectionView = memo(function SectionView({
   section,
@@ -71,9 +82,17 @@ export const SectionView = memo(function SectionView({
   canRemove,
   getScale,
   zoomSpring,
+  mini = false,
 }: Props) {
   countRender("SectionView");
   const view = useSection(section.id);
+  // sections are grids within themselves: this one may hold sections of its own (drawn in miniature)
+  const allSections = useSyncExternalStore(subscribe, allSectionsOf);
+  const grids = useSyncExternalStore(subscribe, gridsOf);
+  const kids = useMemo(() => (section.virtual ? [] : Object.values(allSections).filter((s) => s.parent === section.id)), [allSections, section.id, section.virtual]);
+  const isGrid = kids.length > 0;
+  // the one section an opened section's cards show as: it fills its grid, and closing is going back up
+  const isOpen = !!section.virtual;
   const cardRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -105,7 +124,7 @@ export const SectionView = memo(function SectionView({
 
   const onSectionHeaderDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    if (getState().expandedSection === section.id) return; // an open section stays where it opened
+    if (mini || section.virtual) return; // a preview, or an opened section filling its grid: it stays where it is
     // the name is a button (click to rename) and also the natural handle: it drags too
     if ((e.target as HTMLElement).closest("button:not(.section-name), input")) return;
     const d = moveDrag.current;
@@ -117,7 +136,7 @@ export const SectionView = memo(function SectionView({
     try {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     } catch { /* synthetic */ }
-  }, [section.id]);
+  }, [section.id, section.virtual, mini]);
 
   const onSectionHeaderMove = useCallback(
     (e: React.PointerEvent) => {

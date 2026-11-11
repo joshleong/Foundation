@@ -25,7 +25,7 @@ import {
   setActiveSection,
   setFocusGrid,
   trackOffsets,
-  expandSection,
+  levelUp,
 } from "../state/store";
 import { SectionView } from "./SectionView";
 import { WireLayer } from "./WireLayer";
@@ -35,6 +35,7 @@ import { floorInsets, getUi, setUi, toggleSession, useUi } from "../state/ui";
 import { TalkButton } from "../shell/Talk";
 import { PeerCursors } from "../shell/Presence";
 import { CrewCursors, CrewFollow, CrewGuide } from "../shell/Crew";
+import { LevelBar } from "../shell/LevelBar";
 import { PortWires } from "../shell/AgentLayer";
 import { openContextMenu } from "./ContextMenu";
 import { countRender } from "../state/renders";
@@ -133,7 +134,7 @@ interface Candidate {
   target: SnapTarget;
 }
 
-export function GridViewport() {
+export function GridViewport({ boardName }: { boardName?: string } = {}) {
   countRender("GridViewport");
   // the grid's own slice: a press, a drag frame or a keystroke in a card doesn't render the board
   const state = useStoreSlice(gridViewSlice);
@@ -380,10 +381,10 @@ export function GridViewport() {
         return;
       if (e.key === "Escape") {
         el?.blur(); // release e.g. a table sheet so section arrows take over
-        // an open section closes first (unless a card in it has the keys)
+        // an open section closes first (unless a card in it has the keys): up one level
         const st0 = getState();
-        if (st0.expandedSection && st0.focusLevel !== "object") {
-          expandSection(null);
+        if (st0.level && st0.focusLevel !== "object") {
+          levelUp();
           return;
         }
         focusUp();
@@ -974,6 +975,7 @@ export function GridViewport() {
 
       {/* an agent brought you somewhere (or asks to): Back / Go */}
       <div className="crew-guide-slot" style={{ left: insets.left, right: insets.right, top: insets.top }}>
+        <LevelBar boardName={boardName} />
         <CrewGuide />
         <CrewFollow />
       </div>

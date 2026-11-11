@@ -89,6 +89,14 @@ export interface Section {
   r1: number;
   /** the app this section hosts (schema 2): it fills the section, its ports sit on the section's edges */
   host?: string;
+  /** the section whose own grid this one sits in (none: the board's grid). Spans count in that grid's tracks */
+  parent?: string;
+  /**
+   * Local only, never synced: a section opened as its own grid that holds
+   * cards rather than sections shows them as one section filling its grid.
+   * It has the opened section's id; adding or splitting beside it makes it real.
+   */
+  virtual?: boolean;
 }
 
 export interface GridTracks {
@@ -107,8 +115,19 @@ export type SnapTarget =
   | { kind: "view"; x: number; y: number; scale: number };
 
 export interface AppState {
+  /** the tracks of the grid you're looking at (the board's, or an opened section's) */
   grid: GridTracks;
+  /** the sections in the grid you're looking at */
   sections: Record<string, Section>;
+  /**
+   * Sections are grids within themselves (2026-11-11, Josh): every section on
+   * the board, at every depth (`parent` says whose grid it sits in) …
+   */
+  allSections: Record<string, Section>;
+  /** … and every grid's tracks: "" is the board's, a section id that section's own */
+  grids: Record<string, GridTracks>;
+  /** the section opened full-screen as its own grid (null: the board). Local to this window */
+  level: string | null;
   tables: Record<string, TableMeta>;
   maps: Record<string, MapMeta>;
   notes: Record<string, NoteMeta>;
@@ -132,6 +151,9 @@ export interface AppState {
 }
 
 // ---------- geometry constants ----------
+
+/** the board's own grid in `grids` */
+export const ROOT = "";
 
 export const CELL_W = 148;
 export const CELL_H = 40;
@@ -280,9 +302,10 @@ export function drawnScale(zoom: number, sectionId: string | null | undefined): 
 export const liveFit = new Map<string, number>();
 
 function computeSectionFlow(st: AppState, sectionId: string): SectionFlow {
-  const sec = st.sections[sectionId];
+  // a section at any depth: one in view, or one drawn in miniature inside a section that is a grid
+  const sec = st.sections[sectionId] ?? st.allSections[sectionId];
   if (!sec) return { pos: new Map(), fit: 1, clipped: false, extent: { w: 0, h: 0 }, availW: 0 };
-  const card = sectionBaseRect(st.grid, sec);
+  const card = sectionBaseRect(sec.virtual ? st.grid : (st.grids[sec.parent ?? ROOT] ?? DEFAULT_GRID), sec);
   if (!Number.isFinite(card.w) || !Number.isFinite(card.h)) {
     // a section whose tracks haven't arrived yet: lay out plainly, at full size
     const flow = flowAt(sec, 360);
@@ -547,7 +570,7 @@ export function emptyCells(): Array<{ c: number; r: number }> {
 /** the app a section hosts, if it still lives there */
 export function hostOf(sectionId: string): PanelMeta | null {
   const st = getState();
-  const id = st.sections[sectionId]?.host;
+  const id = (st.sections[sectionId] ?? st.allSections[sectionId])?.host;
   const p = id ? st.panels[id] : undefined;
   return p && p.sectionId === sectionId ? p : null;
 }
@@ -630,18 +653,15 @@ export function applyWireClip(g: SVGGElement, clip: { x: number; y: number; w: n
 
 const firstSectionId = uid("sec");
 
+const firstSection: Section = { id: firstSectionId, name: "Section 1", c0: 0, r0: 0, c1: 0, r1: 0 };
+const firstGrid: GridTracks = { cols: [DEFAULT_COL_W], rows: [DEFAULT_ROW_H] };
+
 let state: AppState = {
-  grid: { cols: [DEFAULT_COL_W], rows: [DEFAULT_ROW_H] },
-  sections: {
-    [firstSectionId]: {
-      id: firstSectionId,
-      name: "Section 1",
-      c0: 0,
-      r0: 0,
-      c1: 0,
-      r1: 0,
-      },
-  },
+  grid: firstGrid,
+  sections: { [firstSectionId]: firstSection },
+  allSections: { [firstSectionId]: firstSection },
+  grids: { [ROOT]: firstGrid },
+  level: null,
   tables: {},
   maps: {},
   notes: {},
@@ -675,7 +695,7 @@ export function setSyncHook(fn: typeof syncHook) {
 export function applyRemote(partial: Partial<AppState>) {
   applyingRemote = true;
   try {
-    state = { ...state, ...partial };
+    state = settleLevels(state, { ...state, ...partial }, partial, false);
     emit();
   } finally {
     applyingRemote = false;
@@ -794,9 +814,233 @@ export function useSection(sectionId: string): SectionSnap {
 
 function set(partial: Partial<AppState>) {
   const prev = state;
-  state = { ...state, ...partial };
+  state = settleLevels(prev, { ...state, ...partial }, partial, !applyingRemote);
   if (!applyingRemote && syncHook) syncHook(state, prev);
   emit();
+}
+
+// ---------- grids within grids ----------
+
+/** the sections whose grid is this one's (none: the board's own) */
+export function childrenOf(id: string | null, all: Record<string, Section> = state.allSections): Section[] {
+  return Object.values(all).filter((s) => (s.parent ?? null) === id);
+}
+
+/** a section that holds sections (a grid of its own) rather than cards */
+export function isGridSection(id: string): boolean {
+  return Object.values(state.allSections).some((s) => s.parent === id);
+}
+
+/** a section by id at any depth (the one in view first: an opened section's own cards show as it) */
+export function sectionById(id: string): Section | undefined {
+  return state.sections[id] ?? state.allSections[id];
+}
+
+/** the tracks a section's spans count in */
+export function gridFor(s: Section): GridTracks {
+  if (s.virtual) return state.grid;
+  return state.grids[s.parent ?? ROOT] ?? DEFAULT_GRID;
+}
+
+/** where cards for this section really go: itself, or (a grid of sections) its first section, top-left first */
+export function leafSection(id: string): string {
+  let at = id;
+  for (let guard = 0; guard < 16; guard++) {
+    const kids = childrenOf(at).sort((a, b) => a.r0 - b.r0 || a.c0 - b.c0);
+    if (!kids.length) return at;
+    at = kids[0].id;
+  }
+  return at;
+}
+
+/** the chain from the board down to a level: [] on the board, [Design] in it, [Design, Sketches] … */
+export function levelPath(level: string | null = state.level): Section[] {
+  const out: Section[] = [];
+  let at = level ? state.allSections[level] : undefined;
+  for (let guard = 0; at && guard < 16; guard++) {
+    out.unshift(at);
+    at = at.parent ? state.allSections[at.parent] : undefined;
+  }
+  return out;
+}
+
+const DEFAULT_GRID: GridTracks = { cols: [DEFAULT_COL_W], rows: [DEFAULT_ROW_H] };
+
+/**
+ * A section opened that holds cards: one section filling its grid, at the
+ * size that shows them all at full size (as Expand did before it opened a
+ * grid), at least as big as the section was.
+ */
+function leafGrid(st: AppState, sec: Section): GridTracks {
+  const own = st.grids[sec.id];
+  if (own) return own;
+  const base = sectionBaseRect(st.grids[sec.parent ?? ROOT] ?? DEFAULT_GRID, sec);
+  const w = Number.isFinite(base.w) ? base.w : DEFAULT_COL_W - SECTION_INSET * 2;
+  const h = Number.isFinite(base.h) ? base.h : DEFAULT_ROW_H - SECTION_INSET * 2;
+  const { extent } = flowAt(sec, Math.max(360, w - CONTENT_PAD * 2));
+  return {
+    cols: [Math.round(Math.max(w, extent.w + 2) + SECTION_INSET * 2)],
+    rows: [Math.round(Math.max(h, SECTION_HEADER + extent.h + 2) + SECTION_INSET * 2)],
+  };
+}
+
+/** the grid and sections one level shows */
+function levelView(st: AppState, level: string | null): { grid: GridTracks; sections: Record<string, Section> } {
+  if (!level) {
+    const sections: Record<string, Section> = {};
+    for (const s of childrenOf(null, st.allSections)) sections[s.id] = s;
+    return { grid: st.grids[ROOT] ?? DEFAULT_GRID, sections };
+  }
+  const kids = childrenOf(level, st.allSections);
+  const grid = st.grids[level] ?? (kids.length ? DEFAULT_GRID : leafGrid(st, st.allSections[level]));
+  const sections: Record<string, Section> = {};
+  if (kids.length) for (const s of kids) sections[s.id] = s;
+  else {
+    const me = st.allSections[level];
+    sections[level] = { ...me, parent: level, virtual: true, c0: 0, r0: 0, c1: grid.cols.length - 1, r1: grid.rows.length - 1 };
+  }
+  return { grid, sections };
+}
+
+/**
+ * Keep the whole and the view in step. A level change (or a remote change to
+ * the whole) derives the view; a local edit to the view (`sections`, `grid`)
+ * is folded back into the whole. Adding or splitting beside an opened
+ * section's own cards makes them a real section first, so the opened section
+ * becomes a grid of sections.
+ */
+function settleLevels(prev: AppState, next: AppState, partial: Partial<AppState>, local: boolean): AppState {
+  // the opened section went away (removed here or by someone else): back to the nearest level that's left
+  let level = next.level;
+  while (level && !next.allSections[level]) level = prev.allSections[level]?.parent ?? null;
+  if (level !== next.level) next = { ...next, level };
+  const viewEdit = local && ("sections" in partial || "grid" in partial) && next.level === prev.level;
+  if (!viewEdit) {
+    if (next.level === prev.level && next.allSections === prev.allSections && next.grids === prev.grids && !("level" in partial)) return next;
+    const view = levelView(next, next.level);
+    // the view is the same objects when nothing it shows changed, so sections don't re-render for nothing
+    const sameSections =
+      Object.keys(view.sections).length === Object.keys(prev.sections).length && Object.entries(view.sections).every(([id, s]) => sameSection(prev.sections[id], s));
+    const fixed = { ...next, grid: sameGrid(prev.grid, view.grid) ? prev.grid : view.grid, sections: sameSections ? prev.sections : view.sections };
+    if (!fixed.sections[fixed.activeSectionId]) {
+      const first = Object.keys(fixed.sections)[0];
+      if (first) fixed.activeSectionId = first;
+    }
+    return fixed;
+  }
+  // a local edit at this level: fold it into the whole
+  const L = next.level;
+  const all: Record<string, Section> = { ...(partial.allSections ?? prev.allSections) };
+  const grids = { ...(partial.grids ?? prev.grids) };
+  for (const s of Object.values(all)) if ((s.parent ?? null) === L) delete all[s.id];
+  let sections = next.sections;
+  const virtual = L ? sections[L] : undefined;
+  const others = Object.values(sections).filter((s) => !s.virtual);
+  let out = next;
+  let materialized = false;
+  if (L && virtual?.virtual) {
+    if (others.length === 0) {
+      // still one section of cards: what changed on it is the opened section's own
+      all[L] = { ...all[L], name: virtual.name, host: virtual.host };
+    } else {
+      // made real: the cards (and a hosted app) move into a section of their own, in this grid
+      materialized = true;
+      const real: Section = { id: uid("sec"), name: virtual.name, c0: virtual.c0, r0: virtual.r0, c1: virtual.c1, r1: virtual.r1, parent: L, ...(virtual.host ? { host: virtual.host } : {}) };
+      all[L] = { ...all[L], host: undefined };
+      sections = { ...sections };
+      delete sections[L];
+      sections[real.id] = real;
+      const moved: Partial<AppState> = {};
+      for (const key of ["tables", "maps", "notes", "media", "panels"] as const) {
+        const rec = out[key] as Record<string, AnyObject>;
+        if (!Object.values(rec).some((o) => o.sectionId === L)) continue;
+        const copy = { ...rec };
+        for (const o of Object.values(copy)) if (o.sectionId === L) copy[o.id] = { ...o, sectionId: real.id };
+        (moved as Record<string, unknown>)[key] = copy;
+      }
+      out = {
+        ...out,
+        ...moved,
+        sections,
+        activeSectionId: out.activeSectionId === L ? real.id : out.activeSectionId,
+        sectionDragTarget: out.sectionDragTarget?.sectionId === L ? { ...out.sectionDragTarget, sectionId: real.id } : out.sectionDragTarget,
+      };
+    }
+  }
+  for (const s of Object.values(sections)) {
+    if (s.virtual) continue;
+    all[s.id] = L ? { ...s, parent: L } : withoutParent(s);
+  }
+  // an opened section's tracks are kept once they change, or once its cards became a section of their own
+  if (out.grid !== prev.grid || materialized || (!L && !grids[ROOT])) grids[L ?? ROOT] = out.grid;
+  // sections whose grid is gone go with it, and so do their cards
+  const gone = new Set<string>();
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const s of Object.values(all)) {
+      if (s.parent && !all[s.parent]) {
+        delete all[s.id];
+        delete grids[s.id];
+        gone.add(s.id);
+        changed = true;
+      }
+    }
+  }
+  for (const id of Object.keys(grids)) if (id !== ROOT && !all[id]) delete grids[id];
+  if (gone.size) {
+    for (const key of ["tables", "maps", "notes", "media", "panels"] as const) {
+      const rec = out[key] as Record<string, AnyObject>;
+      if (!Object.values(rec).some((o) => gone.has(o.sectionId))) continue;
+      const copy = { ...rec };
+      for (const o of Object.values(copy)) if (gone.has(o.sectionId)) delete copy[o.id];
+      out = { ...out, [key]: copy };
+    }
+  }
+  // (virtual sections never enter the whole; the view keeps a materialised one as real)
+  return { ...out, allSections: all, grids };
+}
+
+function withoutParent(s: Section): Section {
+  if (!("parent" in s)) return s;
+  const { parent: _p, ...rest } = s;
+  return rest;
+}
+
+function sameSection(a: Section | undefined, b: Section): boolean {
+  return !!a && a.name === b.name && a.c0 === b.c0 && a.c1 === b.c1 && a.r0 === b.r0 && a.r1 === b.r1 && a.host === b.host && a.parent === b.parent && a.virtual === b.virtual;
+}
+
+function sameGrid(a: GridTracks, b: GridTracks): boolean {
+  return a.cols.length === b.cols.length && a.rows.length === b.rows.length && a.cols.every((v, i) => v === b.cols[i]) && a.rows.every((v, i) => v === b.rows[i]);
+}
+
+/**
+ * Open a section full-screen as its own grid (sections are grids within
+ * themselves), or with null go back up one level. The camera frames the new
+ * level; going up, it frames the section you came out of. Local to this window.
+ */
+export function openLevel(id: string | null) {
+  const from = state.level;
+  if (id === from) return;
+  if (id && !state.allSections[id]) return;
+  // going up: frame the section you came out of, as it sits in the grid you're back in
+  const path = levelPath(from);
+  const at = id === null ? 0 : path.findIndex((s) => s.id === id) + 1;
+  const cameFrom = at > 0 || id === null ? path[at] : undefined;
+  set({
+    level: id,
+    expandedSection: null,
+    focusLevel: "section",
+    activeObjectId: null,
+    ...(cameFrom ? { activeSectionId: cameFrom.id } : {}),
+    snapRequest: cameFrom ? { kind: "section", id: cameFrom.id, nonce: Math.random() } : { kind: "all", nonce: Math.random() },
+  });
+}
+
+/** one level up (Esc, the breadcrumb's back) */
+export function levelUp() {
+  const at = state.level ? state.allSections[state.level] : undefined;
+  if (at) openLevel(at.parent ?? null);
 }
 
 // ---------- snap / focus ----------
@@ -1267,14 +1511,10 @@ export function requestRemoveSection(id: string | null) {
  * frames it. Local to this window: nobody else's view changes.
  */
 export function expandSection(id: string | null) {
-  const was = state.expandedSection;
-  if (was === id) return;
-  if (id && (!state.sections[id] || state.sections[id].host)) return;
-  set({
-    expandedSection: id,
-    ...(id ? { activeSectionId: id } : {}),
-    ...(id || was ? { snapRequest: { kind: "section" as const, id: (id ?? was)!, nonce: Math.random() } } : {}),
-  });
+  // since 2026-11-11 a section opens full-screen as a grid of its own (openLevel); null goes back up a level
+  if (id === null) return levelUp();
+  if (state.sections[id]?.virtual) return; // already open
+  openLevel(id);
 }
 
 // ---------- track resizing (spreadsheet column/row semantics) ----------
@@ -1357,13 +1597,24 @@ export function placeAtWorld(id: string, wx: number, wy: number) {
  * card (unhostFor), and a section the card hosted lets it go.
  */
 export function moveObjectToSection(id: string, sectionId: string, at?: { wx: number; wy: number } | null) {
+  // onto a section that is a grid of sections: into its first one, joining the flow
+  if (isGridSection(sectionId)) {
+    sectionId = leafSection(sectionId);
+    at = null;
+  }
   const found = findObject(id);
-  const sec = state.sections[sectionId];
+  const sec = sectionById(sectionId);
   if (!found || !sec) return;
-  const from = state.sections[found.obj.sectionId];
+  const from = sectionById(found.obj.sectionId);
+  // a section that hosted it lets it go; one hosting an app gives way to it (in view, or deeper)
   let sections = state.sections;
-  if (from?.host === id) sections = { ...sections, [from.id]: { ...from, host: undefined } };
-  if (sec.host && sec.host !== id) sections = { ...sections, [sec.id]: { ...sec, host: undefined } };
+  let all = state.allSections;
+  const unhost = (s: Section) => {
+    if (state.sections[s.id]) sections = { ...sections, [s.id]: { ...s, host: undefined } };
+    else all = { ...all, [s.id]: { ...s, host: undefined } };
+  };
+  if (from?.host === id) unhost(from);
+  if (sec.host && sec.host !== id) unhost(sec);
   let pos = { x: 0, y: 0, float: false };
   if (at) {
     const card = sectionCardRect(state.grid, sec);
@@ -1374,11 +1625,12 @@ export function moveObjectToSection(id: string, sectionId: string, at?: { wx: nu
       float: true,
     };
   }
+  const inView = !!state.sections[sectionId];
   set({
     ...(sections !== state.sections ? { sections } : {}),
+    ...(all !== state.allSections ? { allSections: all } : {}),
     [found.key]: { ...(state[found.key] as Record<string, AnyObject>), [id]: { ...found.obj, sectionId, ...pos } },
-    activeSectionId: sectionId,
-    activeObjectId: id,
+    ...(inView ? { activeSectionId: sectionId, activeObjectId: id } : {}),
   } as Partial<AppState>);
 }
 
@@ -1437,6 +1689,7 @@ function unhostFor(sectionId: string): Partial<AppState> {
 let noteCount = 0;
 
 export function addNote(sectionId: string, text?: string, opts: { focus?: boolean } = {}): NoteMeta {
+  sectionId = leafSection(sectionId); // a section that is a grid of sections: its first one
   noteCount++;
   const meta: NoteMeta = {
     id: uid("note"),
@@ -1499,6 +1752,7 @@ export function addMedia(
   h: number,
   opts: { focus?: boolean } = {},
 ): MediaMeta {
+  sectionId = leafSection(sectionId); // a section that is a grid of sections: its first one
   // fit oversized media to a sane card size, keep aspect
   const maxW = 560;
   const maxH = 460;
@@ -1572,6 +1826,7 @@ const DEFAULT_ROWS = 8;
 let tableCount = 0;
 
 export function createTable(sectionId: string, atX?: number, atY?: number): TableMeta {
+  sectionId = leafSection(sectionId); // a section that is a grid of sections: its first one
   const id = uid("table");
   tableCount++;
   let name = `Table ${tableCount}`;
@@ -1680,6 +1935,7 @@ const MAP_H = 440;
 let mapCount = 0;
 
 export function createMap(sectionId: string, atX?: number, atY?: number): MapMeta {
+  sectionId = leafSection(sectionId); // a section that is a grid of sections: its first one
   const id = uid("map");
   mapCount++;
   // default binding: the most recently created table anywhere
@@ -1762,6 +2018,7 @@ export function addPanel(
   p: Partial<PanelMeta> & Pick<PanelMeta, "panel" | "name">,
   opts: { focus?: boolean } = {},
 ): PanelMeta {
+  sectionId = leafSection(sectionId); // a section that is a grid of sections: its first one
   const [w, h] = PANEL_SIZE[p.panel];
   // an app opened into an empty section becomes that section's app
   const sec = state.sections[sectionId];

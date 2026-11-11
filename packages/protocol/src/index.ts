@@ -44,6 +44,16 @@ export interface SectionDoc {
    * edges, so data flows section to section.
    */
   host?: string;
+  /**
+   * Sections are grids within themselves (2026-11-11): a section with a
+   * parent sits in that section's own grid, its spans counted in the parent's
+   * `grid` tracks (a section without one sits on the board). A section that
+   * holds sections holds no cards of its own; cards added to it go to its
+   * first section.
+   */
+  parent?: string;
+  /** this section's own grid's tracks, once it has one */
+  grid?: GridTracks;
 }
 
 /**

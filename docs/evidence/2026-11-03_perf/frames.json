@@ -1,5 +1,5 @@
 {
-  "when": "2026-11-03T07:55:29.948Z",
+  "when": "2026-11-10T22:59:59.855Z",
   "browser": "chromium 156.0.8078.4 (Playwright, headless)",
   "viewport": "1440×900 @1x",
   "board": {
@@ -10,43 +10,52 @@
   "results": [
     {
       "label": "pan (trackpad scroll, 3 s)",
-      "frames": 712,
+      "frames": 617,
       "p50": 16.7,
       "p95": 16.8,
       "max": 33.4,
-      "over33": 2,
+      "over33": 4,
       "longTasks": 1,
-      "liveFramesMounted": 4
+      "liveFramesMounted": 2,
+      "renders": {}
     },
     {
       "label": "pinch zoom (ctrl + wheel, 3 s)",
-      "frames": 664,
+      "frames": 609,
       "p50": 16.7,
-      "p95": 33.4,
+      "p95": 16.8,
       "max": 33.5,
-      "over33": 30,
+      "over33": 2,
       "longTasks": 0,
-      "liveFramesMounted": 5
+      "liveFramesMounted": 2,
+      "renders": {}
     },
     {
       "label": "drag a card (2 s)",
-      "frames": 294,
+      "frames": 375,
       "p50": 16.7,
       "p95": 16.8,
-      "max": 99.9,
+      "max": 33.4,
       "over33": 3,
-      "longTasks": 2,
-      "liveFramesMounted": 5
+      "longTasks": 0,
+      "liveFramesMounted": 2,
+      "renders": {
+        "GridViewport": 2,
+        "SectionView": 8,
+        "NoteView": 6,
+        "ObjectFrame": 6
+      }
     },
     {
       "label": "pan with live frames running (3 s)",
-      "frames": 678,
+      "frames": 714,
       "p50": 16.7,
       "p95": 33.4,
       "max": 50.1,
-      "over33": 38,
+      "over33": 26,
       "longTasks": 0,
-      "liveFramesMounted": 8
+      "liveFramesMounted": 8,
+      "renders": {}
     }
   ],
   "note": "Headless Chromium draws WebGL in software (SwiftShader), so the paper shader costs more here than on a GPU; treat these as an upper bound."
