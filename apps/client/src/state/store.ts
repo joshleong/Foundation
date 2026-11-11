@@ -5,7 +5,8 @@
  * Sections occupy rectangular spans of tracks; splitting a section subdivides
  * a track (shifting/widening every other section that touches it), and
  * resizing a track resizes every section in it. Each section is its own
- * scrollable nested grid holding primitives (tables, maps). The viewport
+ * nested grid holding primitives (tables, maps), fitted to its body (it never
+ * scrolls; Expand opens it as its own grid at full size). The viewport
  * camera snaps to sections, track bands, or the whole grid.
  */
 
@@ -76,7 +77,6 @@ export interface Section {
   r0: number;
   c1: number;
   r1: number;
-  scroll: { x: number; y: number };
   /** the app this section hosts (schema 2): it fills the section, its ports sit on the section's edges */
   host?: string;
 }
@@ -92,7 +92,9 @@ export type BoardEdge = "left" | "right" | "top" | "bottom";
 export type SnapTarget =
   | { kind: "all" }
   | { kind: "section"; id: string }
-  | { kind: "object"; id: string };
+  | { kind: "object"; id: string }
+  /** an exact camera (Back, after an agent brought you somewhere) */
+  | { kind: "view"; x: number; y: number; scale: number };
 
 export interface AppState {
   grid: GridTracks;
@@ -113,6 +115,10 @@ export interface AppState {
   sectionDragTarget: { sectionId: string; c: number; r: number; edge?: BoardEdge } | null;
   /** section awaiting the remove-confirmation popover (e.g. via context menu) */
   pendingRemoval: string | null;
+  /** the section opened as its own grid (local to this window, never shared) */
+  expandedSection: string | null;
+  /** bumped when a section's held fit is let go, so flows recompute */
+  layoutEpoch: number;
 }
 
 // ---------- geometry constants ----------
@@ -180,9 +186,55 @@ const FLOW_GAP = 26;
  * flowing AROUND floating cards so nothing ever overlays anything.
  */
 let layoutCacheState: AppState | null = null;
-const layoutCache = new Map<string, Map<string, { x: number; y: number }>>();
+const layoutCache = new Map<string, SectionFlow>();
 
-export function sectionLayout(sectionId: string): Map<string, { x: number; y: number }> {
+/**
+ * How a section presents what it holds. A section never scrolls (the wheel
+ * always belongs to the grid): it lays its cards out at the width that lets
+ * them show largest, then scales them to fit its body (never above 1). Below
+ * MIN_FIT it stops shrinking and shows what fits — `clipped` — and the rest
+ * is one Expand away (the section opened as its own grid, at full size).
+ */
+export interface SectionFlow {
+  pos: Map<string, { x: number; y: number }>;
+  /** content scale inside the section body (1 when expanded) */
+  fit: number;
+  /** some cards don't fit even at MIN_FIT */
+  clipped: boolean;
+  /** content size in content px, padding included */
+  extent: { w: number; h: number };
+  /** the flow width the docked cards wrapped at */
+  availW: number;
+}
+
+/** the smallest a section shrinks its cards to before it clips and offers Expand */
+export const MIN_FIT = 0.4;
+/** the nominal scales a section tries its flow at (wider flow ↔ smaller scale) */
+const FIT_STEPS = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4];
+
+/**
+ * While a person is pressing inside a section (picking up, dragging, resizing
+ * a card) its flow width and fit hold still, so what's under the finger never
+ * rescales; letting go re-fits.
+ */
+const fitHolds = new Map<string, { fit: number; availW: number }>();
+
+export function holdSectionFit(sectionId: string) {
+  const f = sectionFlow(sectionId);
+  fitHolds.set(sectionId, { fit: f.fit, availW: f.availW });
+}
+
+export function releaseSectionFit(sectionId: string) {
+  const held = fitHolds.get(sectionId);
+  if (!held) return;
+  fitHolds.delete(sectionId);
+  layoutCacheState = null; // the held answer is cached: work it out again
+  const now = sectionFlow(sectionId);
+  // re-fit only if letting go changes something (a plain click doesn't)
+  if (now.fit !== held.fit || now.availW !== held.availW) set({ layoutEpoch: state.layoutEpoch + 1 });
+}
+
+export function sectionFlow(sectionId: string): SectionFlow {
   const st = getState();
   // overlays ask for layouts every frame; the answer only changes with state
   if (layoutCacheState !== st) {
@@ -191,17 +243,65 @@ export function sectionLayout(sectionId: string): Map<string, { x: number; y: nu
   }
   const hit = layoutCache.get(sectionId);
   if (hit) return hit;
-  const computed = computeSectionLayout(st, sectionId);
+  const computed = computeSectionFlow(st, sectionId);
   layoutCache.set(sectionId, computed);
   return computed;
 }
 
-function computeSectionLayout(st: AppState, sectionId: string): Map<string, { x: number; y: number }> {
+export function sectionLayout(sectionId: string): Map<string, { x: number; y: number }> {
+  return sectionFlow(sectionId).pos;
+}
+
+/** the scale a section's cards are drawn at right now (SectionView's spring while it glides, else the flow's) */
+export function sectionFit(sectionId: string): number {
+  return liveFit.get(sectionId) ?? sectionFlow(sectionId).fit;
+}
+
+/** live (mid-spring) section fits, written by SectionView */
+export const liveFit = new Map<string, number>();
+
+function computeSectionFlow(st: AppState, sectionId: string): SectionFlow {
   const sec = st.sections[sectionId];
+  if (!sec) return { pos: new Map(), fit: 1, clipped: false, extent: { w: 0, h: 0 }, availW: 0 };
+  const card = sectionBaseRect(st.grid, sec);
+  if (!Number.isFinite(card.w) || !Number.isFinite(card.h)) {
+    // a section whose tracks haven't arrived yet: lay out plainly, at full size
+    const flow = flowAt(sec, 360);
+    return { ...flow, fit: 1, clipped: false, availW: 360 };
+  }
+  const bodyW = card.w - 2;
+  const bodyH = card.h - 2 - SECTION_HEADER;
+  const fitOf = (ext: { w: number; h: number }) => Math.min(1, bodyW / Math.max(1, ext.w), bodyH / Math.max(1, ext.h));
+  const expanded = st.expandedSection === sectionId;
+  const held = fitHolds.get(sectionId);
+  if (held) {
+    const flow = flowAt(sec, held.availW);
+    return { ...flow, fit: expanded ? 1 : held.fit, clipped: !expanded && fitOf(flow.extent) < held.fit - 1e-3, availW: held.availW };
+  }
+  if (expanded) {
+    // opened as its own grid: its own width, at full size, as long as it needs (the wheel reads on down)
+    const availW = Math.max(360, card.w - CONTENT_PAD * 2);
+    return { ...flowAt(sec, availW), fit: 1, clipped: false, availW };
+  }
+  let best: (ReturnType<typeof flowAt> & { fit: number; availW: number }) | null = null;
+  for (const step of FIT_STEPS) {
+    const availW = Math.max(360, card.w / step - CONTENT_PAD * 2);
+    const flow = flowAt(sec, availW);
+    const fit = fitOf(flow.extent);
+    // a wider flow has to earn it: only take it when the cards come out clearly larger
+    if (!best || fit > best.fit + 0.02) best = { ...flow, fit, availW };
+    if (fit >= step - 1e-3) break; // fits at this width: going wider only shrinks it
+  }
+  const b = best!;
+  const clipped = b.fit < MIN_FIT;
+  return { pos: b.pos, extent: b.extent, availW: b.availW, fit: expanded ? 1 : Math.max(MIN_FIT, b.fit), clipped: !expanded && clipped };
+}
+
+function flowAt(sec: Section, availW: number): { pos: Map<string, { x: number; y: number }>; extent: { w: number; h: number } } {
+  const sectionId = sec.id;
   const out = new Map<string, { x: number; y: number }>();
-  if (!sec) return out;
-  const card = sectionCardRect(st.grid, sec);
-  const availW = Math.max(360, card.w - CONTENT_PAD * 2);
+  let extW = 0;
+  let extH = 0;
   const all = objectsInSection(sectionId).filter((o) => o.id !== sec.host); // the hosted app isn't in the flow
   const docked = all.filter((o) => !o.float).sort((a, b) => a.bornAt - b.bornAt);
   const floaters = all
@@ -244,10 +344,16 @@ function computeSectionLayout(st: AppState, sectionId: string): Map<string, { x:
       }
     }
     out.set(o.id, { x, y });
+    extW = Math.max(extW, x + w);
+    extH = Math.max(extH, y + h);
     x += w + FLOW_GAP;
     shelfH = Math.max(shelfH, h);
   }
-  return out;
+  for (const f of floaters) {
+    extW = Math.max(extW, f.x + f.w);
+    extH = Math.max(extH, f.y + f.h);
+  }
+  return { pos: out, extent: { w: extW + CONTENT_PAD * 2, h: extH + CONTENT_PAD * 2 } };
 }
 
 /** where an object actually sits in section content space */
@@ -274,8 +380,8 @@ export function sectionCellRect(grid: GridTracks, s: Section) {
   };
 }
 
-/** the visible card rect (inset from the cell span) */
-export function sectionCardRect(grid: GridTracks, s: Section) {
+/** the card rect a section has in its cells (inset from the cell span) */
+export function sectionBaseRect(grid: GridTracks, s: Section) {
   const r = sectionCellRect(grid, s);
   return {
     x: r.x + SECTION_INSET,
@@ -285,17 +391,22 @@ export function sectionCardRect(grid: GridTracks, s: Section) {
   };
 }
 
+/**
+ * The visible card rect. An expanded section grows from its top-left corner
+ * until everything it holds shows at full size: it becomes its own grid, and
+ * the wheel pans across it like any other part of the board.
+ */
+export function sectionCardRect(grid: GridTracks, s: Section) {
+  const base = sectionBaseRect(grid, s);
+  if (getState().expandedSection !== s.id || s.host) return base;
+  const { extent } = sectionFlow(s.id);
+  return { ...base, w: Math.max(base.w, extent.w + 2), h: Math.max(base.h, SECTION_HEADER + extent.h + 2) };
+}
+
 export function gridSize(grid: GridTracks) {
   const xo = trackOffsets(grid.cols);
   const yo = trackOffsets(grid.rows);
   return { w: xo[xo.length - 1], h: yo[yo.length - 1] };
-}
-
-/** live (mid-spring) section scroll positions, written by SectionView */
-export const liveScroll = new Map<string, { x: number; y: number }>();
-
-export function getLiveScroll(id: string): { x: number; y: number } {
-  return liveScroll.get(id) ?? getState().sections[id]?.scroll ?? { x: 0, y: 0 };
 }
 
 /**
@@ -362,23 +473,25 @@ export function sectionBodyRect(grid: GridTracks, s: Section) {
   return { x: card.x, y: card.y + SECTION_HEADER, w: card.w, h: card.h - SECTION_HEADER };
 }
 
-/** world-space rect of an object (accounts for section position + scroll) */
+/** world-space rect of an object (accounts for section position + fit); `s` is the scale it's drawn at */
 export function objectWorldRect(obj: AnyObject) {
   const st = getState();
   const sec = st.sections[obj.sectionId];
   if (!sec) return null;
-  if (sec.host === obj.id) return sectionBodyRect(st.grid, sec); // a hosted app is the section
+  if (sec.host === obj.id) return { ...sectionBodyRect(st.grid, sec), s: 1 }; // a hosted app is the section
   const card = sectionCardRect(st.grid, sec);
-  const scroll = getLiveScroll(sec.id);
+  const s = sectionFit(sec.id);
   const { w, h } = objectPixelSize(obj);
   const pos = liveObjPos.get(obj.id) ?? effectivePos(obj);
   // + the section card's 1 px border: its body is laid out inside it, and wires
-  // must land where the DOM puts the card (ports sit on this rect's edges)
+  // must land where the DOM puts the card (ports sit on this rect's edges).
+  // The body draws its content at the section's fit, scaled from its top-left.
   return {
-    x: card.x + 1 + CONTENT_PAD + pos.x - scroll.x,
-    y: card.y + 1 + SECTION_HEADER + CONTENT_PAD + pos.y - scroll.y,
-    w,
-    h,
+    x: card.x + 1 + (CONTENT_PAD + pos.x) * s,
+    y: card.y + 1 + SECTION_HEADER + (CONTENT_PAD + pos.y) * s,
+    w: w * s,
+    h: h * s,
+    s,
   };
 }
 
@@ -427,8 +540,7 @@ let state: AppState = {
       r0: 0,
       c1: 0,
       r1: 0,
-      scroll: { x: 0, y: 0 },
-    },
+      },
   },
   tables: {},
   maps: {},
@@ -442,6 +554,8 @@ let state: AppState = {
   snapRequest: { kind: "all", nonce: Math.random() },
   sectionDragTarget: null,
   pendingRemoval: null,
+  expandedSection: null,
+  layoutEpoch: 0,
 };
 
 const listeners = new Set<() => void>();
@@ -508,6 +622,19 @@ export interface SectionSnap {
   activeObjectId: string | null;
   sectionFocus: boolean;
   pendingRemoval: boolean;
+  /** how the section presents its cards (see SectionFlow) — numbers, so an unchanged flow doesn't re-render */
+  fit: number;
+  clipped: boolean;
+  availW: number;
+  extentW: number;
+  extentH: number;
+  /** opened as its own grid in this window */
+  expanded: boolean;
+}
+
+function flowFields(sectionId: string) {
+  const f = sectionFlow(sectionId);
+  return { fit: f.fit, clipped: f.clipped, availW: f.availW, extentW: f.extent.w, extentH: f.extent.h };
 }
 
 const sectionSnaps = new Map<string, { st: AppState; snap: SectionSnap }>();
@@ -524,6 +651,8 @@ export function sectionSnap(sectionId: string): SectionSnap {
     activeObjectId: a && (a === host?.id || objects.some((o) => o.id === a)) ? a : null,
     sectionFocus: state.focusLevel === "section",
     pendingRemoval: state.pendingRemoval === sectionId,
+    ...flowFields(sectionId),
+    expanded: state.expandedSection === sectionId,
   };
   const prev = cached?.snap;
   // the same cards keep the same array, so the section's layout (and its cards' props) hold
@@ -534,7 +663,13 @@ export function sectionSnap(sectionId: string): SectionSnap {
     prev.host === next.host &&
     prev.activeObjectId === next.activeObjectId &&
     prev.sectionFocus === next.sectionFocus &&
-    prev.pendingRemoval === next.pendingRemoval;
+    prev.pendingRemoval === next.pendingRemoval &&
+    prev.fit === next.fit &&
+    prev.clipped === next.clipped &&
+    prev.availW === next.availW &&
+    prev.extentW === next.extentW &&
+    prev.extentH === next.extentH &&
+    prev.expanded === next.expanded;
   const snap = same ? prev : next;
   sectionSnaps.set(sectionId, { st: state, snap });
   return snap;
@@ -653,7 +788,6 @@ export function splitSection(sectionId: string, dir: "h" | "v") {
     r0: 0,
     c1: 0,
     r1: 0,
-    scroll: { x: 0, y: 0 },
   };
 
   if (dir === "h") {
@@ -728,7 +862,6 @@ export function addSectionAdjacent(
     r0: 0,
     c1: 0,
     r1: 0,
-    scroll: { x: 0, y: 0 },
   };
 
   if (dir === "right" || dir === "left") {
@@ -763,6 +896,7 @@ export function addSectionAdjacent(
     activeSectionId: fresh.id,
     snapRequest: { kind: "section", id: fresh.id, nonce: Math.random() },
   });
+  return fresh.id;
 }
 
 /**
@@ -1001,7 +1135,6 @@ export function createSectionAt(c: number, r: number) {
     c1: c,
     r0: r,
     r1: r,
-    scroll: { x: 0, y: 0 },
   };
   set({
     sections: { ...state.sections, [fresh.id]: fresh },
@@ -1021,10 +1154,20 @@ export function requestRemoveSection(id: string | null) {
   if (state.pendingRemoval !== id) set({ pendingRemoval: id });
 }
 
-export function setSectionScroll(id: string, x: number, y: number) {
-  const s = state.sections[id];
-  if (!s) return;
-  set({ sections: { ...state.sections, [id]: { ...s, scroll: { x, y } } } });
+/**
+ * Open a section as its own grid (or close it, with null): it grows to show
+ * everything at full size, the rest of the board steps back, and the camera
+ * frames it. Local to this window: nobody else's view changes.
+ */
+export function expandSection(id: string | null) {
+  const was = state.expandedSection;
+  if (was === id) return;
+  if (id && (!state.sections[id] || state.sections[id].host)) return;
+  set({
+    expandedSection: id,
+    ...(id ? { activeSectionId: id } : {}),
+    ...(id || was ? { snapRequest: { kind: "section" as const, id: (id ?? was)!, nonce: Math.random() } } : {}),
+  });
 }
 
 // ---------- track resizing (spreadsheet column/row semantics) ----------
@@ -1071,6 +1214,12 @@ export function setObjectFloat(id: string, float: boolean) {
 
 /** the section under a world point (null on empty paper or off the grid) */
 export function sectionAtWorld(x: number, y: number): Section | null {
+  // an expanded section lies over its neighbours: it owns all of its paper
+  const ex = state.expandedSection ? state.sections[state.expandedSection] : undefined;
+  if (ex) {
+    const r = sectionCardRect(state.grid, ex);
+    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return ex;
+  }
   const cell = cellAtWorld(x, y);
   return cell ? sectionCovering(cell.c, cell.r) : null;
 }
@@ -1085,10 +1234,10 @@ export function placeAtWorld(id: string, wx: number, wy: number) {
   const sec = state.sections[found.obj.sectionId];
   if (!sec || sec.host === id) return; // an app that became its section's app fills it
   const card = sectionCardRect(state.grid, sec);
-  const scroll = getLiveScroll(sec.id);
+  const s = sectionFit(sec.id);
   const { w } = objectPixelSize(found.obj);
-  const x = Math.max(0, wx - card.x - 1 - CONTENT_PAD + scroll.x - Math.min(w / 2, 120));
-  const y = Math.max(0, wy - card.y - 1 - SECTION_HEADER - CONTENT_PAD + scroll.y - 16);
+  const x = Math.max(0, (wx - card.x - 1) / s - CONTENT_PAD - Math.min(w / 2, 120));
+  const y = Math.max(0, (wy - card.y - 1 - SECTION_HEADER) / s - CONTENT_PAD - 16);
   set({
     [found.key]: { ...(state[found.key] as Record<string, AnyObject>), [id]: { ...found.obj, float: true, x, y } },
   } as Partial<AppState>);

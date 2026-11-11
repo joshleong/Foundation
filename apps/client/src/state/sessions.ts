@@ -11,7 +11,7 @@ import type { AgentEvent } from "@foundation/protocol";
 import { api, followRun, streamAgent } from "../lib/api";
 import { activeBoard } from "../sync/board";
 import { getState } from "./store";
-import { getUi, newSession, renameTab } from "./ui";
+import { getUi, newSession, newSessionId, renameTab, toast } from "./ui";
 
 export interface Turn {
   /** the server's run, once it has said (reattach and stop by it) */
@@ -85,6 +85,8 @@ async function follow(id: string, open: (ctrl: AbortController, on: (e: AgentEve
     await open(ctrl, (e) =>
       last((t) => {
         if (e.type === "run") return { ...t, runId: e.id };
+        if (e.type === "crew") noteCrew(e.id, id, e.name, e.hue, t.prompt);
+        if (e.type === "helper") void followHelper(e.session, e.runId, e.name);
         const prev = t.events[t.events.length - 1];
         // streamed text joins the text before it
         const events = e.type === "text" && prev?.type === "text" ? [...t.events.slice(0, -1), { type: "text" as const, text: prev.text + e.text }] : [...t.events, e];
@@ -120,6 +122,55 @@ export function sayToAgent(text: string) {
   const id = showing && !runs.get(showing.id)?.busy ? showing.id : newSession().id;
   const pref = localStorage.getItem("foundation-runtime");
   void sendToSession(id, text, pref && pref !== "auto" ? pref : undefined);
+}
+
+// ---------- the crew: asks from the voice sheet run without a tab ----------
+
+export interface CrewAsk {
+  /** the crew member (its presence on the board) */
+  crew: string;
+  session: string;
+  name: string;
+  hue: number;
+  prompt: string;
+}
+const crewAsks = new Map<string, CrewAsk>();
+
+function noteCrew(crew: string, session: string, name: string, hue: number, prompt: string) {
+  if (crewAsks.get(crew)?.session === session) return;
+  crewAsks.set(crew, { crew, session, name, hue, prompt });
+  emit();
+}
+
+/** which session a crew member's work is in (to stop it, or open its tab) */
+export function crewAsk(crew: string): CrewAsk | undefined {
+  return crewAsks.get(crew);
+}
+
+/** a helper a lead called in: follow its run under its own session, so it can be stopped and opened */
+async function followHelper(session: string, runId: string, name: string) {
+  if (runs.get(session)?.busy) return;
+  patch(session, (x) => ({ ...x, loaded: true, turns: [{ runId, prompt: `${name}: called in to help`, events: [], status: "running", at: Date.now() }] }));
+  await follow(session, (ctrl, on) => followRun(runId, on, ctrl.signal), true);
+}
+
+/**
+ * Ask the crew (the voice sheet): a new agent, with its own name and cursor,
+ * in a session of its own that runs without opening a tab, so the board
+ * stays in view while you watch it work. Several can run at once.
+ */
+export function askCrew(text: string): string {
+  const id = newSessionId();
+  const pref = localStorage.getItem("foundation-runtime");
+  void sendToSession(id, text, pref && pref !== "auto" ? pref : undefined).then(() => {
+    // no tab shows this run, so a failure says so here, in the agent's name and its own words
+    const t = runs.get(id)?.turns.at(-1);
+    if (t?.status !== "error") return;
+    const err = [...t.events].reverse().find((e): e is Extract<AgentEvent, { type: "error" }> => e.type === "error" && !/^Claude Code exited/.test(e.message));
+    const who = [...crewAsks.values()].find((a) => a.session === id)?.name ?? "The crew";
+    toast(`${who} couldn't do it: ${err?.message ?? "the agent stopped with an error"}`, "bad");
+  });
+  return id;
 }
 
 /** Stop ends the run on the server; the stream then closes on its own */

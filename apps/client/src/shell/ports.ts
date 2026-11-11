@@ -91,7 +91,8 @@ function cardPortPoint(panel: PanelMeta, portId: string, linkId?: string, links?
   const layout = portLayout(panel, links ?? Object.values(getState().links)).get(portId);
   if (!layout) return null;
   const offset = linkId ? (layout.slots.get(linkId) ?? 0) : 0;
-  return { x: layout.dir === "out" ? r.x + r.w : r.x, y: r.y + layout.y + offset };
+  // the pills are drawn inside the card, so they scale with its section's fit
+  return { x: layout.dir === "out" ? r.x + r.w : r.x, y: r.y + (layout.y + offset) * r.s };
 }
 
 export function describeValue(v: unknown): string {

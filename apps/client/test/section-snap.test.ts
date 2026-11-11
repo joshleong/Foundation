@@ -9,7 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { applyRemote, getState, moveNote, sectionSnap, setActiveObject, updateNoteText, type NoteMeta, type Section } from "../src/state/store";
 
-const sec = (id: string, c0: number): Section => ({ id, name: id, c0, r0: 0, c1: c0, r1: 0, scroll: { x: 0, y: 0 } });
+const sec = (id: string, c0: number): Section => ({ id, name: id, c0, r0: 0, c1: c0, r1: 0 });
 const note = (id: string, sectionId: string, bornAt: number): NoteMeta => ({ id, sectionId, name: id, x: 0, y: 0, float: false, bornAt, w: 300, h: 200, text: id });
 
 applyRemote({

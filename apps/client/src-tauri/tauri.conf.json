@@ -6,21 +6,11 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1430",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build:desktop",
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "title": "Foundation",
-        "width": 1440,
-        "height": 900,
-        "minWidth": 960,
-        "minHeight": 600,
-        "center": true,
-        "dragDropEnabled": false
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

@@ -47,7 +47,8 @@ export function PeerCursors() {
     [],
   );
 
-  const peers = board?.peers().filter((p) => p.cursor) ?? [];
+  // the crew draws its own cursors (Crew.tsx)
+  const peers = board?.peers().filter((p) => p.cursor && !p.crew) ?? [];
   return (
     <div ref={layer} className="peer-cursors" aria-hidden>
       {peers.map((p) => (

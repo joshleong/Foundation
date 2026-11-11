@@ -8,9 +8,10 @@
  */
 
 import { createServer, type ServerResponse } from "node:http";
+import type { UserInfo } from "@foundation/protocol";
 import { WebSocketServer } from "ws";
 import { config } from "./config.ts";
-import "./db.ts";
+import { one } from "./db.ts";
 import { HttpError, json, readJson, Router, sse, type Req } from "./http.ts";
 import { clearSession, createSession, googleAuthUrl, googleCallback, isAllowed, requireUser, setSessionCookie, upsertUser, userFromRequest, createSession as mintToken } from "./auth.ts";
 import { attachConnection, boardEpoch, editBoard, syncAccess, ensureBoardRow, getBoard, listBoards, presence } from "./boards.ts";
@@ -33,6 +34,9 @@ import { boardLink, channelHistory, channelInfo, inviteText, listChannels, postM
 import { appendSection, boardMaps } from "@foundation/protocol";
 import { migrateAllBoards } from "./migrate.ts";
 import * as flowform from "./flowform.ts";
+import { canSeeBoard, hiddenBoards, requireBoard } from "./members.ts";
+import { requirePerson } from "./auth.ts";
+import { attachTerminal, engineImages, engineStatus, loadImage, reconcileMachine, removeMachine, restartMachine, startMachine, stopMachine } from "./machines.ts";
 
 const r = new Router();
 
@@ -108,12 +112,13 @@ r.post("/api/boards", async (req) => {
   return { id };
 });
 r.get("/api/boards/:id/presence", (req) => {
-  requireUser(req);
+  requireBoard(requireUser(req), req.params.id);
   return { people: presence(req.params.id) };
 });
 r.get("/api/boards/:id/tools", () => ({ tools: TOOLS.map((t) => ({ name: t.name, description: t.description, write: Boolean(t.write) })) }));
 r.post("/api/boards/:id/tools/:name", async (req) => {
   const u = requireUser(req);
+  requireBoard(u, req.params.id);
   const input = await readJson(req);
   return { result: await runTool({ boardId: req.params.id, actor: u.name, userId: u.id }, req.params.name, input) };
 });
@@ -122,37 +127,45 @@ r.post("/api/boards/:id/tools/:name", async (req) => {
 
 r.post("/api/files", async (req) => {
   const u = requireUser(req);
+  requireBoard(u, req.query.get("board"));
   const file = await uploadFile(req, u.id);
   return { file: { ...file, url: `/files/${file.id}` } };
 });
 r.get("/api/files", (req) => {
-  requireUser(req);
-  return { files: listFiles(req.query.get("board")).map((f) => ({ ...f, url: `/files/${f.id}` })) };
+  const u = requireUser(req);
+  requireBoard(u, req.query.get("board"));
+  const hidden = hiddenBoards(u);
+  return { files: listFiles(req.query.get("board")).filter((f) => !(f.board_id && hidden.has(f.board_id))).map((f) => ({ ...f, url: `/files/${f.id}` })) };
 });
 r.delete("/api/files/:id", (req) => {
-  requireUser(req);
+  requireFileBoard(requireUser(req), req.params.id);
   archiveFile(req.params.id);
   return { archived: true };
 });
 r.get("/api/files/:id/cad", async (req) => {
-  requireUser(req);
+  requireFileBoard(requireUser(req), req.params.id);
   const { cadSummaryForFile } = await import("./cad.ts");
   const s = await cadSummaryForFile(req.params.id);
   if (!s) throw new HttpError(404, "no such file");
   return s;
 });
 r.get("/files/:id", (req, res) => {
-  requireUser(req);
+  requireFileBoard(requireUser(req), req.params.id);
   serveFile(req, res, req.params.id);
 });
+
+/** a file on a members-only board is that board's */
+function requireFileBoard(user: UserInfo, fileId: string) {
+  requireBoard(user, one<{ board_id: string | null }>("select board_id from files where id = ?", fileId)?.board_id);
+}
 
 // ---------- search ----------
 
 r.get("/api/search", async (req) => {
-  requireUser(req);
+  const u = requireUser(req);
   const q = (req.query.get("q") ?? "").trim();
   if (!q) return { hits: [], sources: {} };
-  return searchAll(q, { boardId: req.query.get("board") ?? undefined, remote: req.query.get("remote") !== "0" });
+  return searchAll(q, { boardId: req.query.get("board") ?? undefined, remote: req.query.get("remote") !== "0", hidden: hiddenBoards(u) });
 });
 r.get("/api/integrations", (req) => {
   requireUser(req);
@@ -208,17 +221,21 @@ r.get("/api/connectors/:id", async (req) => {
 // ---------- Hermes asks ----------
 
 r.get("/api/asks", (req) => {
-  requireUser(req);
-  return { asks: listAsks(req.query.get("board") ?? undefined) };
+  const u = requireUser(req);
+  requireBoard(u, req.query.get("board"));
+  const hidden = hiddenBoards(u);
+  return { asks: listAsks(req.query.get("board") ?? undefined).filter((a) => !hidden.has(a.board_id)) };
 });
 r.post("/api/asks", async (req) => {
   const u = requireUser(req);
   const b = await readJson<{ board: string; assignee: string; prompt: string; kind?: string; section?: string }>(req);
+  requireBoard(u, b.board);
   return createAsk({ boardId: b.board, actor: u.name, userId: u.id }, { assignee: b.assignee, prompt: b.prompt, kind: b.kind ?? "cad_upload", section: b.section });
 });
 r.post("/api/asks/:id/resolve", async (req) => {
   const u = requireUser(req);
   const { fileId } = await readJson<{ fileId?: string }>(req);
+  requireBoard(u, one<{ board_id: string }>("select board_id from asks where id = ?", req.params.id)?.board_id);
   return resolveAsk(req.params.id, u.name, fileId);
 });
 
@@ -230,14 +247,16 @@ function huddleOn(boardId: string, id: string) {
   return o;
 }
 r.get("/api/huddles/:id", (req) => {
-  requireUser(req);
+  const u = requireUser(req);
   const board = req.query.get("board") ?? "company";
+  requireBoard(u, board);
   const panel = huddleOn(board, req.params.id);
   return { huddle: { id: panel.id, name: panel.name, channel: panel.channel ?? null, state: panel.huddle ?? { people: [] } }, sessions: huddleArchive(board, panel.id) };
 });
 r.post("/api/huddles/:id/lines", async (req) => {
   const u = requireUser(req);
   const b = await readJson<{ board?: string; text?: string }>(req);
+  requireBoard(u, b.board ?? "company");
   try {
     return { line: addLine(b.board ?? "company", req.params.id, u, b.text ?? "", "typed") };
   } catch (e) {
@@ -248,6 +267,7 @@ r.post("/api/huddles/:id/recordings", async (req) => {
   const u = requireUser(req);
   const b = await readJson<{ board?: string; fileId?: string; sessionId?: string; startedAt?: number; endedAt?: number }>(req);
   if (!b.fileId) throw new HttpError(400, "fileId required");
+  requireBoard(u, b.board ?? "company");
   try {
     return attachRecording(b.board ?? "company", req.params.id, { fileId: b.fileId, person: u.name, sessionId: b.sessionId, startedAt: b.startedAt ?? Date.now(), endedAt: b.endedAt ?? Date.now() });
   } catch (e) {
@@ -316,20 +336,68 @@ r.post("/api/slack/channels/:id/huddle-notes", async (req) => {
 // ---------- jobs ----------
 
 r.get("/api/jobs", (req) => {
-  requireUser(req);
-  return { jobs: listJobs() };
+  const hidden = hiddenBoards(requireUser(req));
+  return { jobs: listJobs().filter((j) => !(j.board_id && hidden.has(j.board_id))) };
 });
 r.get("/api/jobs/:id", (req) => {
-  requireUser(req);
+  const u = requireUser(req);
   const job = getJob(req.params.id);
   if (!job) throw new HttpError(404, "no such job");
+  requireBoard(u, job.board_id);
   return { job };
 });
 r.post("/api/jobs/:id/run", (req) => {
   const u = requireUser(req);
   const job = getJob(req.params.id);
   if (!job) throw new HttpError(404, "no such job");
+  requireBoard(u, job.board_id);
   return { job: startJob(job.id, job.board_id ?? "company", u.name) };
+});
+
+// ---------- machines (Kiri or Docker, through the Engine API) ----------
+
+r.get("/api/machines/engines", async (req) => {
+  requireUser(req);
+  return { engines: await engineStatus(req.query.get("fresh") === "1") };
+});
+r.get("/api/machines/images", async (req) => {
+  requireUser(req);
+  return engineImages(req.query.get("engine") ?? undefined);
+});
+// a card on screen asks: the server reads the engine and writes what's true to the board
+r.get("/api/boards/:id/machines/:panel", async (req) => {
+  requireBoard(requireUser(req), req.params.id);
+  return reconcileMachine(req.params.id, req.params.panel);
+});
+// everything that runs, stops or removes needs a person at a browser (gateWrites has already refused viewers)
+r.post("/api/boards/:id/machines/:panel/start", async (req) => {
+  const u = requirePerson(req, "Starting a machine");
+  requireBoard(u, req.params.id);
+  const b = await readJson<{ image?: string; engine?: string; ports?: number[] }>(req);
+  return { machine: await startMachine(req.params.id, req.params.panel, u.name, b) };
+});
+r.post("/api/boards/:id/machines/:panel/stop", async (req) => {
+  const u = requirePerson(req, "Stopping a machine");
+  requireBoard(u, req.params.id);
+  return { machine: await stopMachine(req.params.id, req.params.panel, u.name) };
+});
+r.post("/api/boards/:id/machines/:panel/restart", async (req) => {
+  const u = requirePerson(req, "Restarting a machine");
+  requireBoard(u, req.params.id);
+  return { machine: await restartMachine(req.params.id, req.params.panel, u.name) };
+});
+r.post("/api/boards/:id/machines/:panel/remove", async (req) => {
+  const u = requirePerson(req, "Removing a machine");
+  requireBoard(u, req.params.id);
+  const b = await readJson<{ confirm?: boolean }>(req);
+  return { machine: await removeMachine(req.params.id, req.params.panel, u.name, b.confirm === true) };
+});
+r.post("/api/boards/:id/machines/load", async (req) => {
+  const u = requirePerson(req, "Loading an image into an engine");
+  requireBoard(u, req.params.id);
+  const b = await readJson<{ fileId?: string; engine?: string }>(req);
+  if (!b.fileId) throw new HttpError(400, "name the file to load");
+  return loadImage(req.params.id, b.fileId, u.name, b.engine);
 });
 
 // ---------- agent ----------
@@ -364,6 +432,7 @@ r.post("/api/agent", async (req, res) => {
   const user = requireUser(req);
   const body = await readJson<{ board?: string; prompt?: string; runtime?: string; session?: string }>(req);
   if (!body.prompt?.trim()) throw new HttpError(400, "say something");
+  requireBoard(user, body.board || "company");
   const send = sse(res);
   const session = body.session && /^ses_[a-z0-9]{6,24}$/.test(body.session) ? body.session : undefined;
   // the run lives on the server: closing this stream detaches, it doesn't stop it
@@ -430,6 +499,7 @@ const server = createServer(async (rawReq, res: ServerResponse) => {
     if (url.pathname === "/mcp") {
       const user = userFromRequest(req);
       if (!user) throw new HttpError(401, "MCP needs a bearer token (POST /api/agent/token)");
+      requireBoard(user, req.query.get("board") || "company");
       return await handleMcp(req, res, user);
     }
     const m = r.match(req.method ?? "GET", url.pathname);
@@ -453,12 +523,18 @@ server.on("upgrade", (rawReq, socket, head) => {
   req.query = url.searchParams;
   const user = userFromRequest(req);
   const hm = /^\/huddle\/([A-Za-z0-9_-]{1,64})\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
-  if (hm && user) {
+  if (hm && user && canSeeBoard(user, hm[1])) {
     wss.handleUpgrade(req, socket, head, (ws) => attachHuddle(hm[1], hm[2], ws, user, req.query.get("send") === "1"));
     return;
   }
+  // a machine card's shared terminal: editors type, viewers watch
+  const tm = /^\/machines\/([A-Za-z0-9_-]{1,64})\/([A-Za-z0-9_-]{1,64})\/tty$/.exec(url.pathname);
+  if (tm && user && canSeeBoard(user, tm[1])) {
+    wss.handleUpgrade(req, socket, head, (ws) => void attachTerminal(tm[1], tm[2], ws, user, canWrite(user.id, tm[1])));
+    return;
+  }
   const m = /^\/sync\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
-  if (!m || !user) {
+  if (!m || !user || !canSeeBoard(user, m[1])) {
     socket.write(`HTTP/1.1 ${m ? 401 : 404} ${m ? "Unauthorized" : "Not Found"}\r\n\r\n`);
     socket.destroy();
     return;

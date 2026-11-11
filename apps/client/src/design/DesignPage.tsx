@@ -307,11 +307,11 @@ export function DesignPage() {
                   <rect x="5.5" y="1.5" width="5" height="9" rx="2.5" />
                   <path d="M3 7.5a5 5 0 0 0 10 0M8 12.5v2" strokeLinecap="round" />
                 </svg>
-                <span className="f-kbd">V</span>
+                <span className="f-kbd">Space</span>
               </button>
               <button className="hud-zoom f-glass">64%</button>
             </div>
-            <div className="effect-label">The search pill, talk (V: what you say goes to the agent) and the zoom</div>
+            <div className="effect-label">The search pill, talk (hold Space: what you say goes to the crew) and the zoom</div>
           </div>
           <div className="oncall-cell">
             <div className="oncall-talking">
@@ -385,6 +385,43 @@ export function DesignPage() {
               Ask the agent about this section <span className="f-kbd">⌘J</span>
             </div>
             <div className="effect-label">Section, hovered: no bar — tools wait top-right (add · arrange · agent · remove), each names itself on roll-over</div>
+          </div>
+          <div className="oncall-cell">
+            <div className="section-card oncall-static oncall-section" style={{ width: 420, height: 220 }}>
+              <div className="section-header" style={{ height: 42 }}>
+                <span className="section-name">Research</span>
+                <span className="section-coords">C2</span>
+                <span className="section-count">14</span>
+              </div>
+              <div className="section-body">
+                <div className="section-content" style={{ transform: "scale(0.4)" }}>
+                  {Array.from({ length: 12 }, (_, i) => (
+                    <div
+                      key={i}
+                      className="frame-card"
+                      style={{ position: "absolute", left: 28 + (i % 4) * 236, top: 28 + Math.floor(i / 4) * 156, width: 210, height: 130 }}
+                    />
+                  ))}
+                </div>
+                <span className="section-more">
+                  2 more <span aria-hidden>⤢</span> Expand
+                </span>
+              </div>
+            </div>
+            <div className="effect-label">A section never takes the wheel: it lays its cards out at the width that shows them largest and fits them to its body, down to 40%. Past that it says what doesn't fit and offers Expand</div>
+          </div>
+          <div className="oncall-cell" style={{ paddingBottom: 72 }}>
+            <div className="section-card oncall-static oncall-section expanded" style={{ width: 420, height: 64 }}>
+              <div className="section-header" style={{ height: 42 }}>
+                <span className="section-name">Research</span>
+                <span className="section-coords">C2</span>
+                <span className="section-count">14</span>
+                <span className="section-back">
+                  <span aria-hidden>⤡</span> Back to the board
+                </span>
+              </div>
+            </div>
+            <div className="effect-label">Expanded: the section opens as its own grid, at full size and its own width, as long as it needs; neighbours step back to 12%, the wheel pans down through it, Esc or ⤡ closes it</div>
           </div>
         </div>
       </Section>
@@ -520,6 +557,179 @@ export function DesignPage() {
         </div>
       </Section>
 
+      <Section title="Machines" note="A Linux machine or container in a section, on this computer's engine: Kiri or Docker (one wire, the Docker Engine API). The state pill leads: Running (green, breathing), Pulling and Starting (amber, with the engine's own progress), Stopped and Not started (grey), Error (red, in the engine's words), No engine (amber, a hatched well that says why). Kiri installed but asleep is not No engine: the tag says Kiri · asleep and Start wakes it first; a machine whose disk is on a sleeping Kiri is Out of reach (amber), never removed. Then the engine and its version, the image in code type, and published ports as pills that open the port as a page in the section. Start is the one blue action, and only a person presses it: an agent's proposal says so in violet. Running, the shared terminal fills the card (paper, ink, the tokens as its colours); viewers watch it under an amber View only tag. Remove asks twice. Shown at 560, 400 and 260 px.">
+        <div className="adapt-row">
+          <div className="frame-card live-specimen" style={{ width: 560, height: 320 }}>
+            <div className="machine-body is-running">
+              <div className="machine-head">
+                <span className="machine-state is-ok">
+                  <span className="f-dot is-ok is-live" />
+                  Running
+                </span>
+                <span className="machine-engine">Kiri 0.9.0</span>
+                <code className="machine-image">ubuntu:24.04</code>
+                <span className="machine-ports">
+                  <span className="f-pill machine-port">:8080 ↗</span>
+                </span>
+              </div>
+              <div className="machine-term-wrap">
+                <pre className="machine-term machine-term-specimen">
+                  <span className="t-ok">build-box</span>:<span className="t-pulse">~</span># uname -sm{"\n"}Linux x86_64{"\n"}
+                  <span className="t-ok">build-box</span>:<span className="t-pulse">~</span># python3 -m http.server 8080{"\n"}Serving HTTP on 0.0.0.0 port 8080 …{"\n"}
+                  <span className="t-cursor"> </span>
+                </pre>
+                <div className="machine-people">2 here</div>
+              </div>
+              <div className="machine-controls">
+                <span className="f-pill">Stop</span>
+                <span className="f-pill">Restart</span>
+                <span className="machine-name">build-box</span>
+                <span className="f-pill machine-remove">Remove</span>
+              </div>
+            </div>
+          </div>
+          <div className="frame-card live-specimen" style={{ width: 400, height: 320 }}>
+            <div className="machine-body is-absent">
+              <div className="machine-head">
+                <span className="machine-state is-idle">
+                  <span className="f-dot" />
+                  Not started
+                </span>
+                <span className="machine-engine">Docker 28.3.0</span>
+                <code className="machine-image">postgres:17</code>
+              </div>
+              <div className="machine-picker">
+                <div className="machine-proposed">
+                  <span className="f-dot is-agent" /> Proposed by Foundation Agent: a scratch database for the BOM import
+                </div>
+                <div className="f-eyebrow">A Linux machine</div>
+                <div className="machine-chips">
+                  {["ubuntu", "debian", "alpine", "fedora"].map((d) => (
+                    <span key={d} className="machine-chip">
+                      {d}
+                    </span>
+                  ))}
+                </div>
+                <div className="f-eyebrow">On Docker already</div>
+                <div className="machine-chips">
+                  <span className="machine-chip is-code is-on">postgres:17</span>
+                  <span className="machine-chip is-code">nginx:1.27</span>
+                </div>
+                <div className="machine-start">
+                  <span className="f-pill is-accent">Start postgres:17 on Docker</span>
+                  <span className="machine-terms">Pulls it if needed · ports on 127.0.0.1 only · nothing from this computer mounted</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="adapt-row">
+          <div className="frame-card live-specimen" style={{ width: 400, height: 220 }}>
+            <div className="machine-body is-pulling">
+              <div className="machine-head">
+                <span className="machine-state is-warn">
+                  <span className="f-dot is-warn is-live" />
+                  Pulling
+                </span>
+                <span className="machine-engine">Kiri 0.9.0</span>
+                <code className="machine-image">fedora:42</code>
+              </div>
+              <div className="machine-progress">
+                <span className="f-dot is-warn is-live" />
+                <span>Pulling fedora:42: 31 MB of 64 MB</span>
+              </div>
+            </div>
+          </div>
+          <div className="frame-card live-specimen" style={{ width: 260, height: 220 }}>
+            <div className="machine-body">
+              <div className="machine-head">
+                <span className="machine-state is-warn">
+                  <span className="f-dot is-warn" />
+                  No engine
+                </span>
+              </div>
+              <div className="connector-offline">
+                <div className="connector-offline-title">No container engine is running here</div>
+                <div className="connector-offline-reason">Kiri isn't running here (nothing answers at \\.\pipe\kiri)</div>
+              </div>
+              <div className="connector-foot">
+                <span className="f-pill is-agent">✦ How do I set one up?</span>
+              </div>
+            </div>
+          </div>
+          <div className="frame-card live-specimen" style={{ width: 260, height: 220 }}>
+            <div className="machine-body is-running">
+              <div className="machine-head">
+                <span className="machine-state is-ok">
+                  <span className="f-dot is-ok is-live" />
+                  Running
+                </span>
+                <span className="machine-engine">Kiri 0.9.0</span>
+              </div>
+              <div className="machine-term-wrap">
+                <pre className="machine-term machine-term-specimen">
+                  <span className="t-ok">box</span>:<span className="t-pulse">~</span># ls{"\n"}notes.md  src{"\n"}
+                </pre>
+                <div className="machine-watching">View only: you're watching</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="adapt-row">
+          <div className="frame-card live-specimen" style={{ width: 400, height: 220 }}>
+            <div className="machine-body is-absent">
+              <div className="machine-head">
+                <span className="machine-state is-idle">
+                  <span className="f-dot" />
+                  Not started
+                </span>
+                <span className="machine-engine">Kiri · asleep</span>
+                <code className="machine-image">alpine:3.22</code>
+              </div>
+              <div className="machine-picker">
+                <div className="f-eyebrow">A Linux machine</div>
+                <div className="machine-chips">
+                  {["ubuntu", "debian", "alpine", "fedora"].map((d) => (
+                    <span key={d} className={`machine-chip${d === "alpine" ? " is-on" : ""}`}>
+                      {d}
+                    </span>
+                  ))}
+                </div>
+                <div className="machine-start">
+                  <span className="f-pill is-accent">Start alpine:3.22 on Kiri</span>
+                  <span className="machine-terms">Wakes Kiri first · Pulls it if needed · ports on 127.0.0.1 only · nothing from this computer mounted</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="frame-card live-specimen" style={{ width: 400, height: 220 }}>
+            <div className="machine-body is-stopped">
+              <div className="machine-head">
+                <span className="machine-state is-warn">
+                  <span className="f-dot is-warn" />
+                  Out of reach
+                </span>
+                <span className="machine-engine">Kiri · asleep</span>
+                <code className="machine-image">alpine:3.22</code>
+              </div>
+              <div className="machine-well">
+                <div className="connector-offline-title">build-box is out of reach</div>
+                <div className="connector-offline-reason">Kiri isn't answering here, so this machine is out of reach. Its disk is kept: Start brings Kiri back and runs it again.</div>
+              </div>
+              <div className="machine-controls">
+                <span className="f-pill is-accent">Start on Kiri</span>
+                <span className="machine-name">build-box</span>
+                <span className="f-pill machine-remove">Remove</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      <Section title="The crew" note="Agents you can see. Each ask gets an agent with a generated name and a colour of its own from the violet family (six, --color-crew-0…5), and a cursor that glides on a spring to what it's about to change, a beat before the change lands, saying what it's doing in a paper chip. A helper says who called it in. Done shows in green where it finished, then the cursor fades and leaves. When an agent brings you somewhere, a glass pill under the top bar says so with Back; if you were busy moving, it asks first (Go, in violet, because an agent will act). Hold Space and the voice sheet rises from the bottom: the mic's own level in violet bars, your words as heard, the crew at work below with Open and Stop; a tap of Space types instead.">
+        <CrewDemo />
+      </Section>
+
       <Section title="Writing together" note="Each person keeps their own colour. In a note you're writing in, someone else's caret is a 2 px bar in their colour, named while it moves and quiet once it rests; their selection is a 22 % tint. A note at rest names whoever is writing in it with a breathing chip at the bottom right, clear of the bar that drops in at the top. ⌘Z takes back only your own words.">
         <div className="adapt-row">
           <div className="frame-card" style={{ width: 400 }}>
@@ -582,6 +792,131 @@ export function DesignPage() {
           ))}
         </div>
       </Section>
+    </div>
+  );
+}
+
+/** the crew, laid out still: cursors on a card, the guide pill, the sheet listening and typing */
+function CrewDemo() {
+  const cursor = (name: string, hue: number, doing: string, x: number, y: number, extra = "", lead?: string) => (
+    <div className={`crew-cursor is-placed${extra}`} style={{ transform: `translate3d(${x}px, ${y}px, 0)`, ["--crew" as string]: `var(--color-crew-${hue})` }}>
+      <svg className="crew-arrow" width="20" height="22" viewBox="0 0 20 22">
+        <path d="M2 2 L17.5 10.5 L10.4 12.3 L7 19.5 Z" fill="var(--crew)" stroke="var(--color-raise)" strokeWidth="1.6" strokeLinejoin="round" />
+      </svg>
+      <span className="crew-spark" />
+      <div className="crew-tag">
+        <span className="crew-name">
+          ✦ {name}
+          {lead && <span className="crew-with"> · with {lead}</span>}
+        </span>
+        <span className="crew-doing">{doing}</span>
+      </div>
+    </div>
+  );
+  const row = (name: string, hue: number, doing: string, status = "working", mine = true, extra?: string) => (
+    <li className={`crew-row${mine ? " is-mine" : ""} is-${status}`} style={{ ["--crew" as string]: `var(--color-crew-${hue})` }}>
+      <span className="crew-row-dot" />
+      <span className="crew-row-name">{name}</span>
+      <span className="crew-row-doing">
+        {doing}
+        {extra && <span className="crew-row-for"> · {extra}</span>}
+      </span>
+      {mine && (
+        <span className="crew-row-actions">
+          <button className="crew-row-btn">Open</button>
+          {status === "working" && <button className="crew-row-btn is-stop">Stop</button>}
+        </span>
+      )}
+    </li>
+  );
+  return (
+    <div className="crew-demo">
+      <div className="crew-demo-board">
+        <div className="frame-card crew-demo-card" style={{ left: 24, top: 28, width: 300, height: 170 }}>
+          <div className="crew-demo-sheet">
+            {["Part", "Qty", "Supplier"].map((h) => (
+              <b key={h}>{h}</b>
+            ))}
+            {["Vane, 6061", "12", "Kapaʻa Metals", "Hub bearing", "2", "Pacific Fasteners", "M4 cap screw", "48", "Pacific Fasteners"].map((c, i) => (
+              <span key={i}>{c}</span>
+            ))}
+          </div>
+        </div>
+        <div className="frame-card crew-demo-card" style={{ left: 360, top: 28, width: 220, height: 120 }}>
+          <div className="crew-demo-note">
+            <b>Suppliers to call</b>
+            <span>Kapaʻa Metals: 3 weeks</span>
+          </div>
+        </div>
+        <div className="crew-layer" style={{ zIndex: 2 }}>
+          {cursor("Wren", 0, "making table “Parts”", 70, 50)}
+          {cursor("Kestrel", 2, "writing “Suppliers to call”", 400, 52, "", "Wren")}
+          {cursor("Basalt", 1, "✓ done", 260, 170, " is-done")}
+        </div>
+        <div className="effect-label">Cursors at 100 %: Wren aiming at the table it's filling, Kestrel (a helper Wren called in), Basalt done and leaving</div>
+      </div>
+      <div className="crew-demo-col">
+        <div className="crew-guide f-glass" style={{ ["--crew" as string]: "var(--color-crew-0)" }}>
+          <span className="crew-guide-dot" />
+          <span className="crew-guide-text">
+            <b>Wren</b> brought you to <b>Supply chain</b>
+            <span className="crew-guide-note"> · the parts table is ready</span>
+          </span>
+          <button className="f-pill crew-guide-back">← Back</button>
+        </div>
+        <div className="crew-guide f-glass" style={{ ["--crew" as string]: "var(--color-crew-2)" }}>
+          <span className="crew-guide-dot" />
+          <span className="crew-guide-text">
+            <b>Kestrel</b> wants to show you <b>Suppliers</b>
+          </span>
+          <button className="f-pill is-agent">Go</button>
+          <button className="crew-guide-x">✕</button>
+        </div>
+        <div className="effect-label">Brought (Back) · asked first, because you were moving (Go)</div>
+        <div className="talk-sheet f-glass is-open crew-demo-still" data-mode="listening">
+          <div className="talk-input">
+            <span className="talk-level is-on">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <span key={i} style={{ animationDelay: `${i * 90}ms` }} />
+              ))}
+            </span>
+            <p className="talk-heard">make a supply section with the parts and hook up FactoryForm</p>
+          </div>
+          <ul className="crew-roster">
+            {row("Wren", 0, "making table “Parts”")}
+            {row("Kestrel", 2, "writing “Suppliers to call”", "working", true, "with Wren")}
+            {row("Vega", 4, "searching “thermal map”", "working", false, "for Kai")}
+          </ul>
+          <div className="talk-hints">
+            <span>
+              Let go of <span className="f-kbd">Space</span> to send
+            </span>
+            <span>
+              <span className="f-kbd">Esc</span> drops it
+            </span>
+          </div>
+        </div>
+        <div className="effect-label">Holding Space: the level, the words, the crew at work</div>
+        <div className="talk-sheet f-glass is-open crew-demo-still" data-mode="typing">
+          <div className="talk-input">
+            <span className="talk-level">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <span key={i} />
+              ))}
+            </span>
+            <textarea className="talk-field" rows={1} placeholder="Ask the crew: make a section for…, hook up FactoryForm…" readOnly />
+          </div>
+          <div className="talk-hints">
+            <span>
+              <span className="f-kbd">↵</span> sends
+            </span>
+            <span>
+              Hold <span className="f-kbd">Space</span> on the board to talk
+            </span>
+          </div>
+        </div>
+        <div className="effect-label">A tap of Space: typing</div>
+      </div>
     </div>
   );
 }

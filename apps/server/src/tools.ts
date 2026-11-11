@@ -23,11 +23,14 @@ import {
   findSection,
   isHostable,
   logActivity,
+  MACHINE_DISTROS,
   uid,
   type LinkDoc,
   type NoteDoc,
   putNote,
   setNoteText,
+  setTableCells,
+  type TableDoc,
   type PanelDoc,
   type PanelKind,
   type Port,
@@ -44,11 +47,15 @@ import { attachToStage, chooseArtifact, completeStage, describePipeline, setChec
 import { stageDef } from "@foundation/protocol";
 import { huddleArchive, transcriptText } from "./huddles.ts";
 import { channelHistory, channelInfo, listChannels } from "./slack.ts";
+import { describeMachines, proposeMachine, validImage } from "./machines.ts";
+import { aim, canCallHelp, crewMember, describeStep, guide, resolveTarget, setDoing, stepTarget, travel, type CrewMember } from "./crew.ts";
 
 export interface ToolCtx {
   boardId: string;
   actor: string; // display name of the agent or person acting
   userId: string;
+  /** the crew member (a visible agent) acting, when it's one of Foundation's own runs */
+  crew?: string;
 }
 
 export interface BoardTool<S extends z.ZodTypeAny = z.ZodTypeAny> {
@@ -97,8 +104,38 @@ function sectionOrCreate(doc: Y.Doc, section?: string) {
   return first ?? appendSection(doc, "Workspace");
 }
 
+/**
+ * The section a new card goes into. A hosted app fills its section, so a card
+ * added there would be hidden under it: the app becomes a card in the flow
+ * instead (what "Show as a card" does). A real crew turn hooked a connector up
+ * first, then added a table and two notes that nobody could see (2026-11-07).
+ */
+function cardSection(doc: Y.Doc, section?: string) {
+  const sec = sectionOrCreate(doc, section);
+  if (!sec.host) return sec;
+  const { host: _hosted, ...rest } = sec;
+  boardMaps(doc).sections.set(sec.id, rest);
+  return rest;
+}
+
+/**
+ * Starts a helper run for call_in_help. agent.ts registers it (tools can't
+ * import the runtime without a cycle).
+ */
+let helperStarter: ((lead: CrewMember, task: string) => { name: string; runId: string }) | null = null;
+export function setHelperStarter(fn: typeof helperStarter) {
+  helperStarter = fn;
+}
+
 function touch(ctx: ToolCtx, objectId: string | undefined, text: string) {
   const board = getBoard(ctx.boardId);
+  const member = crewMember(ctx.crew);
+  if (member) {
+    // a crew member: its own cursor lands on what it touched, and the board says who
+    aim(member, objectId ? resolveTarget(ctx.boardId, objectId) : null);
+    editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: member.name, role: "agent", text, objectId }));
+    return;
+  }
   // the agent's presence: a ring on whatever it's touching
   board.awareness.setLocalState({
     user: { name: `${ctx.actor}`, color: "#6b5bd6", agent: true },
@@ -142,10 +179,11 @@ export function addPanel(
     };
     for (const k of Object.keys(panel) as Array<keyof PanelDoc>) if (panel[k] === undefined) delete panel[k];
     const m = boardMaps(doc);
-    // an app opened into an empty section becomes that section's app
+    // an app opened into an empty section becomes that section's app; anything else joins the flow
     const empty = ![...m.objects.values()].some((o) => o.sectionId === sec.id);
     m.objects.set(panel.id, panel);
     if (empty && isHostable(panel.panel)) m.sections.set(sec.id, { ...sec, host: panel.id });
+    else if (sec.host) cardSection(doc, sec.id);
     return panel;
   });
 }
@@ -178,6 +216,8 @@ export const TOOLS: BoardTool[] = [
     schema: z.object({ object_id: z.string(), note: z.string().optional() }),
     run: (ctx, { object_id, note }) => {
       touch(ctx, object_id, note ?? "pointed at a card");
+      const member = crewMember(ctx.crew);
+      if (member) aim(member, resolveTarget(ctx.boardId, object_id), note ?? "pointing");
       return "ok";
     },
   }),
@@ -240,7 +280,7 @@ export const TOOLS: BoardTool[] = [
     write: true,
     run: (ctx, { section, title, markdown }) => {
       const note = editBoard(ctx.boardId, "agent", (doc) => {
-        const sec = sectionOrCreate(doc, section);
+        const sec = cardSection(doc, section);
         const n: NoteDoc & { text: string } = { id: uid("note"), kind: "note", sectionId: sec.id, name: title, x: 0, y: 0, float: false, bornAt: Date.now(), w: 420, h: 300, text: markdown };
         putNote(doc, n);
         return n;
@@ -296,7 +336,7 @@ export const TOOLS: BoardTool[] = [
         const next = { ...o } as Record<string, unknown>;
         for (const [k, v] of Object.entries(patch)) if (v !== undefined) next[k] = v;
         if (section) {
-          const sec = sectionOrCreate(doc, section);
+          const sec = cardSection(doc, section);
           next.sectionId = sec.id;
           next.float = false;
         }
@@ -470,7 +510,7 @@ export const TOOLS: BoardTool[] = [
     run: (ctx, i) => {
       const md = `## ${i.title}\n\n**Goal** ${i.goal}\n\n${i.constraints ? `**Constraints** ${i.constraints}\n\n` : ""}${i.simulate ? `**Simulate** ${i.simulate}\n\n` : ""}**Reviewers** ${i.reviewers.join(", ") || "—"}\n\n*Brief written by ${ctx.actor} for Vision.*`;
       const noteId = editBoard(ctx.boardId, "agent", (doc) => {
-        const sec = sectionOrCreate(doc, i.section);
+        const sec = cardSection(doc, i.section);
         const n: NoteDoc & { text: string } = { id: uid("note"), kind: "note", sectionId: sec.id, name: `Brief · ${i.title}`, x: 0, y: 0, float: false, bornAt: Date.now(), w: 440, h: 320, text: md };
         putNote(doc, n);
         return n.id;
@@ -504,6 +544,40 @@ export const TOOLS: BoardTool[] = [
       touch(ctx, p.id, `queued reverse-engineering of ${target}`);
       return { job: job.id, card: p.id, note: "waiting for a person to press Run on the card" };
     },
+  }),
+  // ---------- machines: Linux machines and containers on Kiri or Docker (machines.ts) ----------
+  def({
+    name: "propose_machine",
+    description:
+      "Propose a Linux machine or container for a section: a machine card that runs on this computer's container engine (Kiri or Docker) once a person presses Start on it. Agents can't start, stop or remove machines — that runs third-party code, so a person does it. Distros: ubuntu, debian, alpine, fedora, arch, rocky, opensuse (or any image name, e.g. 'postgres:17', 'nginx:1.27'). Ports are container ports to publish on 127.0.0.1.",
+    schema: z.object({
+      name: z.string().describe("short machine name, e.g. 'build box'"),
+      image: z.string().optional().describe("a distro id (ubuntu…) or an image ref; omit to let the person pick on the card"),
+      ports: z.array(z.number().int().min(1).max(65535)).max(8).optional(),
+      why: z.string().optional().describe("what it's for, in a sentence: shown on the card"),
+      section: z.string().optional(),
+      request_id: z.string().optional(),
+    }),
+    write: true,
+    run: (ctx, input) => {
+      const distro = MACHINE_DISTROS.find((d) => d.id === input.image?.toLowerCase());
+      const image = distro?.image ?? input.image?.trim();
+      if (image && !validImage(image)) throw new Error(`“${image}” isn't an image name an engine will take`);
+      const p = addPanel(ctx, { section: input.section, panel: "machine", name: input.name, text: input.why });
+      editBoard(ctx.boardId, "agent", (doc) => {
+        const cur = getPanel(doc, p.id);
+        boardMaps(doc).objects.set(p.id, proposeMachine(cur, image, ctx.actor, input.ports));
+      });
+      touch(ctx, p.id, `proposed a machine “${input.name}”${image ? ` (${image})` : ""}`);
+      return { card: p.id, image: image ?? null, note: "waiting for a person to press Start on the card" };
+    },
+  }),
+  def({
+    name: "machines",
+    description:
+      "Read the machine cards on this board: which engines (Kiri, Docker) answer here, each machine's image, state (absent, pulling, starting, running, stopped, error), published ports as URLs, and the last screen of its shared terminal (what people ran and saw).",
+    schema: z.object({}),
+    run: (ctx) => describeMachines(ctx.boardId),
   }),
   // ---------- design pipelines: design → CAD → simulation → release ----------
   def({
@@ -693,6 +767,113 @@ export const TOOLS: BoardTool[] = [
       return msgs.map((m) => `[${new Date(m.at).toISOString().slice(0, 16).replace("T", " ")}] ${m.name}: ${m.text}`).join("\n") || "(no messages)";
     },
   }),
+  def({
+    name: "add_table",
+    description:
+      "Make a table (a spreadsheet card) in a section, filled with data: a header row of column names, then rows. Cells take numbers, text or formulas as typed (=SUM(B2:B9)). Use it to put data on the board people can read, sort and chart.",
+    schema: z.object({
+      section: z.string().optional(),
+      name: z.string(),
+      columns: z.array(z.string()).min(1).max(26),
+      rows: z.array(z.array(z.union([z.string(), z.number(), z.null()]))).max(500).optional(),
+      request_id: z.string().optional(),
+    }),
+    write: true,
+    run: (ctx, { section, name, columns, rows = [] }) => {
+      const table = editBoard(ctx.boardId, "agent", (doc) => {
+        const sec = cardSection(doc, section);
+        const cols = Math.max(columns.length, ...rows.map((r) => r.length), 3);
+        const t: TableDoc = { id: uid("tbl"), kind: "table", sectionId: sec.id, name, x: 0, y: 0, float: false, bornAt: Date.now(), cols, rows: Math.max(rows.length + 1, 6) };
+        const raw: Record<string, string> = {};
+        columns.forEach((c, i) => c && (raw[`${i},0`] = c));
+        rows.forEach((r, ri) => r.forEach((v, ci) => v !== null && v !== "" && (raw[`${ci},${ri + 1}`] = String(v))));
+        boardMaps(doc).objects.set(t.id, t);
+        setTableCells(doc, t.id, raw); // made with the table, in the same change (schema 5)
+        return t;
+      });
+      touch(ctx, table.id, `made table “${name}” (${rows.length} rows)`);
+      return { id: table.id, cols: table.cols, rows: table.rows };
+    },
+  }),
+  def({
+    name: "rename_section",
+    description: "Rename a section (by its name or id).",
+    schema: z.object({ section: z.string(), name: z.string().min(1).max(80), request_id: z.string().optional() }),
+    write: true,
+    run: (ctx, { section, name }) => {
+      const sec = editBoard(ctx.boardId, "agent", (doc) => {
+        const found = findSection(doc, section);
+        if (!found) throw new Error(`no section “${section}”`);
+        const next = { ...found, name };
+        boardMaps(doc).sections.set(found.id, next);
+        return next;
+      });
+      touch(ctx, undefined, `renamed a section to “${name}”`);
+      const member = crewMember(ctx.crew);
+      if (member) aim(member, { id: sec.id, kind: "section" });
+      return { id: sec.id, name };
+    },
+  }),
+  def({
+    name: "arrange_section",
+    description:
+      "Organize a section: its cards flow left to right, top to bottom, in the order given (ids; cards not named keep their order after them). Floating cards are docked into the flow. Use it to tidy a section after adding to it, or to put related cards side by side.",
+    schema: z.object({ section: z.string(), order: z.array(z.string()).optional(), request_id: z.string().optional() }),
+    write: true,
+    run: (ctx, { section, order = [] }) => {
+      const n = editBoard(ctx.boardId, "agent", (doc) => {
+        const sec = findSection(doc, section);
+        if (!sec) throw new Error(`no section “${section}”`);
+        const m = boardMaps(doc);
+        const cards = [...m.objects.values()].filter((o) => o.sectionId === sec.id && o.id !== sec.host);
+        // the flow is ordered by bornAt: hand the same times out again in the new order (no new times, so nothing re-arrives)
+        const times = cards.map((o) => o.bornAt).sort((a, b) => a - b);
+        const rank = (id: string) => (order.indexOf(id) >= 0 ? order.indexOf(id) : order.length);
+        const sorted = [...cards].sort((a, b) => rank(a.id) - rank(b.id) || a.bornAt - b.bornAt);
+        sorted.forEach((o, i) => {
+          if (o.bornAt !== times[i] || o.float) m.objects.set(o.id, { ...o, bornAt: times[i], float: false } as never);
+        });
+        return sorted.length;
+      });
+      touch(ctx, undefined, `arranged ${n} cards in “${findSection(getBoard(ctx.boardId).doc, section)?.name ?? section}”`);
+      const member = crewMember(ctx.crew);
+      if (member) aim(member, resolveTarget(ctx.boardId, section));
+      return `arranged ${n} cards`;
+    },
+  }),
+  def({
+    name: "bring_view",
+    description:
+      "Bring the person who asked to a section or card: their view glides there (if they're busy moving around, they're asked first, and they can always go back). Use it when what you made or found is somewhere they aren't looking, once it's ready to see. Other people just see you go there.",
+    schema: z.object({ target: z.string().describe("a section name or id, or a card id"), note: z.string().optional().describe("a few words on why: “the parts table is ready”") }),
+    run: (ctx, { target, note }) => {
+      const t = resolveTarget(ctx.boardId, target);
+      if (!t) throw new Error(`nothing called “${target}” on this board`);
+      const member = crewMember(ctx.crew);
+      if (!member) return "only Foundation's own agents can move a person's view; use focus to point instead";
+      const m = boardMaps(getBoard(ctx.boardId).doc);
+      const name = t.kind === "section" ? (m.sections.get(t.id)?.name ?? target) : (m.objects.get(t.id)?.name ?? target);
+      guide(member, t, name, note);
+      return `bringing ${member.userName} to ${name}`;
+    },
+  }),
+  def({
+    name: "call_in_help",
+    description: `Call in a helper agent for a separate part of this ask that can run at the same time as yours (a different section, a different data source). It gets its own name and cursor, works through the same tools and finishes on its own; say exactly what it should do and where. At most two per ask; helpers can't call helpers. Don't use it for small or dependent steps.`,
+    schema: z.object({ task: z.string().min(8).max(2000), section: z.string().optional() }),
+    write: true,
+    run: (ctx, { task, section }) => {
+      const member = crewMember(ctx.crew);
+      if (!member) return "help can only be called in by one of Foundation's own agents";
+      const why = canCallHelp(member);
+      if (why) throw new Error(`can't call in help: ${why}`);
+      if (!helperStarter) throw new Error("no agent runtime to start a helper");
+      member.helpers++;
+      const h = helperStarter(member, section ? `${task}\n\n(Work in the section “${section}”.)` : task);
+      touch(ctx, undefined, `called in ${h.name}: ${task.slice(0, 120)}`);
+      return `${h.name} is on it`;
+    },
+  }),
 ];
 
 export function toolByName(name: string) {
@@ -712,6 +893,14 @@ export async function runTool(ctx: ToolCtx, name: string, rawInput: unknown): Pr
   const rid = (parsed.data as { request_id?: string }).request_id;
   const key = rid ? `${ctx.boardId}:${ctx.userId}:${rid}` : null;
   if (key && seenRequests.has(key)) return seenRequests.get(key);
+  // a visible agent says what it's doing, and goes to what it's about to change before changing it
+  const member = crewMember(ctx.crew);
+  if (member && member.boardId === ctx.boardId) {
+    const input = parsed.data as Record<string, unknown>;
+    const doing = describeStep(name, input, ctx.boardId);
+    if (tool.write) await travel(member, stepTarget(ctx.boardId, name, input), doing);
+    else setDoing(member, doing);
+  }
   const out = await tool.run(ctx, parsed.data);
   if (key) {
     seenRequests.set(key, out);

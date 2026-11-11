@@ -6,8 +6,8 @@
  * docs/reference/details/ascii-cursor-2.js; Foundation's changes are marked
  * "Foundation:" — the export, following the night transition, ?rafshim
  * counting as focus, and the page hooks on `root.asciiWind` (see the .d.ts):
- * stir and tap the field from code, holes the glyphs keep out of, and a
- * dissolve front.
+ * stir and tap the field from code, the page's elements (the glyphs part
+ * around each and trace its outline), and a dissolve front.
  *
  * Mount: put `data-ascii-wind` on a positioned element (it draws a canvas
  * behind its children) and call initAsciiWind2(element). Ink comes from
@@ -631,13 +631,13 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
   uniform float u_time, u_fill, u_flick;
   uniform int u_count;
   uniform vec4 u_cellCss;
-  // Foundation: cells the page keeps for its own characters, and a dissolve front (x, y, radius, band).
-  uniform vec4 u_holes[12];
-  uniform int u_holeCount;
+  // Foundation: the page's elements, which the glyphs part around and trace:
+  // rect (x, y, w, h) and look (corner radius px, clear gap, lit depth, light),
+  // gaps in columns, as rows are twice as tall. And a dissolve front (x, y, radius, band).
+  uniform vec4 u_shapes[12];
+  uniform vec4 u_looks[12];
+  uniform int u_shapeCount;
   uniform vec4 u_dissolve;
-  // Foundation: a frame drawn in the field's own glyphs: rect (x, y, w, h) and ring (depth x, depth y, light)
-  uniform vec4 u_frame;
-  uniform vec3 u_ring;
   out float v_ring;
   out vec2 v_shift;
   out vec4 v_box;
@@ -671,14 +671,30 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
       return;
     }
 
-    // Foundation: holes and the dissolve front
+    // Foundation: the page's shapes and the dissolve front
     vec2 cellAt = u_cellCss.xy + vec2(cell) * u_cellCss.zw;
+    vec2 columnsOf = vec2(1.0, u_cellCss.z / u_cellCss.w);
+    float ring = 0.0;
     for (int index = 0; index < 12; index++) {
-      if (index >= u_holeCount) break;
-      vec4 hole = u_holes[index];
-      if (cellAt.x > hole.x && cellAt.x < hole.x + hole.z && cellAt.y > hole.y && cellAt.y < hole.y + hole.w) {
+      if (index >= u_shapeCount) break;
+      vec4 shape = u_shapes[index];
+      vec4 look = u_looks[index];
+      vec2 halfSize = 0.5 * shape.zw;
+      float radius = min(look.x, min(halfSize.x, halfSize.y));
+      vec2 q = abs(cellAt - shape.xy - halfSize) - halfSize + radius;
+      vec2 beyond = max(q, 0.0);
+      float reach = length(beyond);
+      float distanceOut = reach + min(max(q.x, q.y), 0.0) - radius;
+      vec2 normal = reach > 0.0 ? beyond / reach : (q.x > q.y ? vec2(1.0, 0.0) : vec2(0.0, 1.0));
+      float gap = distanceOut * length(normal * columnsOf);
+      if (gap < look.y) {
         hideGlyph();
         return;
+      }
+      float into = gap - look.y;
+      if (look.w > 0.0 && into < look.z) {
+        ring = max(ring, look.w * (1.0 - 0.6 * smoothstep(0.0, look.z, into))
+          * (0.6 + 0.4 * random01(hash32(identity ^ 0x2Fu))));
       }
     }
     float flare = 0.0;
@@ -690,14 +706,6 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
         return;
       }
       flare = 1.0 - smoothstep(0.0, 0.6 * u_dissolve.w, past);
-    }
-
-    float ring = 0.0;
-    if (u_ring.z > 0.0) {
-      vec2 outside = max(max(u_frame.xy - cellAt, cellAt - (u_frame.xy + u_frame.zw)), vec2(0.0));
-      bool near = outside.x < u_ring.x && outside.y < u_ring.y;
-      bool inside = cellAt.x > u_frame.x && cellAt.x < u_frame.x + u_frame.z && cellAt.y > u_frame.y && cellAt.y < u_frame.y + u_frame.w;
-      if (near && !inside) ring = u_ring.z * (0.55 + 0.45 * random01(hash32(identity ^ 0x2Fu)));
     }
 
     uint timing = hash32(identity);
@@ -1152,7 +1160,7 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
       if (!framebuffer) { destroy(); return; }
       gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
       const field = Object.fromEntries(['u_seed', 'u_tail', 'u_sweep', 'u_morph', 'u_wind', 'u_gust', 'u_shape', 'u_time', 'u_reveal', 'u_sampleCss', 'u_originCss', 'u_paneCss', 'u_canvasCss', 'u_now', 'u_tapCount', 'u_taps', 'u_wakeCount', 'u_wakes', 'u_ways'].map(name => [name, gl.getUniformLocation(fieldProgram, name)]));
-      const glyph = Object.fromEntries(['u_wind', 'u_atlas', 'u_boxes', 'u_sequence', 'u_seed', 'u_fill', 'u_flick', 'u_friction', 'u_glowAmount', 'u_time', 'u_count', 'u_grid', 'u_cellCss', 'u_cell', 'u_buffer', 'u_color', 'u_glowColor', 'u_inkAlpha', 'u_now', 'u_tapCount', 'u_taps', 'u_holes', 'u_holeCount', 'u_dissolve', 'u_frame', 'u_ring'].map(name => [name, gl.getUniformLocation(glyphProgram, name)]));
+      const glyph = Object.fromEntries(['u_wind', 'u_atlas', 'u_boxes', 'u_sequence', 'u_seed', 'u_fill', 'u_flick', 'u_friction', 'u_glowAmount', 'u_time', 'u_count', 'u_grid', 'u_cellCss', 'u_cell', 'u_buffer', 'u_color', 'u_glowColor', 'u_inkAlpha', 'u_now', 'u_tapCount', 'u_taps', 'u_shapes', 'u_looks', 'u_shapeCount', 'u_dissolve'].map(name => [name, gl.getUniformLocation(glyphProgram, name)]));
       gl.useProgram(fieldProgram);
       gl.uniform1ui(field.u_seed, profile.seed);
       gl.uniform1f(field.u_tail, config.wind.tail);
@@ -1195,7 +1203,7 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
       let backoff = 0;
       let suspended = false;
       // Foundation: what the page asked for (css px in the root's box)
-      const page = { holeCount: 0, holes: new Float32Array(48), dissolve: new Float32Array(4), frame: new Float32Array(4), ring: new Float32Array(3) };
+      const page = { shapeCount: 0, shapes: new Float32Array(48), looks: new Float32Array(48), dissolve: new Float32Array(4) };
       let retryDelay = power.retryS;
       let lateSamples = [];
       let slowFrames = 0;
@@ -1273,12 +1281,13 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
           gl.useProgram(glyphProgram);
           gl.uniform1f(glyph.u_time, windTime);
           sendTouch(glyph, input);
-          // Foundation: the page's holes and dissolve
-          gl.uniform1i(glyph.u_holeCount, page.holeCount);
-          if (page.holeCount) gl.uniform4fv(glyph.u_holes, page.holes);
+          // Foundation: the page's shapes and dissolve
+          gl.uniform1i(glyph.u_shapeCount, page.shapeCount);
+          if (page.shapeCount) {
+            gl.uniform4fv(glyph.u_shapes, page.shapes);
+            gl.uniform4fv(glyph.u_looks, page.looks);
+          }
           gl.uniform4fv(glyph.u_dissolve, page.dissolve);
-          gl.uniform4fv(glyph.u_frame, page.frame);
-          gl.uniform3fv(glyph.u_ring, page.ring);
           gl.drawArrays(gl.TRIANGLES, 0, 6 * grid.columns * grid.rows);
           drawCount += 1;
           if (drawCount % 4 === 0) {
@@ -1514,16 +1523,15 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
       root.asciiWind = {
         tap(x, y, force = 1) { touch.tap(x, y, now(), force); wake(); refresh(); },
         stir(x, y, wayX, wayY, force = 0.5) { touch.push(x, y, wayX, wayY, force, now()); wake(); refresh(); },
-        holes(rects) {
-          const list = rects.slice(0, 12);
-          page.holeCount = list.length;
-          page.holes.fill(0);
-          list.forEach((r, index) => page.holes.set([r.x, r.y, r.width, r.height], index * 4));
-          draw();
-        },
-        frame(rect, depthX = 0, depthY = 0, light = 0) {
-          if (rect) page.frame.set([rect.x, rect.y, rect.width, rect.height]);
-          page.ring.set(rect ? [depthX, depthY, light] : [0, 0, 0]);
+        shapes(list) {
+          const shown = list.slice(0, 12);
+          page.shapeCount = shown.length;
+          page.shapes.fill(0);
+          page.looks.fill(0);
+          shown.forEach((shape, index) => {
+            page.shapes.set([shape.x, shape.y, shape.width, shape.height], index * 4);
+            page.looks.set([shape.radius ?? 0, shape.gap ?? 0, shape.depth ?? 0, shape.light ?? 0], index * 4);
+          });
           draw();
         },
         dissolve(x, y, radius, band) {

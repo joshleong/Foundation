@@ -23,6 +23,7 @@ export type BoardRole = "admin" | "member" | "viewer";
 /** tools that only look, which a viewer may use */
 export const READ_TOOLS = new Set([
   "read_board",
+  "machines",
   "search",
   "company",
   "read_file",
@@ -34,6 +35,7 @@ export const READ_TOOLS = new Set([
   "slack_read",
   "set_plan", // shows the session's plan; writes nothing to the board
   "find_images",
+  "bring_view", // moves the asker's own view; changes nothing on the board
 ]);
 
 function accountRole(userId: string): BoardRole {

@@ -49,7 +49,10 @@ const PROVIDER = { instanceId: "claudeAgent", model: process.env.T3_MODEL ?? "cl
 
 function cli(args: string[]): Promise<string> {
   return new Promise((ok, fail) => {
-    const child = spawn(t3Cli(), [...args, "--base-dir", T3_HOME, "--log-level", "error"], { stdio: ["ignore", "pipe", "pipe"] });
+    // a CLI given as a script runs under this Node: Windows can't start a #! file itself (the tests' stand-in is one)
+    const bin = t3Cli();
+    const [cmd, pre] = /\.[cm]?js$/.test(bin) ? [process.execPath, [bin]] : [bin, []];
+    const child = spawn(cmd, [...pre, ...args, "--base-dir", T3_HOME, "--log-level", "error"], { stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     let err = "";
     child.stdout.on("data", (b: Buffer) => (out += b));

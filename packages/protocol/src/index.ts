@@ -161,6 +161,54 @@ export interface PanelDoc extends ObjectBaseDoc {
   checklist?: Array<{ text: string; done: boolean }>;
   /** stage-specific settings, e.g. { analysis: "CFD", loads: "…" } */
   settings?: Record<string, string>;
+  // ---- machines on a container engine (panel === "machine" without a url) ----
+  /** a Linux machine or container this card runs on Kiri or Docker, kept by the server (machines.ts) */
+  machine?: MachineState;
+}
+
+// ---------- machines: Linux machines and containers on a local engine ----------
+
+/**
+ * A machine card's engine-side state. The engine is the truth: the server
+ * reads it back (by the container's labels) and writes what it finds here,
+ * so everyone sees the same state. Starting needs a person; agents propose.
+ */
+export interface MachineState {
+  /** machine name; the container is `machine-<name>` (Kiri's convention, so `kiri machine shell <name>` finds it) */
+  name: string;
+  /** image it runs ("ubuntu:24.04"): picked by a person on the card, or proposed by an agent */
+  image?: string;
+  /** "kiri" | "docker"; unset: the first engine that answers, Kiri first */
+  engine?: string;
+  state: "absent" | "pulling" | "starting" | "running" | "stopped" | "error";
+  /** words for the state: pull progress, why it stopped, the error */
+  detail?: string;
+  containerId?: string;
+  /** container ports to publish on 127.0.0.1 */
+  wantPorts?: number[];
+  /** what the engine published: container port → host port on 127.0.0.1 */
+  ports?: Array<{ port: number; host: number }>;
+  proposedBy?: string;
+  startedBy?: string;
+  /** when it entered this state */
+  since?: number;
+}
+
+/** Kiri's distro shortcuts (`kiri machine create NAME --distro ubuntu`): these images become long-lived machines */
+export const MACHINE_DISTROS: ReadonlyArray<{ id: string; image: string }> = [
+  { id: "ubuntu", image: "ubuntu:24.04" },
+  { id: "debian", image: "debian:trixie" },
+  { id: "alpine", image: "alpine:3.22" },
+  { id: "fedora", image: "fedora:42" },
+  { id: "arch", image: "archlinux:latest" },
+  { id: "rocky", image: "rockylinux:9" },
+  { id: "opensuse", image: "opensuse/tumbleweed:latest" },
+];
+
+/** a machine name: letters, digits and dashes, not starting with a dash (Kiri's rule), at most 40 */
+export function machineName(s: string): string {
+  const n = s.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+  return n || "machine";
 }
 
 // ---------- huddles: video portals on the board ----------
@@ -513,6 +561,10 @@ export function describeBoard(doc: Y.Doc): string {
 export type AgentEvent =
   /** first on every stream: the run it belongs to (reattach with GET /api/agent/runs/:id/events) */
   | { type: "run"; id: string }
+  /** the visible agent doing this run: its generated name, hue (0–5) and, for a helper, who called it in */
+  | { type: "crew"; id: string; name: string; hue: number; lead?: string; leadName?: string }
+  /** a helper this run called in: its own run and session, so its tab can be opened */
+  | { type: "helper"; name: string; runId: string; session: string }
   | { type: "text"; text: string }
   | { type: "tool"; name: string; input: unknown }
   | { type: "tool_result"; name: string; ok: boolean; summary: string }
@@ -525,8 +577,10 @@ export type AgentEvent =
  * - "subscription": Claude Code on this machine (`claude -p`), the T3-style
  *   session mechanism — the user's plan pays, never an API key.
  * - "api": the Anthropic API with the workspace key (credits).
+ * - "script": a fixed playbook for tests and e2e (FOUNDATION_AGENT_SCRIPT=1
+ *   only): the same tools, no model.
  */
-export type AgentRuntime = "subscription" | "api";
+export type AgentRuntime = "subscription" | "api" | "script";
 
 export interface SearchHit {
   source: "board" | "file" | "slack" | "github" | "app" | "activity" | "huddle";

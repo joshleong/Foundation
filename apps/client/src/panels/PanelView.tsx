@@ -25,6 +25,7 @@ import { StageBody } from "./StageView";
 import { onConnectorChange } from "../lib/connectorEvents";
 import { HuddleBody } from "./HuddleView";
 import { SlackBody } from "./SlackView";
+import { MachineBody } from "./MachineView";
 
 interface Props {
   panel: PanelMeta;
@@ -84,7 +85,9 @@ export const PanelView = memo(function PanelView({ panel, pos, isActive, getScal
   const extras = <PanelActions panel={panel} />;
 
   const body =
-    panel.panel === "app" || panel.panel === "link" || panel.panel === "machine" ? (
+    panel.panel === "machine" && panel.machine ? (
+      <MachineBody panel={panel} />
+    ) : panel.panel === "app" || panel.panel === "link" || panel.panel === "machine" ? (
       <LiveFrame panel={panel} />
     ) : panel.panel === "file" ? (
       <FilePreview panel={panel} />

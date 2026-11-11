@@ -29,6 +29,9 @@ import { runTool, TOOLS, type ToolCtx } from "./tools.ts";
 import { canWrite } from "./roles.ts";
 import { createSession, revokeSession } from "./auth.ts";
 import { logActivity } from "@foundation/protocol";
+import { joinCrew, leaveCrew, setDoing, type CrewMember } from "./crew.ts";
+import { setHelperStarter } from "./tools.ts";
+import { runScript } from "./script.ts";
 
 const SYSTEM = `You are the Foundation agent — the company brain of Form Industries, living inside Foundation, a shared grid where the team keeps its projects, files, designs, running apps and agents together.
 
@@ -44,7 +47,13 @@ How you work:
 - When a design needs CAD or a decision you don't have, use ask_person rather than guessing.
 - Building pages: when asked to lay out, gather, or make a board, page or document of things ("lay out all the images from Slack about the Airform PTHP"), call find_images, choose what belongs, then lay_out with a fitting style (grid for a set, board for a mood board, document to be read top to bottom with captions, timeline when the order in time matters) and a short intro. Say how many you placed and where, and what you couldn't search (e.g. Slack not connected).
 - For work with more than one step, call set_plan first (the goal and the steps), and again as each step starts and finishes, so the person can follow along in the session tab.
-- Be brief and concrete. No preamble.`;
+- Be brief and concrete. No preamble.
+
+You are one of the crew: people see you on the board as a named cursor (your name is in <you>), moving to whatever you're working on, and every change you make is signed with your name. So work in the open:
+- Go where the work is. Each write moves your cursor there first; make things in the section they belong to.
+- Make the primitives the ask needs: sections (add_section, rename_section), notes, tables with real data (add_table), live panels and company connectors as data sources (add_panel, connect), and organize what's there (update_card to move a card, arrange_section to tidy a section's order).
+- When what you made is somewhere the person isn't looking, finish with bring_view on it (once, at the end; not for every step).
+- If the ask has parts that can run at the same time in different places (a second data source, a separate section), call_in_help with exact instructions for one part, and do the rest yourself. Most asks need no helper.`;
 
 const histories = new Map<string, Anthropic.MessageParam[]>();
 const claudeSessions = new Map<string, string>();
@@ -70,6 +79,8 @@ export function runtimes() {
 }
 
 export function pickRuntime(requested?: string): AgentRuntime | null {
+  // tests and e2e: a fixed playbook through the same tools, no model (never set in a real deployment)
+  if (process.env.FOUNDATION_AGENT_SCRIPT === "1") return "script";
   const r = runtimes();
   if (requested === "api") return r.api ? "api" : null;
   if (requested === "subscription") return r.subscription ? "subscription" : null;
@@ -84,6 +95,8 @@ export async function runAgent(opts: {
   /** the session tab this turn belongs to: its own conversation (default: the person's one per board) */
   session?: string;
   runId?: string;
+  /** the visible agent doing this run */
+  crew?: CrewMember;
   emit: (e: AgentEvent) => void;
   signal: AbortSignal;
 }) {
@@ -100,8 +113,9 @@ export async function runAgent(opts: {
     "insert into agent_runs (id, board_id, runtime, prompt, status, created_by, created_at, session_id) values (?, ?, ?, ?, 'running', ?, ?, ?)",
     runId, opts.boardId, runtime, opts.prompt, opts.user.id, Date.now(), opts.session ?? null,
   );
-  // a viewer's question isn't a change to the board, so it doesn't go in its activity
-  if (canWrite(opts.user.id, opts.boardId)) editBoard(opts.boardId, "agent", (doc) => logActivity(doc, { who: opts.user.name, role: "human", text: `asked the agent: ${opts.prompt.slice(0, 140)}` }));
+  // a viewer's question isn't a change to the board, so it doesn't go in its activity;
+  // a helper's brief isn't the person's ask (call_in_help logs it, signed by the lead)
+  if (!opts.crew?.lead && canWrite(opts.user.id, opts.boardId)) editBoard(opts.boardId, "agent", (doc) => logActivity(doc, { who: opts.user.name, role: "human", text: `asked the agent: ${opts.prompt.slice(0, 140)}` }));
   const transcript: AgentEvent[] = [];
   // the transcript is saved as the turn runs, so a reload mid-turn replays it
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -123,6 +137,7 @@ export async function runAgent(opts: {
   };
   try {
     if (runtime === "api") await runApi(opts, emit);
+    else if (runtime === "script") await runScript(opts, emit, { boardId: opts.boardId, actor: opts.crew?.name ?? "Foundation Agent", userId: opts.user.id, crew: opts.crew?.id });
     else await runSubscription(opts, emit, runId);
     finish(opts.signal.aborted ? "stopped" : "done");
   } catch (e) {
@@ -130,6 +145,11 @@ export async function runAgent(opts: {
     emit({ type: "error", message: (e as Error).message });
     finish("error");
   }
+}
+
+/** who the agent is, for the prompt */
+function youTag(crew?: CrewMember) {
+  return crew ? `\n\n<you name="${crew.name}"${crew.lead ? ` called_in_by="${crew.lead.name}"` : ""} />` : "";
 }
 
 const newRunId = () => `run_${randomBytes(6).toString("hex")}`;
@@ -148,7 +168,7 @@ interface LiveRun {
 }
 const live = new Map<string, LiveRun>();
 
-export function startRun(opts: Omit<Parameters<typeof runAgent>[0], "emit" | "signal" | "runId">): LiveRun {
+export function startRun(opts: Omit<Parameters<typeof runAgent>[0], "emit" | "signal" | "runId" | "crew"> & { lead?: CrewMember }): LiveRun {
   const r: LiveRun = { id: newRunId(), userId: opts.user.id, events: [], listeners: new Set(), done: false, ctrl: new AbortController() };
   live.set(r.id, r);
   const emit = (e: AgentEvent) => {
@@ -157,15 +177,57 @@ export function startRun(opts: Omit<Parameters<typeof runAgent>[0], "emit" | "si
     else r.events.push(e);
     for (const fn of r.listeners) fn(e);
   };
-  emit({ type: "run", id: r.id });
-  void runAgent({ ...opts, runId: r.id, emit, signal: r.ctrl.signal }).finally(() => {
+  const end = () => {
     r.done = true;
     for (const fn of r.listeners) fn({ type: "status", status: "ended" });
     r.listeners.clear();
-    setTimeout(() => live.delete(r.id), 60_000);
+    setTimeout(() => live.delete(r.id), 60_000).unref?.();
+  };
+  emit({ type: "run", id: r.id });
+  // every turn is someone you can see: a name, a colour, a cursor on the board
+  let crew: CrewMember;
+  try {
+    crew = joinCrew({ boardId: opts.boardId, userId: opts.user.id, userName: opts.user.name, runId: r.id, task: opts.prompt, lead: opts.lead });
+  } catch (e) {
+    emit({ type: "error", message: (e as Error).message });
+    end();
+    return r;
+  }
+  crewUsers.set(crew.id, opts.user);
+  emit({ type: "crew", id: crew.id, name: crew.name, hue: crew.hue, lead: crew.lead?.id, leadName: crew.lead?.name });
+  const prompt = `${opts.lead ? `You were called in by ${opts.lead.name} to help with ${opts.user.name}'s ask. Your part:\n\n` : ""}${opts.prompt}`;
+  let failed = false;
+  const watch = (e: AgentEvent) => {
+    if (e.type === "error") failed = true;
+    emit(e);
+  };
+  void runAgent({ ...opts, prompt, crew, runId: r.id, emit: watch, signal: r.ctrl.signal }).finally(() => {
+    leaveCrew(crew, r.ctrl.signal.aborted ? "stopped" : failed ? "error" : "done");
+    crewUsers.delete(crew.id);
+    end();
   });
   return r;
 }
+
+const crewUsers = new Map<string, UserInfo>();
+
+// a lead's call_in_help: a run of its own (its own name, cursor and session tab), for the same person
+setHelperStarter((lead, task) => {
+  const user = crewUsers.get(lead.id);
+  if (!user) throw new Error("the agent that called for help has finished");
+  const session = `ses_${randomBytes(6).toString("hex")}`;
+  const h = startRun({ boardId: lead.boardId, user, prompt: task, session, lead });
+  const crewEv = h.events.find((e): e is Extract<AgentEvent, { type: "crew" }> => e.type === "crew");
+  if (!crewEv) throw new Error((h.events.find((e) => e.type === "error") as { message?: string } | undefined)?.message ?? "no helper started");
+  setDoing(lead, `called in ${crewEv.name}`);
+  const leadRun = live.get(lead.runId);
+  if (leadRun) {
+    const ev: AgentEvent = { type: "helper", name: crewEv.name, runId: h.id, session };
+    leadRun.events.push(ev);
+    for (const fn of leadRun.listeners) fn(ev);
+  }
+  return { name: crewEv.name, runId: h.id };
+});
 
 /** a run this person may watch: replay what happened, then follow; returns a detach */
 export function followRun(id: string, userId: string, send: (e: AgentEvent) => void, end: () => void): (() => void) | null {
@@ -212,9 +274,9 @@ async function runApi(opts: Parameters<typeof runAgent>[0], emit: (e: AgentEvent
   const history = histories.get(key) ?? [];
   history.push({
     role: "user",
-    content: `${opts.prompt}\n\n<board name="${opts.boardId}" person="${opts.user.name}"${canWrite(opts.user.id, opts.boardId) ? "" : ' access="view only — read and answer; do not try to change the board"'}>\n${boardDigest(opts.boardId)}\n</board>`,
+    content: `${opts.prompt}${youTag(opts.crew)}\n\n<board name="${opts.boardId}" person="${opts.user.name}"${canWrite(opts.user.id, opts.boardId) ? "" : ' access="view only — read and answer; do not try to change the board"'}>\n${boardDigest(opts.boardId)}\n</board>`,
   });
-  const ctx: ToolCtx = { boardId: opts.boardId, actor: "Foundation Agent", userId: opts.user.id };
+  const ctx: ToolCtx = { boardId: opts.boardId, actor: opts.crew?.name ?? "Foundation Agent", userId: opts.user.id, crew: opts.crew?.id };
   const tools = apiTools();
   let usage = { input: 0, output: 0 };
 
@@ -279,14 +341,14 @@ async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: A
       mcpServers: {
         foundation: {
           type: "http",
-          url: `http://${config.host}:${config.port}/mcp?board=${encodeURIComponent(opts.boardId)}`,
+          url: `http://${config.host}:${config.port}/mcp?board=${encodeURIComponent(opts.boardId)}${opts.crew ? `&crew=${encodeURIComponent(opts.crew.id)}` : ""}`,
           headers: { Authorization: `Bearer ${token}` },
         },
       },
     }),
     { mode: 0o600 },
   );
-  const prompt = `${opts.prompt}\n\n<board name="${opts.boardId}" person="${opts.user.name}"${canWrite(opts.user.id, opts.boardId) ? "" : ' access="view only — read and answer; do not try to change the board"'}>\n${boardDigest(opts.boardId)}\n</board>`;
+  const prompt = `${opts.prompt}${youTag(opts.crew)}\n\n<board name="${opts.boardId}" person="${opts.user.name}"${canWrite(opts.user.id, opts.boardId) ? "" : ' access="view only — read and answer; do not try to change the board"'}>\n${boardDigest(opts.boardId)}\n</board>`;
   const argv = [
     "-p",
     prompt,

@@ -10,6 +10,7 @@ import { rememberMe, whoAmI } from "./lib/api";
 import "./App.css";
 import "./shell/shell.css";
 import "./panels/live.css";
+import "./shell/crew.css";
 
 initNight();
 

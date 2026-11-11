@@ -3,7 +3,11 @@
 //
 //   npm run dev       the server (:4410) and the web client (:1430) → open http://localhost:1430
 //   npm run desktop   the server and the desktop window (Tauri starts the client itself; needs Rust)
+//
+// Both also start Kiri, the engine machines run on, if it is installed (npm run kiri:install
+// installs it; FOUNDATION_KIRI=0 leaves it alone). It runs on after Foundation stops, as Docker would.
 import { spawn } from "node:child_process";
+import { startKiri } from "./kiri.mjs";
 
 const win = process.platform === "win32";
 const desktop = process.argv.includes("--desktop");
@@ -52,3 +56,16 @@ console.log(
     ? "\n  Foundation → the desktop window opens once the client is built  (server http://localhost:4410)\n"
     : "\n  Foundation → http://localhost:1430  (server http://localhost:4410)\n",
 );
+
+// Kiri alongside, without holding anything up: machines find it once it answers
+if (process.env.FOUNDATION_KIRI !== "0") {
+  const tag = "\x1b[33mkiri   \x1b[0m │ ";
+  startKiri({ log: (s) => console.log(tag + s.replace(/^kiri: /, "")) })
+    .then((s) => {
+      if (s === "running") console.log(`${tag}already running`);
+      else if (s === "started") console.log(`${tag}up: machines run on Kiri`);
+      else if (s === "not-installed") console.log(`${tag}not installed (npm run kiri:install); machines use Docker if it runs`);
+      else console.log(tag + s);
+    })
+    .catch((e) => console.log(`${tag}${e.message}`));
+}

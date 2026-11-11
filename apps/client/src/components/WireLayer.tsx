@@ -179,8 +179,8 @@ export function WireLayer() {
         }
         g.style.display = "";
         const activeRebind = rebind.current?.edgeKey === edge.key ? rebind.current : null;
-        const start = { x: ra.x + ra.w, y: ra.y + ATTACH_Y };
-        const end = activeRebind ? { x: activeRebind.x, y: activeRebind.y } : { x: rb.x, y: rb.y + ATTACH_Y };
+        const start = { x: ra.x + ra.w, y: ra.y + ATTACH_Y * ra.s };
+        const end = activeRebind ? { x: activeRebind.x, y: activeRebind.y } : { x: rb.x, y: rb.y + ATTACH_Y * rb.s };
         const routeOpts = {
           src: ra,
           dst: activeRebind ? null : rb,

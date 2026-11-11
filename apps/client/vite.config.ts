@@ -24,6 +24,7 @@ export default defineConfig(async () => ({
       "/mcp": { target: server, changeOrigin: false },
       "/sync": { target: server.replace(/^http/, "ws"), ws: true, changeOrigin: false },
       "/huddle": { target: server.replace(/^http/, "ws"), ws: true, changeOrigin: false },
+      "/machines": { target: server.replace(/^http/, "ws"), ws: true, changeOrigin: false },
     },
   },
 }));

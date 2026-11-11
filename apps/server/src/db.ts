@@ -135,6 +135,32 @@ create table if not exists agent_runs (
   finished_at integer
 );
 
+-- Who may open a board. A board with no rows is open to every signed-in
+-- person (the company board); a board with rows is members-only (admins and
+-- the service token always pass). Roles are flowform's room roles.
+create table if not exists board_members (
+  board_id text not null,
+  user_id text not null references users(id) on delete cascade,
+  role text not null check (role in ('owner', 'editor', 'viewer')),
+  source text not null default 'foundation',
+  added_at integer not null,
+  primary key (board_id, user_id)
+);
+create index if not exists board_members_user on board_members(user_id);
+
+-- The flowform importer's ledger: what each flowform thing became here, the
+-- hash of the source it was made from, and the hash of what was written (a
+-- re-run only rewrites what nobody has changed in Foundation since).
+create table if not exists flowform_imports (
+  kind text not null,
+  flowform_id text not null,
+  foundation_id text not null,
+  source_hash text not null,
+  written_hash text,
+  imported_at integer not null,
+  primary key (kind, flowform_id)
+);
+
 create table if not exists jobs (
   id text primary key,
   kind text not null,

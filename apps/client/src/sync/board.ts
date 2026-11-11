@@ -66,6 +66,27 @@ export interface PeerState {
   user: { name: string; color: string; email?: string; agent?: boolean };
   cursor?: { x: number; y: number } | null;
   focus?: string | null;
+  /** one of the crew: a visible agent the server runs (apps/server/src/crew.ts) */
+  crew?: CrewPresence;
+}
+
+export interface CrewPresence {
+  id: string;
+  /** 0–5: which of the crew colours (--color-crew-n) */
+  hue: number;
+  /** the person who asked (user id) and their name */
+  asker: string;
+  askerName: string;
+  /** the agent that called this one in */
+  lead?: string;
+  leadName?: string;
+  task: string;
+  doing: string;
+  target: { id: string; kind: "object" | "section" } | null;
+  /** bring the person `to` (the asker) to `target`; a new nonce is a new ask */
+  guide: { to: string; target: { id: string; kind: "object" | "section" }; name: string; note?: string; nonce: number } | null;
+  status: "working" | "done" | "stopped" | "error";
+  at: number;
 }
 
 /** someone else writing in a note: their selection (from === to for a bare caret) */
@@ -431,7 +452,7 @@ class BoardSync {
     const st = getState();
     const sections: Record<string, Section> = {};
     for (const s of boardMaps(this.doc).sections.values()) {
-      sections[s.id] = { ...s, scroll: st.sections[s.id]?.scroll ?? { x: 0, y: 0 } };
+      sections[s.id] = { ...s };
     }
     const partial: Partial<AppState> = { sections };
     if (!sections[st.activeSectionId]) {
