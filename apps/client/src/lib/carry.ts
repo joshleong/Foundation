@@ -77,8 +77,8 @@ export function startCarry(id: string, anchor: HTMLElement, card: HTMLElement, c
   let lean = 0;
   let lastX = clientX;
   let lastT = performance.now();
-  // a card in an expanded section stays in it (the section is a grid of its own)
-  const pinned = !home || getState().expandedSection === home;
+  // a card seen in miniature (inside a section that is a grid) moves only within its own section there
+  const pinned = !home || !getState().sections[home];
 
   const lift = () => {
     const r = card.getBoundingClientRect();

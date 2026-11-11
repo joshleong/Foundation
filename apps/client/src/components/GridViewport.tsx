@@ -25,6 +25,7 @@ import {
   setActiveSection,
   setFocusGrid,
   trackOffsets,
+  isGridSection,
   levelUp,
 } from "../state/store";
 import { SectionView } from "./SectionView";
@@ -69,7 +70,9 @@ export const FLOOR_FADE = 56;
 function sectionFocusRect(grid: Parameters<typeof sectionCardRect>[0], s: Parameters<typeof sectionCardRect>[1]): Rect {
   const card = sectionCardRect(grid, s);
   // an open section is framed by its width from the top; the wheel reads on down
-  if (getState().expandedSection === s.id) return { ...card, h: Math.min(card.h, card.w * 0.7) };
+  if (getState().expandedSection === s.id || s.virtual) return { ...card, h: Math.min(card.h, card.w * 0.7) };
+  // a section that is a grid of sections: all of it, the way its miniature shows it
+  if (isGridSection(s.id)) return card;
   const objs = objectsInSection(s.id)
     .map((o) => objectWorldRect(o))
     .filter((r): r is NonNullable<typeof r> => Boolean(r));

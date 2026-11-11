@@ -914,7 +914,9 @@ function settleLevels(prev: AppState, next: AppState, partial: Partial<AppState>
   let level = next.level;
   while (level && !next.allSections[level]) level = prev.allSections[level]?.parent ?? null;
   if (level !== next.level) next = { ...next, level };
-  const viewEdit = local && ("sections" in partial || "grid" in partial) && next.level === prev.level;
+  // an edit to what's in view: made here, or handed in whole as one level (not the whole board's sections)
+  const viewEdit =
+    ("sections" in partial || "grid" in partial) && next.level === prev.level && (local || !("allSections" in partial || "grids" in partial));
   if (!viewEdit) {
     if (next.level === prev.level && next.allSections === prev.allSections && next.grids === prev.grids && !("level" in partial)) return next;
     const view = levelView(next, next.level);
@@ -969,7 +971,7 @@ function settleLevels(prev: AppState, next: AppState, partial: Partial<AppState>
   }
   for (const s of Object.values(sections)) {
     if (s.virtual) continue;
-    all[s.id] = L ? { ...s, parent: L } : withoutParent(s);
+    all[s.id] = (s.parent ?? null) === L ? s : L ? { ...s, parent: L } : withoutParent(s);
   }
   // an opened section's tracks are kept once they change, or once its cards became a section of their own
   if (out.grid !== prev.grid || materialized || (!L && !grids[ROOT])) grids[L ?? ROOT] = out.grid;
@@ -997,7 +999,15 @@ function settleLevels(prev: AppState, next: AppState, partial: Partial<AppState>
     }
   }
   // (virtual sections never enter the whole; the view keeps a materialised one as real)
-  return { ...out, allSections: all, grids };
+  // the view holds the same section objects as the whole (with their parent), the opened section's own cards aside
+  const view: Record<string, Section> = {};
+  let viewChanged = false;
+  for (const [id, s] of Object.entries(out.sections)) {
+    const v = s.virtual ? s : (all[id] ?? s);
+    if (v !== s) viewChanged = true;
+    view[id] = v;
+  }
+  return { ...out, sections: viewChanged ? view : out.sections, allSections: all, grids };
 }
 
 function withoutParent(s: Section): Section {

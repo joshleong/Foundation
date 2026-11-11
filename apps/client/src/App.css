@@ -322,6 +322,26 @@ body.is-connecting .section-tools,
   background-size: 28px 28px;
 }
 
+/* A section that is a grid of sections draws that grid in miniature in its
+   body (SectionView MiniGrid): its sections, scaled to fit, as a preview.
+   Double-click opens it full-screen. The sections inside keep their own paper. */
+.mini-grid {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+.section-card.is-mini {
+  cursor: zoom-in;
+}
+.section-card.is-mini .section-header {
+  cursor: zoom-in;
+}
+.section-card.is-grid > .section-body {
+  /* the inner sections carry the dots; between them, the section's paper is plain */
+  background-image: none;
+}
+
 .section-content {
   position: absolute;
   left: 0;

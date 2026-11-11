@@ -23,6 +23,7 @@ import {
   describeBoard,
   findSection,
   isHostable,
+  leafSectionOf,
   logActivity,
   MACHINE_DISTROS,
   noteTextOf,
@@ -132,13 +133,14 @@ const PANEL_SIZES: Record<PanelKind, [number, number]> = {
 };
 
 function sectionOrCreate(doc: Y.Doc, section?: string) {
+  // a section that is a grid of sections holds no cards itself: its first section does
   if (section) {
     const found = findSection(doc, section);
-    if (found) return found;
+    if (found) return leafSectionOf(doc, found);
     return appendSection(doc, section);
   }
-  const first = [...boardMaps(doc).sections.values()][0];
-  return first ?? appendSection(doc, "Workspace");
+  const first = [...boardMaps(doc).sections.values()].find((s) => !s.parent);
+  return first ? leafSectionOf(doc, first) : appendSection(doc, "Workspace");
 }
 
 /**

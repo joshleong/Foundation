@@ -548,11 +548,12 @@ export function readTracks(doc: Y.Doc): GridTracks {
   );
 }
 
-/** Add a section as a new column on the right edge of the grid (agents use this). */
+/** Add a section as a new column on the right edge of the board's grid (agents use this). */
 export function appendSection(doc: Y.Doc, name: string): SectionDoc {
   const m = boardMaps(doc);
   const tracks = readTracks(doc);
-  const sections = [...m.sections.values()];
+  // the board's own grid: sections inside a section count in that section's tracks, not these
+  const sections = [...m.sections.values()].filter((s) => !s.parent);
   let sec: SectionDoc;
   if (sections.length === 0) {
     sec = { id: uid("sec"), name, c0: 0, r0: 0, c1: 0, r1: tracks.rows.length - 1 };
@@ -564,6 +565,34 @@ export function appendSection(doc: Y.Doc, name: string): SectionDoc {
   }
   m.sections.set(sec.id, sec);
   return sec;
+}
+
+/**
+ * Where a card for this section really goes (2026-11-11: sections are grids
+ * within themselves): the section itself, or, when it holds sections, its
+ * first one (top-left first), as deep as it goes.
+ */
+export function leafSectionOf(doc: Y.Doc, sec: SectionDoc): SectionDoc {
+  const all = [...boardMaps(doc).sections.values()];
+  let at = sec;
+  for (let guard = 0; guard < 16; guard++) {
+    const kids = all.filter((s) => s.parent === at.id).sort((a, b) => a.r0 - b.r0 || a.c0 - b.c0);
+    if (!kids.length) return at;
+    at = kids[0];
+  }
+  return at;
+}
+
+/** "Design › Sketches": a section's place, from the board down */
+export function sectionPath(doc: Y.Doc, sec: SectionDoc): string {
+  const m = boardMaps(doc);
+  const names = [sec.name];
+  let at = sec.parent ? m.sections.get(sec.parent) : undefined;
+  for (let guard = 0; at && guard < 16; guard++) {
+    names.unshift(at.name);
+    at = at.parent ? m.sections.get(at.parent) : undefined;
+  }
+  return names.join(" › ");
 }
 
 export function findSection(doc: Y.Doc, nameOrId: string): SectionDoc | undefined {
@@ -585,9 +614,13 @@ export function logActivity(doc: Y.Doc, entry: Omit<ActivityEntry, "at">) {
 export function describeBoard(doc: Y.Doc): string {
   const m = boardMaps(doc);
   const lines: string[] = [];
-  for (const s of m.sections.values()) {
+  const all = [...m.sections.values()];
+  for (const s of all) {
     const host = s.host ? m.objects.get(s.host) : undefined;
-    lines.push(`## Section "${s.name}" (${s.id})${host ? ` — hosts the app "${host.name}" (${host.id}); its ports are the section's` : ""}`);
+    const kids = all.filter((k) => k.parent === s.id).length;
+    const where = s.parent ? ` — inside "${sectionPath(doc, s).split(" › ").slice(0, -1).join(" › ")}"` : "";
+    const grid = kids ? ` — a grid of ${kids} section${kids === 1 ? "" : "s"} (cards added to it go to its first)` : "";
+    lines.push(`## Section "${s.name}" (${s.id})${where}${grid}${host ? ` — hosts the app "${host.name}" (${host.id}); its ports are the section's` : ""}`);
     for (const o of m.objects.values()) {
       if (o.sectionId !== s.id) continue;
       if (o.kind === "panel") {

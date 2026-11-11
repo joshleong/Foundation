@@ -17,11 +17,9 @@ import {
   createMap,
   createTable,
   effectivePos,
-  expandSection,
   gridSize,
   levelUp,
   openLevel,
-  ROOT,
   subscribe,
   holdSectionFit,
   liveFit,
@@ -346,9 +344,9 @@ export const SectionView = memo(function SectionView({
         { divider: true },
         ...(host
           ? [{ icon: "⤢", label: "Fill the screen with it", action: () => requestSnap({ kind: "section", id: section.id }) }]
-          : expanded
-            ? [{ icon: "⤡", label: "Back to the board", action: () => expandSection(null) }]
-            : [{ icon: "⤢", label: "Expand into its own grid", action: () => expandSection(section.id) }]),
+          : isOpen
+            ? [{ icon: "⤡", label: "Back up a level", action: () => levelUp() }]
+            : [{ icon: "⤢", label: isGrid ? "Open its grid" : "Open as its own grid", action: () => openLevel(section.id) }]),
         {
           icon: "🗑",
           label: "Remove section…",
@@ -358,7 +356,7 @@ export const SectionView = memo(function SectionView({
         },
       ]);
     },
-    [section.id, canRemove, host, hostable, worldPoint, section, expanded],
+    [section.id, canRemove, host, hostable, worldPoint, section, isOpen, isGrid],
   );
 
   // confirmation can be requested locally (✕ button) or via the context menu
@@ -386,9 +384,13 @@ export const SectionView = memo(function SectionView({
         (sectionCtx ? " ctx-active" : "") +
         (dropping ? " dropping" : "") +
         (expanded ? " expanded" : "") +
+        (isGrid ? " is-grid" : "") +
+        (isOpen ? " is-open" : "") +
+        (mini ? " is-mini" : "") +
         (confirmingActive ? " confirming" : "")
       }
-      data-section-id={section.id}
+      data-section-id={mini ? undefined : section.id}
+      data-mini-section-id={mini ? section.id : undefined}
       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
       initial={{ opacity: 0, scale: 0.92 }}
       animate={{ opacity: 1, scale: 1 }}
@@ -398,7 +400,18 @@ export const SectionView = memo(function SectionView({
         if ((e.target as HTMLElement).closest(".obj-slot")) return;
         setActiveSection(section.id);
       }}
-      onContextMenu={onSectionContextMenu}
+      onContextMenu={mini ? undefined : onSectionContextMenu}
+      onDoubleClick={
+        mini
+          ? (e) => {
+              // a section seen in miniature: open the grid it's in, framed on it
+              if ((e.target as HTMLElement).closest(".obj-slot")) return;
+              e.stopPropagation();
+              if (section.parent) openLevel(section.parent);
+              requestSnap({ kind: "section", id: section.id });
+            }
+          : undefined
+      }
       onDragOver={(e) => {
         e.preventDefault();
         if (!dropping) setDropping(true);
@@ -417,7 +430,7 @@ export const SectionView = memo(function SectionView({
         onPointerUp={onSectionHeaderUp}
         onPointerCancel={onSectionHeaderUp}
         onDoubleClick={(e) => {
-          if ((e.target as HTMLElement).closest("button, input")) return;
+          if (mini || (e.target as HTMLElement).closest("button, input")) return;
           requestSnap({ kind: "section", id: section.id });
         }}
       >
@@ -451,14 +464,16 @@ export const SectionView = memo(function SectionView({
           {(section.c1 !== section.c0 || section.r1 !== section.r0) &&
             `:${colName(section.c1)}${section.r1 + 1}`}
         </span>
-        {objects.length > 0 && <span className="section-count">{objects.length}</span>}
-        {expanded && (
-          <button className="section-back" data-tip="Back to the board" data-kbd="Esc" onClick={() => expandSection(null)}>
-            <span aria-hidden>⤡</span> Back to the board
-          </button>
+        {isGrid ? (
+          <span className="section-count" data-tip={`A grid of ${kids.length} section${kids.length === 1 ? "" : "s"}`}>
+            ▦ {kids.length}
+          </span>
+        ) : (
+          objects.length > 0 && <span className="section-count">{objects.length}</span>
         )}
 
         {/* tools wait in the top-right corner until the pointer is on the section */}
+        {!mini && (
         <div className="section-tools" role="toolbar" aria-label={`${section.name} tools`}>
           {host && (
             <div className="sec-group">
@@ -481,19 +496,20 @@ export const SectionView = memo(function SectionView({
           <div className="sec-group">
             {tool("Split into two columns", "◫", () => splitSection(section.id, "h"))}
             {tool("Split into two rows", "⬓", () => splitSection(section.id, "v"))}
-            {host
+            {host && !isOpen
               ? tool("Fill the screen with this section", "⤢", () => requestSnap({ kind: "section", id: section.id }))
-              : expanded
-                ? tool("Back to the board", "⤡", () => expandSection(null), "", "Esc")
-                : tool("Expand into its own grid", "⤢", () => expandSection(section.id))}
+              : isOpen
+                ? tool("Back up a level", "⤡", () => levelUp(), "", "Esc")
+                : tool(isGrid ? "Open its grid" : "Open as its own grid", "⤢", () => openLevel(section.id))}
           </div>
           <div className="sec-group">
             {host
               ? tool(`Ask the agent about ${host.name}`, "✦", () => askAgent(`About “${host.name}”: `), "sec-agent", keys("mod+J"))
               : tool("Ask the agent about this section", "✦", () => askAgent(`In the “${section.name}” section: `), "sec-agent", keys("mod+J"))}
-            {canRemove && tool("Remove this section…", "✕", () => setConfirming(true), "sec-remove")}
+            {canRemove && !isOpen && tool("Remove this section…", "✕", () => setConfirming(true), "sec-remove")}
           </div>
         </div>
+        )}
       </div>
 
       {/* remove confirmation */}
@@ -545,6 +561,17 @@ export const SectionView = memo(function SectionView({
 
       {/* the nested grid, fitted to the body — the wheel goes straight through to the board */}
       <div className="section-body" onPointerDownCapture={onBodyPointerDown}>
+        {isGrid && (
+          <MiniGrid
+            grid={grids[section.id]}
+            kids={kids}
+            bodyW={rect.w - 2}
+            bodyH={rect.h - 2 - SECTION_HEADER}
+            getScale={getScale}
+            zoomSpring={zoomSpring}
+            onOpen={() => openLevel(section.id)}
+          />
+        )}
         <div ref={contentRef} className="section-content">
           {objects.map((o) => {
             const pos = layout.get(o.id) ?? { x: o.x, y: o.y };
@@ -582,7 +609,7 @@ export const SectionView = memo(function SectionView({
           })}
         </div>
 
-        {objects.length === 0 && !host && (
+        {objects.length === 0 && !host && !isGrid && !mini && (
           <SectionEmpty
             name={section.name}
             onUpload={() => fileRef.current?.click()}
@@ -591,11 +618,11 @@ export const SectionView = memo(function SectionView({
           />
         )}
 
-        {hidden > 0 && (
+        {hidden > 0 && !mini && (
           <button
             className="section-more"
-            data-tip="Open this section as its own grid"
-            onClick={() => expandSection(section.id)}
+            data-tip="Open this section full-screen, as its own grid"
+            onClick={() => openLevel(section.id)}
           >
             {hidden} more <span aria-hidden>⤢</span> Expand
           </button>
@@ -613,13 +640,59 @@ export const SectionView = memo(function SectionView({
         />
       )}
 
-      {/* add-section affordances on all four edges */}
-      {ADD_EDGES.map((e) => (
+      {/* add-section affordances on all four edges (an opened section adds beside itself, in its own grid) */}
+      {!mini && ADD_EDGES.map((e) => (
         <AddSectionButton key={e.side} sectionId={section.id} side={e.side} label={e.label} />
       ))}
     </motion.div>
   );
 });
+
+/**
+ * A section's own grid, drawn in miniature in its body: its sections at their
+ * places in its tracks, scaled to fit (never above 100 %), cards and all. A
+ * preview: double-click a section in it (or the paper between) to open the
+ * grid full-screen, framed on that section.
+ */
+function MiniGrid({
+  grid,
+  kids,
+  bodyW,
+  bodyH,
+  getScale,
+  zoomSpring,
+  onOpen,
+}: {
+  grid: GridTracks | undefined;
+  kids: Section[];
+  bodyW: number;
+  bodyH: number;
+  getScale(): number;
+  zoomSpring: Spring;
+  onOpen(): void;
+}) {
+  const tracks = grid ?? { cols: [1560], rows: [1160] };
+  const size = gridSize(tracks);
+  const pad = 12;
+  const k = Math.max(0.01, Math.min(1, (bodyW - pad * 2) / Math.max(1, size.w), (bodyH - pad * 2) / Math.max(1, size.h)));
+  const left = Math.max(pad, (bodyW - size.w * k) / 2);
+  const getMiniScale = useCallback(() => getScale() * k, [getScale, k]);
+  return (
+    <div
+      className="mini-grid"
+      style={{ width: size.w, height: size.h, transform: `translate(${left}px, ${pad}px) scale(${k})` }}
+      onDoubleClick={(e) => {
+        if ((e.target as HTMLElement).closest("[data-mini-section-id]")) return;
+        e.stopPropagation();
+        onOpen();
+      }}
+    >
+      {kids.map((s) => (
+        <SectionView key={s.id} section={s} grid={tracks} active={false} canRemove={false} getScale={getMiniScale} zoomSpring={zoomSpring} mini />
+      ))}
+    </div>
+  );
+}
 
 const ADD_EDGES: Array<{ side: "right" | "below" | "left" | "above"; label: string }> = [
   { side: "right", label: "Add a section to the right" },

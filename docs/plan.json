@@ -78,6 +78,15 @@
   ],
   "cards": [
     {
+      "id": "sections-are-grids",
+      "title": "Sections are grids within themselves: open one full-screen as its own grid",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "sections",
+      "status": "review",
+      "body": "Josh, 2026-11-11: \"The individual sections are actually grids within themselves, so opening them up to fullscreen opens up a full other grid.\" Sections nest (SectionDoc.parent, SectionDoc.grid). Open (was Expand) takes the view into a section's own grid, with every grid tool, and a breadcrumb under the top bar (Esc goes up). A section of cards opens as one section; splitting or adding beside it makes it a grid of sections. On the board such a section shows its grid in miniature; double-click opens it there. Cards added to it go to its first section; removing it removes what's inside. Checked in the browser two levels deep, day and night (docs/evidence/2026-11-11_grids-in-sections/); test/levels.test.ts, test/nested-sections.test.ts, e2e/wheel.spec.ts. Open: wires across levels, agents' cursors inside nested sections, presentation into nested grids (SPEC §7)."
+    },
+    {
       "id": "images-bare-invert",
       "title": "Images rest bare; a clear image can be inverted on dark",
       "kind": "plan",
