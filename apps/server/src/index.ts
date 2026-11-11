@@ -37,7 +37,9 @@ import { migrateAllBoards } from "./migrate.ts";
 import * as flowform from "./flowform.ts";
 import { approvePlace, bringFromPlace, listPlace, listPlaces, removePlace } from "./places.ts";
 import { beginLink, finishLink, flowformCall, flowformTools, landingPage, linkStatus, unlink } from "./flowformlink.ts";
-import { canSeeBoard, hiddenBoards, requireBoard } from "./members.ts";
+import { boardRole as memberRole, canSeeBoard, hiddenBoards, requireBoard } from "./members.ts";
+import { boardIdFor } from "./flowform-import.ts";
+import { listRooms as listFlowformRooms, liveRooms, pullRoom, startFlowformSync } from "./flowform-live.ts";
 import { isPerson, requirePerson } from "./auth.ts";
 import { startGridLog } from "./gridlog.ts";
 import { answerAsk, startMachineAsks } from "./machineasks.ts";
@@ -47,6 +49,7 @@ import { engineImages, engineStatus, loadImage, reconcileMachine, removeMachine,
 
 // people's grid edits go in the activity log, from the first board loaded
 startGridLog();
+startFlowformSync();
 startMachineAsks();
 
 const r = new Router();
@@ -103,6 +106,20 @@ r.get("/auth/flowform/link/callback", async (req, res) => {
   const page = landingPage(ok, message);
   res.writeHead(ok ? 200 : 400, { "content-type": "text/html; charset=utf-8", "content-length": Buffer.byteLength(page), "cache-control": "no-store", "referrer-policy": "no-referrer" });
   res.end(page);
+});
+// Flowform rooms brought in live through the link, and kept up to date (flowform-live.ts)
+r.get("/api/flowform/rooms", async (req) => {
+  const u = requireUser(req);
+  const live = new Map(liveRooms().map((l) => [l.room_id, l]));
+  return { rooms: (await listFlowformRooms(u.id)).map((x) => ({ ...x, live: live.get(x.room_id) ?? null })) };
+});
+r.post("/api/flowform/rooms/:id/pull", async (req) => {
+  // a write to the room's board: not in READ_POSTS, so gateWrites has already checked ?board=
+  const u = requirePerson(req, "Bringing in a Flowform room");
+  const board = boardIdFor(req.params.id);
+  requireWriter(u, board);
+  if (memberRole(board, u.id) === "viewer") throw new HttpError(403, "View only: you can read this room's board here but not bring it up to date");
+  return pullRoom(u.id, req.params.id);
 });
 r.get("/api/flowform/tools", async (req) => ({ tools: await flowformTools(requireUser(req).id) }));
 r.post("/api/flowform/tools/:name", async (req) => flowformCall(requireUser(req).id, req.params.name, await readJson(req)));
@@ -622,7 +639,7 @@ r.post("/api/agent/runs/:id/stop", (req) => {
  * viewer's sync socket is read-only either way). The board is the
  * route's :id, or ?board=, else the person's account role decides.
  */
-const READ_POSTS = [/^\/api\/agent$/, /^\/api\/agent\/runs\/[^/]+\/stop$/, /^\/api\/agent\/token$/, /^\/api\/boards\/[^/]+\/tools\//, /^\/api\/boards\/[^/]+\/people$/, /^\/api\/apps\/probe$/, /^\/api\/ws-ticket$/, /^\/api\/flowform\//];
+const READ_POSTS = [/^\/api\/agent$/, /^\/api\/agent\/runs\/[^/]+\/stop$/, /^\/api\/agent\/token$/, /^\/api\/boards\/[^/]+\/tools\//, /^\/api\/boards\/[^/]+\/people$/, /^\/api\/apps\/probe$/, /^\/api\/ws-ticket$/, /^\/api\/flowform\/(?!rooms\/[^/]+\/pull$)/];
 function gateWrites(req: Req, path: string) {
   if (req.method === "GET" || req.method === "OPTIONS" || !path.startsWith("/api/")) return;
   if (READ_POSTS.some((p) => p.test(path))) return;

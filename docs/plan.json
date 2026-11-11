@@ -1023,8 +1023,8 @@
       "kind": "plan",
       "milestone": "company",
       "area": "auth",
-      "status": "review",
-      "body": "`flowformlink.ts`: OAuth (PKCE, registered once) to flowform-server's `/mcp`, `search:read canvas:read` only, tokens encrypted at rest; Connect/Disconnect in Settings → Services; agents get `flowform`. Tested against a stand-in (`test/flowformlink.test.ts`). Waits on a person approving it against production.",
+      "status": "done",
+      "body": "`flowformlink.ts`: OAuth (PKCE) to flowform-server's `/mcp`, `search:read canvas:read` only, tokens encrypted at rest; Connect/Disconnect in Settings → Services; agents get `flowform`. Registers afresh on every Connect (Flowform forgot a day-old registration). Josh connected it on 2026-11-11: 12 read tools, his 6 rooms, file search, all answered live (`docs/evidence/2026-11-11_flowform-live/`).",
       "issue": 97
     },
     {
@@ -1033,8 +1033,8 @@
       "kind": "hookup",
       "milestone": "company",
       "area": "auth",
-      "status": "needs-you",
-      "body": "Press Connect Flowform and approve on Flowform's page (reading only). It's the first run against production: it shows which tools Flowform offers, which the files browser and the board pull are built on.",
+      "status": "done",
+      "body": "Josh connected Flowform on 2026-11-11 (after the registration fix). Each person connects their own.",
       "issue": 98
     },
     {
@@ -1043,8 +1043,8 @@
       "kind": "plan",
       "milestone": "search",
       "area": "search",
-      "status": "next",
-      "body": "Josh, 2026-11-09: \"pull in the same file system that we had so we can drag those out into foundation\". A Flowform chip beside This computer, listing and searching the person's Flowform files through their link, with a dropped file copied into the archive. Needs the link connected first, to see Flowform's file tools (and whether they need a scope beyond `search:read`).",
+      "status": "review",
+      "body": "Search → Flowform: type and it searches your Flowform files through the link (Flowform's own `search`: uploads, board media, Slack, Figma); drag one out and it lands as a link card (Slack, Figma) or a note naming it. Checked in the browser against Josh's real files. The bytes don't come through: see `flowform-file-bytes`.",
       "issue": 99
     },
     {
@@ -1053,9 +1053,18 @@
       "kind": "plan",
       "milestone": "company",
       "area": "auth",
-      "status": "next",
-      "body": "Josh, 2026-11-09: \"pull the existing flowform boards into here and make sure they are connected\". List the person's rooms through their link and bring one in as a board (the importer's mapping in `docs/flowform-import.md`, fed from Flowform's canvas tools instead of the backup archive), re-runnable, with the ledger's rules: nothing edited here is overwritten, nothing is deleted. Needs the link connected first.",
+      "status": "review",
+      "body": "Search → Flowform lists your rooms; press one and it lands as board `ff-<room>` (the importer's ids and ledger): a section per surface, notes, tables with cells, app and link cards at their Flowform positions; read again every 5 minutes and on ↻; edits and removals here stand, nothing deleted; a Flowform viewer can't bring one in. `flowform-live.ts`, `test/flowform-live.test.ts` (5); Form Industries (57 cards) brought in on a throwaway copy, day and night. Images, videos, files and Flowform's older tables arrive as named notes. To do: Josh brings his rooms into his own Foundation.",
       "issue": 100
+    },
+    {
+      "id": "flowform-file-bytes",
+      "title": "Decide how Flowform's file bytes reach Foundation",
+      "kind": "hookup",
+      "milestone": "company",
+      "area": "auth",
+      "status": "needs-you",
+      "body": "The link carries rooms and file search, not the files: Flowform's tools never return URLs, and `/me/files/:file/revisions/:rev/url` refuses the link's token (401). Either Flowform adds a read-scoped tool that hands the link a short-lived download address, or Foundation keeps the Flowform session from sign-in (encrypted, downloads only), which reverses the 2026-11-02 rule that it never keeps another service's bearer. Until then images, videos and files in a brought-in room are notes naming them."
     },
     {
       "id": "desktop-starts-server",

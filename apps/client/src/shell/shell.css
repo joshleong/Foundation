@@ -4054,3 +4054,21 @@ body.is-viewer .port {
 .places a {
   color: var(--color-pulse);
 }
+
+/* ---------- Flowform, in the search pane (FlowformBrowser) ---------- */
+
+.search-row-snip.is-bad {
+  color: var(--color-bad);
+}
+/* read the room again now: a quiet glyph that lights like a link */
+.search-row-src.flowform-again {
+  font-size: var(--text-14);
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+  padding: 0 var(--space-1);
+}
+.search-row-src.flowform-again:hover,
+.search-row-src.flowform-again:focus-visible {
+  color: var(--color-pulse);
+}

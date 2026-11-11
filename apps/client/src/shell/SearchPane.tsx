@@ -18,8 +18,9 @@ import { snippetHtml, snippetText } from "../lib/snippet";
 import { openHit, openUrlAsPanel } from "./CommandBar";
 import { FloorEdge } from "./FloorEdge";
 import { PlacesBrowser } from "./PlacesBrowser";
+import { FlowformBrowser } from "./FlowformBrowser";
 
-type Filter = "all" | "place" | SearchHit["source"];
+type Filter = "all" | "place" | "flowform" | SearchHit["source"];
 const FILTERS: Array<{ id: Filter; label: string }> = [
   { id: "all", label: "All" },
   { id: "board", label: "Board" },
@@ -29,6 +30,8 @@ const FILTERS: Array<{ id: Filter; label: string }> = [
   { id: "github", label: "GitHub" },
   // not a kind of result: the folders on this computer an admin approved, to browse and drag from (PlacesBrowser)
   { id: "place", label: "This computer" },
+  // your Flowform rooms (bring one in as a board) and files (drag out), through your link: FlowformBrowser
+  { id: "flowform", label: "Flowform" },
 ];
 const GLYPH: Record<SearchHit["source"], string> = { board: "▦", file: "▤", app: "◳", slack: "#", github: "⌥", activity: "•", huddle: "◉" };
 const IMAGE = /\.(png|jpe?g|gif|webp|avif|svg)$/i;
@@ -130,7 +133,8 @@ function Pane() {
         ))}
       </div>
       {filter === "place" && <PlacesBrowser board={board} filter={q.trim()} />}
-      <div className="search-results" hidden={filter === "place"}>
+      {filter === "flowform" && <FlowformBrowser filter={q} />}
+      <div className="search-results" hidden={filter === "place" || filter === "flowform"}>
         {!q.trim() && shown.length > 0 && <div className="pane-eyebrow">Recent on this board</div>}
         {q.trim() && !loading && shown.length === 0 && <div className="pane-empty">Nothing for “{q.trim()}”{filter !== "all" ? ` in ${FILTERS.find((f) => f.id === filter)?.label}` : ""}.</div>}
         {images.length > 0 && (
