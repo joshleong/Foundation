@@ -9,7 +9,7 @@ Foundation doesn't have a Google client of its own here. It hands the person to 
 1. **Foundation sends the person to Flowform.** `GET /auth/flowform/start` redirects to `https://server.formresearch.ai/auth/google/start?cb=http://localhost:<port>/auth/flowform/done/<nonce>`.
 2. **Flowform runs the sign-in.** It uses its own Google client, PKCE, JWKS check and signup allowlist. Then it returns `303` to the loopback address with `?session_token=…`.
 3. **Foundation checks who signed in.** It calls `GET /auth/me` on Flowform with that bearer token, which answers with `user_id`, `email`, `email_verified` and `role`.
-4. **Foundation drops Flowform's session.** It revokes it (`POST /auth/logout`); Foundation never keeps another service's bearer token.
+4. **Foundation keeps Flowform's session for downloads.** Encrypted (AES-256-GCM, `data/secret.key`), used only to download the person's Flowform files (`apps/server/src/flowformfiles.ts`). Until 2026-11-11 it was revoked here ("Foundation never keeps another service's bearer token"); Josh chose to keep it so Flowform's files can come in. A refused sign-in's session is still revoked, and Disconnect or Stop (Settings → Services) revokes it.
 5. **Foundation creates its own session.** The token is stored hashed, sent in a cookie, and never put in a URL.
 
 Rules:

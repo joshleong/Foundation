@@ -1,6 +1,7 @@
 /**
  * Sign in with Google through flowform-server: the hand-off, the browser
- * binding, the desktop poll, and that flowform's bearer is revoked, never kept.
+ * binding, the desktop poll, and that flowform's bearer is kept encrypted (for
+ * downloading the person's Flowform files; flowformfiles.ts), never in the clear.
  * A fake flowform answers /auth/me and /auth/logout on a loopback port.
  */
 
@@ -108,11 +109,14 @@ test("web: flowform's Google login comes back to the browser that started it", a
   assert.equal(fin.out.headers.location, "/");
   assert.ok(cookiesOf(fin.out.headers["set-cookie"]).some((c) => c.startsWith("foundation_session=")));
 
-  // flowform's bearer is revoked once Foundation has its own session
+  // flowform's bearer is kept for downloads (Josh, 2026-11-11), encrypted: not revoked, not in the clear
   await new Promise((ok) => setTimeout(ok, 50));
-  assert.ok(revoked.includes(TOKEN));
-
+  assert.ok(!revoked.includes(TOKEN));
   const { one } = await import("../src/db.ts");
+  const kept = one<{ token: string }>("select s.token from flowform_sessions s join users u on u.id = s.user_id where u.email = ?", "noa@formindustries.com");
+  assert.ok(kept && !kept.token.includes(TOKEN), "kept, and not readable in the database");
+  assert.equal((await import("../src/flowformlink.ts")).unseal(kept.token), TOKEN);
+
   const row = one<{ role: string; flowform_user_id: string }>("select role, flowform_user_id from users where email = ?", "noa@formindustries.com");
   assert.equal(row?.flowform_user_id, "ff-1");
   assert.equal(row?.role, "admin"); // flowform admin → Foundation admin

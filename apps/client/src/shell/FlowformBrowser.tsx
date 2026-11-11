@@ -5,14 +5,16 @@
  * Before you type: the rooms you're in. Press one to bring it in as a board
  * (or open it, once it's here); it's then kept up to date from Flowform every
  * few minutes. Type, and it searches the files Flowform can see for you
- * (uploads, board media, Slack, Figma): drag one onto the grid. A file with an
- * address of its own (a Slack or Figma link) lands as a link card; the link
- * can't carry Flowform's own bytes, so anything else lands as a note naming it.
+ * (uploads, board media, Slack, Figma): drag one onto the grid. With file
+ * downloads allowed (Settings → Services) it's copied into this board's archive
+ * and lands as the image, video or file itself. Without, a file with an address
+ * of its own (Slack, Figma) lands as a link card, anything else as a note naming it.
  */
 
 import { useEffect, useState } from "react";
 import type { SearchHit } from "@foundation/protocol";
-import { api } from "../lib/api";
+import { api, type UploadedFile } from "../lib/api";
+import { activeBoard } from "../sync/board";
 import { toast } from "../state/ui";
 import { snippetHtml } from "../lib/snippet";
 import { Draggable } from "./SearchPane";
@@ -32,6 +34,7 @@ interface FfHit {
   source: string;
   snippet?: string;
   external_url?: string | null;
+  revision_id?: string | null;
   context?: { channel?: string | null; board?: string | null; poster?: string | null; date?: number | null };
   byte_size?: number | null;
 }
@@ -67,6 +70,8 @@ const openBoard = (id: string) => window.dispatchEvent(new CustomEvent("foundati
 
 export function FlowformBrowser({ filter }: { filter: string }) {
   const [linked, setLinked] = useState<boolean | null>(null);
+  /** file downloads allowed: a dragged file brings its bytes */
+  const [downloads, setDownloads] = useState(false);
   const [rooms, setRooms] = useState<Room[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [hits, setHits] = useState<FfHit[] | null>(null);
@@ -82,9 +87,10 @@ export function FlowformBrowser({ filter }: { filter: string }) {
 
   useEffect(() => {
     setErr(null);
-    api<{ connected: boolean }>("/api/flowform/link").then(
+    api<{ connected: boolean; downloads?: boolean }>("/api/flowform/link").then(
       (s) => {
         setLinked(s.connected);
+        setDownloads(Boolean(s.downloads));
         if (s.connected) void loadRooms();
       },
       (e: Error) => setErr(e.message),
@@ -110,6 +116,21 @@ export function FlowformBrowser({ filter }: { filter: string }) {
       clearTimeout(t);
     };
   }, [linked, term, attempt]);
+
+  /** copy a Flowform file into this board's archive; the search hit its card is made from */
+  const bringFile = async (h: FfHit): Promise<SearchHit | null> => {
+    const board = activeBoard()?.boardId ?? "company";
+    try {
+      const { file } = await api<{ file: UploadedFile }>(`/api/flowform/files/${encodeURIComponent(h.file_id)}/bring?board=${encodeURIComponent(board)}`, {
+        method: "POST",
+        json: { revision: h.revision_id, name: h.title },
+      });
+      return { source: "file", id: `file:${file.id}`, title: file.name, snippet: file.mime, url: file.url, score: 1 };
+    } catch (x) {
+      toast(`Couldn't bring ${h.title}: ${(x as Error).message}`, "bad");
+      return null;
+    }
+  };
 
   const bring = async (room: Room) => {
     setBusy(room.room_id);
@@ -161,15 +182,15 @@ export function FlowformBrowser({ filter }: { filter: string }) {
           const where = [h.source, h.context?.channel && `#${h.context.channel}`, h.context?.board].filter(Boolean).join(" · ");
           const hit: SearchHit = h.external_url
             ? { source: "app", id: `flowform:${h.file_id}`, title: h.title, snippet: where, url: h.external_url, score: 1 }
-            : { source: "board", id: `flowform:${h.file_id}`, title: h.title, snippet: `${/^[aeiou]/i.test(h.kind) ? "An" : "A"} ${h.kind} in Flowform${h.byte_size ? `, ${sizeWords(h.byte_size)}` : ""}${where ? ` (${where})` : ""}. Its file doesn't come through the read-only link yet.`, score: 1 };
+            : { source: "board", id: `flowform:${h.file_id}`, title: h.title, snippet: `${/^[aeiou]/i.test(h.kind) ? "An" : "A"} ${h.kind} in Flowform${h.byte_size ? `, ${sizeWords(h.byte_size)}` : ""}${where ? ` (${where})` : ""}. Allow Flowform file downloads (Settings → Services) to bring the file itself.`, score: 1 };
           return (
             <Draggable
               key={h.file_id}
               className="search-row"
               hit={hit}
               onPress={() => (h.external_url ? window.open(h.external_url, "_blank", "noopener") : toast("Drag it onto the grid to place it"))}
-              // a link card is made as a link, not an app (an outside page can't be framed as one)
-              resolve={async () => (h.external_url ? { ...hit, source: "slack" } : hit)}
+              // with downloads, the file itself; else a link card (made as a link: an outside page can't be framed as an app), or the note
+              resolve={async () => (downloads && h.revision_id ? bringFile(h) : h.external_url ? { ...hit, source: "slack" } : hit)}
             >
               <span className="search-row-glyph">{GLYPH[h.kind] ?? "▤"}</span>
               <span className="search-row-main">

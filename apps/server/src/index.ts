@@ -39,7 +39,8 @@ import { approvePlace, bringFromPlace, listPlace, listPlaces, removePlace } from
 import { beginLink, finishLink, flowformCall, flowformTools, landingPage, linkStatus, unlink } from "./flowformlink.ts";
 import { boardRole as memberRole, canSeeBoard, hiddenBoards, requireBoard } from "./members.ts";
 import { boardIdFor } from "./flowform-import.ts";
-import { listRooms as listFlowformRooms, liveRooms, pullRoom, startFlowformSync } from "./flowform-live.ts";
+import { bringFlowformFile, listRooms as listFlowformRooms, liveRooms, pullRoom, startFlowformSync } from "./flowform-live.ts";
+import { beginGrant, downloadsStatus, dropSession } from "./flowformfiles.ts";
 import { isPerson, requirePerson } from "./auth.ts";
 import { startGridLog } from "./gridlog.ts";
 import { answerAsk, startMachineAsks } from "./machineasks.ts";
@@ -84,11 +85,34 @@ r.post("/auth/flowform/begin", (req) => flowform.beginDesktop(req));
 r.get("/auth/flowform/done/:nonce", (req, res) => flowform.done(req, res));
 r.post("/auth/flowform/poll", (req, res) => flowform.poll(req, res));
 // a person's link to Flowform's boards and files, read-only, through its MCP endpoint (flowformlink.ts)
-r.get("/api/flowform/link", (req) => linkStatus(requireUser(req).id));
+r.get("/api/flowform/link", (req) => {
+  const u = requireUser(req);
+  return { ...linkStatus(u.id), ...downloadsStatus(u.id) };
+});
 r.post("/api/flowform/link", (req) => beginLink(requirePerson(req, "Connecting Flowform").id));
 r.post("/api/flowform/unlink", async (req) => {
-  await unlink(requirePerson(req, "Disconnecting Flowform").id);
+  const u = requirePerson(req, "Disconnecting Flowform");
+  await unlink(u.id);
+  await dropSession(u.id); // the downloads session goes with it
   return { ok: true };
+});
+// Flowform file downloads: the person's own Flowform session, kept encrypted for this alone (flowformfiles.ts)
+r.post("/api/flowform/files/allow", (req) => beginGrant(requirePerson(req, "Allowing Flowform file downloads").id, flowform.loopbackOrigin(req)));
+r.post("/api/flowform/files/stop", async (req) => {
+  await dropSession(requirePerson(req, "Stopping Flowform file downloads").id);
+  return { ok: true };
+});
+r.post("/api/flowform/files/:file/bring", async (req) => {
+  // copies a Flowform file into this board's archive: a write, so gateWrites has checked ?board= (not in READ_POSTS)
+  const u = requireUser(req);
+  const board = req.query.get("board");
+  requireBoard(u, board);
+  const { revision, name } = await readJson<{ revision?: string; name?: string }>(req);
+  if (!revision) throw new HttpError(400, "which revision?");
+  // files found by search aren't a room's: they share one scope ("me"), and the bytes are stored once whatever the scope
+  const file = await bringFlowformFile(u.id, board, "me", { file_id: req.params.file, revision_id: revision, name });
+  if (!file) throw new HttpError(404, "Flowform didn't give that file (gone, not yours to read, or over 512 MB)");
+  return { file: { ...file, url: `/files/${file.id}` } };
 });
 r.get("/auth/flowform/link/callback", async (req, res) => {
   // Flowform sends the person's browser here. No session is needed: the state names who started it, once
@@ -639,7 +663,7 @@ r.post("/api/agent/runs/:id/stop", (req) => {
  * viewer's sync socket is read-only either way). The board is the
  * route's :id, or ?board=, else the person's account role decides.
  */
-const READ_POSTS = [/^\/api\/agent$/, /^\/api\/agent\/runs\/[^/]+\/stop$/, /^\/api\/agent\/token$/, /^\/api\/boards\/[^/]+\/tools\//, /^\/api\/boards\/[^/]+\/people$/, /^\/api\/apps\/probe$/, /^\/api\/ws-ticket$/, /^\/api\/flowform\/(?!rooms\/[^/]+\/pull$)/];
+const READ_POSTS = [/^\/api\/agent$/, /^\/api\/agent\/runs\/[^/]+\/stop$/, /^\/api\/agent\/token$/, /^\/api\/boards\/[^/]+\/tools\//, /^\/api\/boards\/[^/]+\/people$/, /^\/api\/apps\/probe$/, /^\/api\/ws-ticket$/, /^\/api\/flowform\/(?!rooms\/[^/]+\/pull$|files\/[^/]+\/bring$)/];
 function gateWrites(req: Req, path: string) {
   if (req.method === "GET" || req.method === "OPTIONS" || !path.startsWith("/api/")) return;
   if (READ_POSTS.some((p) => p.test(path))) return;

@@ -26,3 +26,12 @@ The files themselves. Flowform's tools say they never return URLs or storage key
 ## Checked with
 
 `npm test` (client 106 pass; server 179: 173 pass, 6 skipped, the backup importer's fixtures), `npm run typecheck`, `node scripts/plan.mjs check`. Not run: the Playwright e2e suite and the GPU frames check.
+
+## Later the same day: file downloads (Josh chose "Keep Flowform session")
+
+| File | What it shows |
+|---|---|
+| `09_allow-file-downloads-day.jpg` | Settings → Services: under the Flowform row, *Flowform · file downloads*, not allowed, with **Allow file downloads** and what it keeps |
+| `10_allow-file-downloads-night.png` | The same at night |
+
+The button's request answered with Flowform's own `https://server.formresearch.ai/auth/google/start`, returning to `/auth/flowform/done/<nonce>` (checked on the throwaway copy, not followed: it needs Josh's Google sign-in). `test/flowformfiles.test.ts` (5) runs the rest against a stand-in. **Not seen against production yet**: which rendition name Flowform's download route takes, and real bytes. `npm test`: client 106; server 184 (178 pass, 6 skipped). Typecheck clean.

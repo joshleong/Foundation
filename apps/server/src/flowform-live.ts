@@ -11,23 +11,28 @@
  *   - a card someone removed here stays removed;
  *   - nothing is ever deleted: a card gone from Flowform stays on the board.
  *
- * What the link can't carry: file bytes. Flowform's tools return a card's file id,
- * revision and size but never a URL, and its download routes refuse the link's
- * token. So images, videos and files arrive as a note naming the file, and a card
- * that already holds the real file (from the backup import) is never swapped for one.
+ * File bytes: the link can't carry them (Flowform's tools return a card's file id,
+ * revision and size but never a URL). When the person bringing the room in has
+ * allowed downloads (their Flowform session, kept encrypted: flowformfiles.ts),
+ * each image, video and file is fetched into the archive in the background, and
+ * the room is read again so its cards become the real thing. Until then, or
+ * without it, they arrive as a note naming the file; a card that already holds
+ * the real file is never swapped for one.
  *
  * Kept connected: a pulled room remembers who pulled it, and is read again every
  * few minutes while their link holds (`startFlowformSync`), and whenever someone presses Pull.
  */
 
 import { createHash } from "node:crypto";
-import { BOARD_SCHEMA, DEFAULT_COL_W, DEFAULT_ROW_H, boardMaps, logActivity, noteTextOf, readTracks, setNoteText, tableCellMap, tableCellsOf, type NoteDoc, type ObjectDoc, type PanelDoc, type SectionDoc, type TableDoc } from "@foundation/protocol";
+import { BOARD_SCHEMA, DEFAULT_COL_W, DEFAULT_ROW_H, boardMaps, logActivity, noteTextOf, readTracks, setNoteText, tableCellMap, tableCellsOf, type MediaDoc, type NoteDoc, type ObjectDoc, type PanelDoc, type SectionDoc, type TableDoc } from "@foundation/protocol";
 import { all, db, one, run } from "./db.ts";
 import { editBoard, ensureBoardRow } from "./boards.ts";
 import { boardRole, setMember, type BoardRole } from "./members.ts";
 import { HttpError } from "./http.ts";
 import { boardIdFor } from "./flowform-import.ts";
 import { flowformCall, linkStatus } from "./flowformlink.ts";
+import { canDownload, fileBytes } from "./flowformfiles.ts";
+import { storeImportedFile } from "./files.ts";
 
 const ORIGIN = "flowform-live";
 const PAD = 160;
@@ -89,6 +94,8 @@ interface FfCard {
   table?: { rows?: string[][]; columns?: Array<string | null> };
   url?: string;
   media?: { file_id?: string | null; revision_id?: string | null; byte_size?: number | null } | null;
+  autoplay?: boolean;
+  mute?: boolean;
 }
 
 /** every surface in a room: each board's plane, and every page of every Grid on it */
@@ -135,7 +142,14 @@ const safeId = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, "_");
 const sizeWords = (n: number) => (n < 1048576 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1048576).toFixed(1)} MB`);
 
 /** what one Flowform card becomes (null: nothing to draw) */
-export function mapCard(c: FfCard, base: { id: string; sectionId: string; x: number; y: number }): { doc: ObjectDoc; text?: string; cells?: Record<string, string>; stand_in?: boolean } | null {
+/** a Flowform file that's in the archive: the card shows it */
+export interface HereFile {
+  id: string;
+  mime: string;
+  name: string;
+}
+
+export function mapCard(c: FfCard, base: { id: string; sectionId: string; x: number; y: number }, file?: HereFile | null): { doc: ObjectDoc; text?: string; cells?: Record<string, string>; stand_in?: boolean } | null {
   const w = Math.round(c.rect!.w);
   const h = Math.round(c.rect!.h);
   const b = { ...base, name: c.name ?? "", float: true, bornAt: 0 };
@@ -165,16 +179,65 @@ export function mapCard(c: FfCard, base: { id: string; sectionId: string; x: num
     case "file_reference":
     case "model_3d":
     case "model_3d_v2": {
+      if (file) {
+        const video = c.kind === "video" || c.kind === "video_note" || file.mime.startsWith("video/");
+        if (video || file.mime.startsWith("image/"))
+          return { doc: { ...b, kind: "media", w, h, src: `/files/${file.id}`, media: video ? "video" : "image", autoplay: c.autoplay === true, muted: c.mute !== false } satisfies MediaDoc };
+        return { doc: { ...b, kind: "panel", panel: "file", w, h, fileId: file.id, mime: file.mime, name: b.name || file.name, ports: [] } satisfies PanelDoc };
+      }
       const what = { image: "image", video: "video", video_note: "video note", file_reference: "file", model_3d: "3D model", model_3d_v2: "3D model" }[c.kind];
       const size = c.media?.byte_size ? `, ${sizeWords(c.media.byte_size)}` : "";
       const an = `${/^[aeiou]/i.test(what) ? "An" : "A"} ${what}`;
-      return note(`**${c.name || an}**\n\n${an} in Flowform${size}. Its file doesn't come through the read-only link yet, so it shows here by name.`, true);
+      return note(`**${c.name || an}**\n\n${an} in Flowform${size}. Its file isn't here yet: it comes in once you allow Flowform file downloads (Settings → Services).`, true);
     }
     case "grid":
       return note(`**${c.name || "Table"}** is a Flowform table Foundation can't read through the link yet.`, true);
     default:
       return null;
   }
+}
+
+// ---------- files ----------
+
+/** the archive id a room's Flowform file gets: the importer's (`ff_` + digest of room and `file:<id>`), so the two share it */
+export const fileIdFor = (roomId: string, ffFileId: string) => `ff_${digest([roomId, `file:${ffFileId}`])}`;
+
+const EXT: Record<string, string> = { "image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp", "image/svg+xml": ".svg", "video/mp4": ".mp4", "video/quicktime": ".mov", "video/webm": ".webm", "application/pdf": ".pdf" };
+const hereFile = (id: string) => one<HereFile>("select id, mime, name from files where id = ?", id) ?? null;
+/** files Flowform didn't give (gone, refused, too big): not asked for again until the server restarts */
+const notThere = new Set<string>();
+
+/** bring one Flowform file into the archive as this person; null if Flowform won't give it */
+export async function bringFlowformFile(userId: string, boardId: string | null, roomId: string, f: { file_id: string; revision_id: string; name?: string | null }): Promise<HereFile | null> {
+  const id = fileIdFor(roomId, f.file_id);
+  const here = hereFile(id);
+  if (here) return here;
+  const got = await fileBytes(userId, f.file_id, f.revision_id);
+  if (!got) return null;
+  const base = (f.name || f.file_id).replace(/[\\/:*?"<>|]/g, "_").slice(0, 200);
+  const name = /\.[a-z0-9]{2,5}$/i.test(base) ? base : base + (EXT[got.mime] ?? "");
+  await storeImportedFile({ id, boardId, name, mime: got.mime, body: got.body, uploadedBy: userId, createdAt: Date.now(), archivedAt: null });
+  return hereFile(id);
+}
+
+/** fetch a room's missing files one at a time; true if any arrived (so the room is read again) */
+async function fetchMissing(userId: string, roomId: string, boardId: string, cards: FfCard[]): Promise<boolean> {
+  let arrived = false;
+  for (const c of cards) {
+    const m = c.media;
+    if (!m?.file_id || !m.revision_id) continue;
+    const id = fileIdFor(roomId, m.file_id);
+    if (hereFile(id) || notThere.has(id)) continue;
+    try {
+      if (await bringFlowformFile(userId, boardId, roomId, { file_id: m.file_id, revision_id: m.revision_id, name: c.name })) arrived = true;
+      else notThere.add(id);
+    } catch (e) {
+      // the session ended, or Flowform is away: stop here, the next read tries again
+      if (e instanceof HttpError && (e.status === 409 || e.status === 502)) break;
+      notThere.add(id);
+    }
+  }
+  return arrived;
 }
 
 // ---------- the ledger (the importer's) ----------
@@ -212,6 +275,8 @@ export interface PullReport {
   /** images, videos, files and unreadable tables shown by name only */
   byName: number;
   goneUpstream: number;
+  /** files being fetched in the background (the person allowed downloads) */
+  filesComing?: number;
 }
 
 const ROLE: Record<string, BoardRole> = { owner: "owner", editor: "editor", viewer: "viewer" };
@@ -226,6 +291,9 @@ export function pullRoom(userId: string, roomId: string): Promise<PullReport> {
   pulling.set(roomId, p);
   return p;
 }
+
+/** rooms whose files are coming in, in the background (one fetch per room at a time) */
+const fetching = new Set<string>();
 
 async function doPull(userId: string, roomId: string): Promise<PullReport> {
   const room = (await listRooms(userId)).find((r) => r.room_id === roomId);
@@ -298,7 +366,8 @@ async function doPull(userId: string, roomId: string): Promise<PullReport> {
       // --- its cards, lowest first ---
       for (const c of [...cards].sort((a, b) => (a.stack_order ?? 0) - (b.stack_order ?? 0) || (a.id < b.id ? -1 : 1))) {
         const id = `ff_${safeId(c.id)}`.slice(0, 64);
-        const mapped = mapCard(c, { id, sectionId: o.section, x: Math.round(left(c) + o.dx), y: Math.round(top(c) + o.dy) });
+        const file = c.media?.file_id ? hereFile(fileIdFor(roomId, c.media.file_id)) : null;
+        const mapped = mapCard(c, { id, sectionId: o.section, x: Math.round(left(c) + o.dx), y: Math.round(top(c) + o.dy) }, file);
         if (!mapped) continue;
         const ck = `${roomId}:${c.id}`;
         seen.add(ck);
@@ -341,7 +410,25 @@ async function doPull(userId: string, roomId: string): Promise<PullReport> {
          pulled_at = excluded.pulled_at, cards = excluded.cards, error = null`,
     roomId, boardId, room.name, userId, Date.now(), seen.size,
   );
+
+  // the files, in the background: the board is there already; once some arrive, the room is read again so they show
+  const missing = read
+    .flatMap((x) => x.cards)
+    .filter((c) => c.media?.file_id && c.media.revision_id && !hereFile(fileIdFor(roomId, c.media.file_id)) && !notThere.has(fileIdFor(roomId, c.media.file_id)));
+  r.filesComing = canDownload(userId) ? missing.length : 0;
+  if (r.filesComing && !fetching.has(roomId)) {
+    fetching.add(roomId);
+    void fetchMissing(userId, roomId, boardId, missing)
+      .then((arrived) => (arrived ? pullRoom(userId, roomId) : undefined))
+      .catch((e) => console.error(`flowform files for ${roomId}:`, (e as Error).message))
+      .finally(() => fetching.delete(roomId));
+  }
   return r;
+}
+
+/** wait until a room's background files and the read after them are done (tests) */
+export async function filesSettled(roomId: string) {
+  while (fetching.has(roomId) || pulling.has(roomId)) await new Promise((ok) => setTimeout(ok, 20));
 }
 
 export interface LiveRoom {

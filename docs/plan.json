@@ -1059,12 +1059,12 @@
     },
     {
       "id": "flowform-file-bytes",
-      "title": "Decide how Flowform's file bytes reach Foundation",
+      "title": "Allow Flowform file downloads once, in Settings → Services",
       "kind": "hookup",
       "milestone": "company",
       "area": "auth",
       "status": "needs-you",
-      "body": "The link carries rooms and file search, not the files: Flowform's tools never return URLs, and `/me/files/:file/revisions/:rev/url` refuses the link's token (401). Either Flowform adds a read-scoped tool that hands the link a short-lived download address, or Foundation keeps the Flowform session from sign-in (encrypted, downloads only), which reverses the 2026-11-02 rule that it never keeps another service's bearer. Until then images, videos and files in a brought-in room are notes naming them."
+      "body": "Josh chose to keep the Flowform session for downloads (2026-11-11). Built: `flowformfiles.ts`, the Allow file downloads button, rooms' files fetched into the archive in the background, dragged search files brought in (`test/flowformfiles.test.ts`). Needs Josh's Google sign-in once (Allow file downloads, or sign in through Flowform): it's the first run against production, showing which rendition Flowform's download route takes."
     },
     {
       "id": "desktop-starts-server",

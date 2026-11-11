@@ -142,7 +142,7 @@ test("a room lands as its own board: a section per surface, its cards mapped, fi
   assert.deepEqual(protocol.tableCellsOf(board(), "ff_tb-1"), { "0,0": "Who", "1,0": "2026", "0,1": "Kobayashi", "1,1": "$1.1M" });
   assert.equal((obj("ff_if-1") as { panel: string; url: string }).url, "https://certform.example");
   assert.equal(obj("ff_im-1")?.kind, "note");
-  assert.match(note("ff_im-1"), /Hyperform[\s\S]*An image in Flowform, 6\.3 MB[\s\S]*by name/);
+  assert.match(note("ff_im-1"), /Hyperform[\s\S]*An image in Flowform, 6\.3 MB[\s\S]*allow Flowform file downloads/);
   assert.equal(note("ff_pg-1"), "- [ ] Call BYD\n- [x] Book flights");
   assert.equal(obj("ff_fr-1"), undefined);
 

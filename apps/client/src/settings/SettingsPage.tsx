@@ -582,6 +582,9 @@ interface FlowformLink {
   server: string;
   scope?: string;
   connectedAt?: number;
+  /** Foundation may download your Flowform files (it keeps your Flowform session for that, encrypted) */
+  downloads?: boolean;
+  since?: number;
 }
 
 const inDesktop = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -596,6 +599,7 @@ function FlowformRow() {
   const [link, setLink] = useState<FlowformLink | null>(null);
   const [tools, setTools] = useState<number | null>(null);
   const [waiting, setWaiting] = useState(false);
+  const [allowing, setAllowing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const live = useRef(true);
   const read = () => api<FlowformLink>("/api/flowform/link").then((l) => (live.current && setLink(l), l));
@@ -636,6 +640,36 @@ function FlowformRow() {
       if (live.current) setWaiting(false);
     }
   };
+  /** run Flowform's own sign-in once more, so Foundation keeps that session for downloading your files */
+  const allow = async () => {
+    setErr(null);
+    const tab = inDesktop ? null : window.open("", "_blank");
+    try {
+      const { url } = await api<{ url: string }>("/api/flowform/files/allow", { method: "POST" });
+      if (tab) tab.location.href = url;
+      else await openUrl(url);
+      setAllowing(true);
+      const until = Date.now() + 10 * 60_000;
+      while (live.current && Date.now() < until) {
+        await new Promise((ok) => setTimeout(ok, 1500));
+        if ((await read().catch(() => null))?.downloads) break;
+      }
+    } catch (e) {
+      tab?.close();
+      setErr((e as Error).message);
+    } finally {
+      if (live.current) setAllowing(false);
+    }
+  };
+  const stop = async () => {
+    setErr(null);
+    try {
+      await api("/api/flowform/files/stop", { method: "POST" });
+      await read();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
   const disconnect = async () => {
     setErr(null);
     try {
@@ -673,6 +707,35 @@ function FlowformRow() {
       </span>
       {!on && link && <span className="services-how">Opens Flowform's own page to approve. Foundation asks only to read your boards and search your files (never to write), as you, and you can disconnect here.</span>}
       {err && <span className="services-how is-bad">{err}</span>}
+      {on && (
+        <>
+          <span className={`f-dot ${link?.downloads ? "is-ok" : "is-warn"}`} />
+          <span className="services-name">Flowform · file downloads</span>
+          <span className="services-detail">
+            {link?.downloads
+              ? `Allowed${link.since ? ` · since ${longDate(new Date(link.since).toLocaleDateString("en-CA"))}` : ""}: images, videos and files come in with your rooms`
+              : allowing
+                ? "Waiting for you to sign in to Flowform…"
+                : "Not allowed: images and files in your rooms show by name"}
+          </span>
+          <span className="services-act">
+            {link?.downloads ? (
+              <button className="f-pill" onClick={stop} data-tip="Ends that Flowform session and forgets it here. Files already brought in stay">
+                Stop
+              </button>
+            ) : (
+              <button className="f-pill is-accent" onClick={allow} disabled={allowing}>
+                {allowing ? "Waiting…" : "Allow file downloads"}
+              </button>
+            )}
+          </span>
+          {!link?.downloads && (
+            <span className="services-how">
+              Signs you in to Flowform once more and keeps that session, encrypted, to download your files and nothing else. It has to be the Flowform account you sign in to Foundation with.
+            </span>
+          )}
+        </>
+      )}
     </div>
   );
 }
