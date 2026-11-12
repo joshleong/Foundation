@@ -1,6 +1,6 @@
 {
   "name": "@foundation/server",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,6 +8,7 @@
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "link-accounts": "tsx scripts/link-accounts.ts",
+    "machines:smoke": "tsx scripts/machines-smoke.ts",
     "test": "node --test --import tsx test/*.test.ts"
   },
   "dependencies": {
@@ -15,6 +16,7 @@
     "@foundation/protocol": "*",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "lib0": "^0.2.99",
+    "unpdf": "1.9.1",
     "ws": "^8.18.0",
     "y-protocols": "^1.0.6",
     "yjs": "^13.6.20",

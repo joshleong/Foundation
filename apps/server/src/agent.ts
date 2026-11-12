@@ -34,16 +34,17 @@ import { todayDigest, todayFor } from "./today.ts";
 /**
  * The Shiba: the same agent, wearing the face people meet first (Today). It
  * speaks to one person about their day, so its words are set in large type
- * on the page; it keeps the page in step with what it says (point_at, set_goal).
+ * on the page; it keeps the page in step with what it says (point_today, set_goal).
  */
 const SHIBA = `
 
 You are speaking as the Shiba — the guide people meet on Foundation's Today page before the boards. The page shows the person's goals, what wants their attention today (with ids) and the company's apps; your answer is set in large type beside them, so:
 - Answer in plain spoken sentences: one to three short ones, never more than about 60 words. No markdown, no lists, no headings, no ids or URLs in what you say.
 - What they need is usually already in <today>. Call the today tool only to refresh after a change.
-- Whenever your answer is about particular items, call point_at with their ids so the page lights them up while you talk.
+- Whenever your answer is about particular items, call point_today with their ids so the page lights them up while you talk.
 - When they ask to add, finish, drop or update a goal, do it with set_goal, then say what changed. When they tell you about their role or work, save it with set_profile.
-- You can still use every board tool when they ask for something on a board; say where it is.
+- Here you're not on a board, so you have no cursor: point_at, bring_view and call_in_help don't apply; point_today is how you point.
+- You can still use the board tools when they ask for something on a board; say where it is.
 - Warm, calm, direct. You're a companion, not a cheerleader.`;
 
 /** what the agent is told about where it is: the board, or (the Shiba) the person's Today */
@@ -52,6 +53,10 @@ function contextBlock(opts: { boardId: string; user: UserInfo; persona?: "shiba"
   if (opts.persona === "shiba") return `<today person="${opts.user.name}"${access}>\n${todayDigest(todayFor(opts.user))}\n</today>`;
   return `<board name="${opts.boardId}" person="${opts.user.name}"${access}>\n${boardDigest(opts.boardId)}\n</board>`;
 }
+import { describeCrewWork, joinCrew, leaveCrew, setDoing, type CrewMember } from "./crew.ts";
+import { setHelperStarter } from "./tools.ts";
+import { runScript } from "./script.ts";
+import { claudeCommand, here, type Runtime } from "./rea.ts";
 
 const SYSTEM = `You are the Foundation agent — the company brain of Form Industries, living inside Foundation, a shared grid where the team keeps its projects, files, designs, running apps and agents together.
 
@@ -63,36 +68,68 @@ How you work:
 - Read the board first when the ask touches it. Refer to cards by name, not id.
 - Make the change, then say in one or two sentences what you did and where it is. Use focus to point at the card you made.
 - Ask before deleting anything or acting on someone else's work in a way they would not expect. Deletes need confirm: true.
-- Nothing that spends money or runs third-party tooling starts on its own: reverse-engineering jobs wait for a person to press Run.
+- Nothing that spends money or runs third-party tooling starts on its own: reverse-engineering jobs wait for a person to press Run, machines wait for a person's Start, and a command you want run in a running machine (machine_run) waits for a person to press Run on its card. If they decline or don't answer, nothing ran: say so, don't work around it.
 - When a design needs CAD or a decision you don't have, use ask_person rather than guessing.
 - Building pages: when asked to lay out, gather, or make a board, page or document of things ("lay out all the images from Slack about the Airform PTHP"), call find_images, choose what belongs, then lay_out with a fitting style (grid for a set, board for a mood board, document to be read top to bottom with captions, timeline when the order in time matters) and a short intro. Say how many you placed and where, and what you couldn't search (e.g. Slack not connected).
 - For work with more than one step, call set_plan first (the goal and the steps), and again as each step starts and finishes, so the person can follow along in the session tab.
-- Be brief and concrete. No preamble.`;
+- Be brief and concrete. No preamble.
+
+You are one of the crew: people see you on the board as a named cursor (your name is in <you>), moving to whatever you're working on, and every change you make is signed with your name. So work in the open:
+- Go where the work is. Each write moves your cursor there first; make things in the section they belong to.
+- Make the primitives the ask needs: sections (add_section, rename_section), notes, tables with real data (add_table), live panels and company connectors as data sources (add_panel, connect), and organize what's there (update_card to move a card, arrange_section to tidy a section's order).
+- When what you made is somewhere the person isn't looking, finish with bring_view on it (once, at the end; not for every step).
+- When you explain something precise (a number in a table, where a wire plugs in), point_at that cell or port as you say it.
+- If the ask has parts that can run at the same time in different places (a second data source, a separate section), call_in_help with exact instructions for one part, and do the rest yourself. Most asks need no helper. Set your plan before you call one in: your helpers get it.
+- Called in as a helper (your <you> says by whom), you start with your part, the lead's plan and what the crew has made so far. Call crew_work before you make each thing, and don't make what a teammate has made or is making: build on it, or say it's there.`;
 
 const histories = new Map<string, Anthropic.MessageParam[]>();
 const claudeSessions = new Map<string, string>();
 
-let cliAvailable: boolean | null = null;
-export function claudeCliAvailable(): boolean {
-  if (cliAvailable !== null) return cliAvailable;
+export type ClaudeStart = { ok: true; cmd: string; pre: string[] } | { ok: false; reason: string };
+
+/**
+ * How to start Claude Code, and whether it answers `--version`. No shell: on
+ * Windows an npm `claude.cmd` runs the cli.js it wraps under this Node and
+ * claude.exe runs as is (rea.ts); macOS and Linux run the CLI as configured.
+ */
+export function resolveClaude(cli: string, rt: Runtime, exec: (cmd: string, args: string[]) => void): ClaudeStart {
+  const c = claudeCommand(cli, rt);
+  if (!c.ok) return c;
   try {
-    execFileSync(config.claudeCli, ["--version"], { stdio: "ignore", timeout: 5000 });
-    cliAvailable = true;
-  } catch {
-    cliAvailable = false;
+    exec(c.cmd, [...c.pre, "--version"]);
+    return c;
+  } catch (e) {
+    const err = e as NodeJS.ErrnoException;
+    if (err.code === "ENOENT") return { ok: false, reason: `Claude Code (${cli}) isn't on this computer's PATH. Install it, or set FOUNDATION_CLAUDE_CLI to where it is, then start Foundation's server again.` };
+    return { ok: false, reason: `Claude Code (${[c.cmd, ...c.pre].join(" ")}) didn't answer --version: ${err.message.split("\n")[0]}` };
   }
-  return cliAvailable;
+}
+
+let claude: ClaudeStart | null = null;
+/** Claude Code on this computer, checked once */
+export function claudeStart(): ClaudeStart {
+  claude ??= resolveClaude(config.claudeCli, here(), (cmd, args) => execFileSync(cmd, args, { stdio: "ignore", timeout: 5000, windowsHide: true }));
+  return claude;
+}
+
+export function claudeCliAvailable(): boolean {
+  return claudeStart().ok;
 }
 
 export function runtimes() {
+  const c = claudeStart();
   return {
-    subscription: claudeCliAvailable(),
+    subscription: c.ok,
+    /** why the subscription runtime is off, when Claude Code was found wanting */
+    subscriptionNote: c.ok ? null : c.reason,
     api: Boolean(config.anthropic.apiKey),
     model: config.anthropic.model,
   };
 }
 
 export function pickRuntime(requested?: string): AgentRuntime | null {
+  // tests and e2e: a fixed playbook through the same tools, no model (never set in a real deployment)
+  if (process.env.FOUNDATION_AGENT_SCRIPT === "1") return "script";
   const r = runtimes();
   if (requested === "api") return r.api ? "api" : null;
   if (requested === "subscription") return r.subscription ? "subscription" : null;
@@ -109,14 +146,20 @@ export async function runAgent(opts: {
   /** "shiba": the Today page's guide (its own voice and context) */
   persona?: "shiba";
   runId?: string;
+  /** the visible agent doing this run */
+  crew?: CrewMember;
   emit: (e: AgentEvent) => void;
   signal: AbortSignal;
 }) {
   const runtime = pickRuntime(opts.runtime);
   if (!runtime) {
+    const c = claudeStart();
     opts.emit({
       type: "error",
-      message: "No agent runtime: install Claude Code (`claude`) to use your subscription, or set ANTHROPIC_API_KEY to use API credits.",
+      message:
+        opts.runtime === "subscription" && !c.ok
+          ? `The subscription runtime can't start: ${c.reason}`
+          : `No agent runtime: install Claude Code (\`claude\`) to use your subscription, or set ANTHROPIC_API_KEY to use API credits.${c.ok ? "" : `\n${c.reason}`}`,
     });
     return;
   }
@@ -125,8 +168,10 @@ export async function runAgent(opts: {
     "insert into agent_runs (id, board_id, runtime, prompt, status, created_by, created_at, session_id) values (?, ?, ?, ?, 'running', ?, ?, ?)",
     runId, opts.boardId, runtime, opts.prompt, opts.user.id, Date.now(), opts.session ?? null,
   );
-  // a viewer's question isn't a change to the board, so it doesn't go in its activity
-  if (canWrite(opts.user.id, opts.boardId) && opts.persona !== "shiba") editBoard(opts.boardId, "agent", (doc) => logActivity(doc, { who: opts.user.name, role: "human", text: `asked the agent: ${opts.prompt.slice(0, 140)}` }));
+  // a viewer's question isn't a change to the board, so it doesn't go in its activity;
+  // a helper's brief isn't the person's ask (call_in_help logs it, signed by the lead);
+  // the Shiba's talk is the person's own, not the board's
+  if (!opts.crew?.lead && opts.persona !== "shiba" && canWrite(opts.user.id, opts.boardId)) editBoard(opts.boardId, "agent", (doc) => logActivity(doc, { who: opts.user.name, role: "human", text: `asked the agent: ${opts.prompt.slice(0, 140)}` }));
   const transcript: AgentEvent[] = [];
   // the transcript is saved as the turn runs, so a reload mid-turn replays it
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -148,6 +193,7 @@ export async function runAgent(opts: {
   };
   try {
     if (runtime === "api") await runApi(opts, emit);
+    else if (runtime === "script") await runScript(opts, emit, { boardId: opts.boardId, actor: opts.crew?.name ?? "Foundation Agent", userId: opts.user.id, crew: opts.crew?.id });
     else await runSubscription(opts, emit, runId);
     finish(opts.signal.aborted ? "stopped" : "done");
   } catch (e) {
@@ -155,6 +201,11 @@ export async function runAgent(opts: {
     emit({ type: "error", message: (e as Error).message });
     finish("error");
   }
+}
+
+/** who the agent is, for the prompt */
+function youTag(crew?: CrewMember) {
+  return crew ? `\n\n<you name="${crew.name}"${crew.lead ? ` called_in_by="${crew.lead.name}"` : ""} />` : "";
 }
 
 const newRunId = () => `run_${randomBytes(6).toString("hex")}`;
@@ -166,6 +217,7 @@ const newRunId = () => `run_${randomBytes(6).toString("hex")}`;
 interface LiveRun {
   id: string;
   userId: string;
+  boardId: string;
   events: AgentEvent[];
   listeners: Set<(e: AgentEvent) => void>;
   done: boolean;
@@ -173,8 +225,8 @@ interface LiveRun {
 }
 const live = new Map<string, LiveRun>();
 
-export function startRun(opts: Omit<Parameters<typeof runAgent>[0], "emit" | "signal" | "runId">): LiveRun {
-  const r: LiveRun = { id: newRunId(), userId: opts.user.id, events: [], listeners: new Set(), done: false, ctrl: new AbortController() };
+export function startRun(opts: Omit<Parameters<typeof runAgent>[0], "emit" | "signal" | "runId" | "crew"> & { lead?: CrewMember }): LiveRun {
+  const r: LiveRun = { id: newRunId(), userId: opts.user.id, boardId: opts.boardId, events: [], listeners: new Set(), done: false, ctrl: new AbortController() };
   live.set(r.id, r);
   const emit = (e: AgentEvent) => {
     const last = r.events[r.events.length - 1];
@@ -182,15 +234,66 @@ export function startRun(opts: Omit<Parameters<typeof runAgent>[0], "emit" | "si
     else r.events.push(e);
     for (const fn of r.listeners) fn(e);
   };
-  emit({ type: "run", id: r.id });
-  void runAgent({ ...opts, runId: r.id, emit, signal: r.ctrl.signal }).finally(() => {
+  const end = () => {
     r.done = true;
     for (const fn of r.listeners) fn({ type: "status", status: "ended" });
     r.listeners.clear();
-    setTimeout(() => live.delete(r.id), 60_000);
+    setTimeout(() => live.delete(r.id), 60_000).unref?.();
+  };
+  emit({ type: "run", id: r.id });
+  // every board turn is someone you can see: a name, a colour, a cursor on the board.
+  // The Shiba isn't on a board (it talks to one person on their Today), so it has no cursor
+  let crew: CrewMember | undefined;
+  if (opts.persona !== "shiba") {
+    try {
+      crew = joinCrew({ boardId: opts.boardId, userId: opts.user.id, userName: opts.user.name, runId: r.id, task: opts.prompt, lead: opts.lead });
+    } catch (e) {
+      emit({ type: "error", message: (e as Error).message });
+      end();
+      return r;
+    }
+    crewUsers.set(crew.id, opts.user);
+    emit({ type: "crew", id: crew.id, name: crew.name, hue: crew.hue, lead: crew.lead?.id, leadName: crew.lead?.name });
+  }
+  // a helper starts with the lead's plan and what the crew has made so far (crew_work keeps it current)
+  const sofar = opts.lead && crew ? describeCrewWork(crew) : "";
+  const prompt = opts.lead
+    ? `You were called in by ${opts.lead.name} to help with ${opts.user.name}'s ask. Your part:\n\n${opts.prompt}\n\n<crew>\n${sofar || "Nothing made yet."}\n</crew>\nDon't make what a teammate has made or is making: call crew_work before you make each thing, and build on what's there.`
+    : opts.prompt;
+  let failed = false;
+  const watch = (e: AgentEvent) => {
+    if (e.type === "error") failed = true;
+    emit(e);
+  };
+  void runAgent({ ...opts, prompt, crew, runId: r.id, emit: watch, signal: r.ctrl.signal }).finally(() => {
+    if (crew) {
+      leaveCrew(crew, r.ctrl.signal.aborted ? "stopped" : failed ? "error" : "done");
+      crewUsers.delete(crew.id);
+    }
+    end();
   });
   return r;
 }
+
+const crewUsers = new Map<string, UserInfo>();
+
+// a lead's call_in_help: a run of its own (its own name, cursor and session tab), for the same person
+setHelperStarter((lead, task) => {
+  const user = crewUsers.get(lead.id);
+  if (!user) throw new Error("the agent that called for help has finished");
+  const session = `ses_${randomBytes(6).toString("hex")}`;
+  const h = startRun({ boardId: lead.boardId, user, prompt: task, session, lead });
+  const crewEv = h.events.find((e): e is Extract<AgentEvent, { type: "crew" }> => e.type === "crew");
+  if (!crewEv) throw new Error((h.events.find((e) => e.type === "error") as { message?: string } | undefined)?.message ?? "no helper started");
+  setDoing(lead, `called in ${crewEv.name}`);
+  const leadRun = live.get(lead.runId);
+  if (leadRun) {
+    const ev: AgentEvent = { type: "helper", name: crewEv.name, runId: h.id, session };
+    leadRun.events.push(ev);
+    for (const fn of leadRun.listeners) fn(ev);
+  }
+  return { name: crewEv.name, runId: h.id };
+});
 
 /** a run this person may watch: replay what happened, then follow; returns a detach */
 export function followRun(id: string, userId: string, send: (e: AgentEvent) => void, end: () => void): (() => void) | null {
@@ -211,6 +314,20 @@ export function stopRun(id: string, userId: string) {
   if (!r || r.userId !== userId) return false;
   r.ctrl.abort();
   return true;
+}
+
+/**
+ * The crew-wide stop: every run this person has going on this board, helpers
+ * included (a helper runs as the person who asked). Returns how many stopped.
+ */
+export function stopAllRuns(boardId: string, userId: string): number {
+  let n = 0;
+  for (const r of live.values()) {
+    if (r.done || r.userId !== userId || r.boardId !== boardId || r.ctrl.signal.aborted) continue;
+    r.ctrl.abort();
+    n++;
+  }
+  return n;
 }
 
 /** runs left "running" by a server that stopped can't finish: say so */
@@ -237,9 +354,9 @@ async function runApi(opts: Parameters<typeof runAgent>[0], emit: (e: AgentEvent
   const history = histories.get(key) ?? [];
   history.push({
     role: "user",
-    content: `${opts.prompt}\n\n${contextBlock(opts)}`,
+    content: `${opts.prompt}${youTag(opts.crew)}\n\n${contextBlock(opts)}`,
   });
-  const ctx: ToolCtx = { boardId: opts.boardId, actor: "Foundation Agent", userId: opts.user.id };
+  const ctx: ToolCtx = { boardId: opts.boardId, actor: opts.crew?.name ?? "Foundation Agent", userId: opts.user.id, crew: opts.crew?.id };
   const tools = apiTools();
   let usage = { input: 0, output: 0 };
 
@@ -294,9 +411,11 @@ async function runApi(opts: Parameters<typeof runAgent>[0], emit: (e: AgentEvent
 // ---------- subscription runtime (Claude Code, T3-style session) ----------
 
 async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: AgentEvent) => void, runId: string) {
+  const c = claudeStart();
+  if (!c.ok) throw new Error(`The subscription runtime can't start: ${c.reason}`);
   const key = convKey(opts);
   // a short-lived session for this person, so the agent's writes are theirs
-  const token = createSession(opts.user.id, 2 * 3600_000);
+  const token = createSession(opts.user.id, 2 * 3600_000, "agent");
   const mcpFile = join(config.dataDir, `mcp-${randomBytes(6).toString("hex")}.json`);
   writeFileSync(
     mcpFile,
@@ -304,14 +423,14 @@ async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: A
       mcpServers: {
         foundation: {
           type: "http",
-          url: `http://${config.host}:${config.port}/mcp?board=${encodeURIComponent(opts.boardId)}`,
+          url: `http://${config.host}:${config.port}/mcp?board=${encodeURIComponent(opts.boardId)}${opts.crew ? `&crew=${encodeURIComponent(opts.crew.id)}` : ""}`,
           headers: { Authorization: `Bearer ${token}` },
         },
       },
     }),
     { mode: 0o600 },
   );
-  const prompt = `${opts.prompt}\n\n${contextBlock(opts)}`;
+  const prompt = `${opts.prompt}${youTag(opts.crew)}\n\n${contextBlock(opts)}`;
   const argv = [
     "-p",
     prompt,
@@ -335,7 +454,8 @@ async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: A
 
   emit({ type: "status", status: "thinking" });
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(config.claudeCli, argv, { cwd: config.dataDir, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+    // no shell: the prompt is one argument, whatever it holds
+    const child = spawn(c.cmd, [...c.pre, ...argv], { cwd: config.dataDir, env: process.env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     opts.signal.addEventListener("abort", () => child.kill("SIGTERM"));
     let buf = "";
     let err = "";

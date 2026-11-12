@@ -1,22 +1,31 @@
 {
   "name": "foundation",
   "private": true,
-  "description": "Foundation \u2014 the company brain of Form Industries. One grid where people, apps and agents work together.",
+  "description": "Foundation — the company brain of Form Industries. One grid where people, apps and agents work together.",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
     "dev": "node scripts/dev.mjs",
+    "desktop": "node scripts/dev.mjs --desktop",
     "dev:client": "npm run dev -w @foundation/client",
     "dev:server": "npm run dev -w @foundation/server",
     "build": "npm run build -w @foundation/client",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm test --workspaces --if-present",
     "tauri": "npm run tauri -w @foundation/client --",
-    "services": "node scripts/sibling.mjs all"
+    "services": "node scripts/sibling.mjs all",
+    "plan:push": "node scripts/plan.mjs push",
+    "plan:pull": "node scripts/plan.mjs pull",
+    "plan:sync": "node scripts/plan.mjs sync",
+    "plan:project": "node scripts/plan.mjs project",
+    "plan:check": "node scripts/plan.mjs check",
+    "kiri": "node scripts/kiri.mjs",
+    "kiri:install": "node scripts/kiri.mjs install",
+    "release": "node scripts/release.mjs"
   },
   "engines": {
-    "node": ">=22.13"
+    "node": ">=22.16"
   }
 }

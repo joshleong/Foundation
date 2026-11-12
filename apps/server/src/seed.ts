@@ -83,7 +83,7 @@ export function seedCompanyBoard() {
       w: 440,
       h: 360,
       text:
-        "## Foundation\n\nThe company's shared grid. Everyone here, every app we run, and the agents that work with us.\n\n- **⌘K** searches everything — cards, files, CAD, Slack, GitHub\n- **⌘J** talks to the agent (or hold **Space** to speak)\n- **Drop files** anywhere — designs, CAD, PDFs, video\n- **⌘L** opens a link or an app as a live panel\n- **P** presents the board\n- **A** shows the agent layer: who is working on what, and how apps are wired",
+        "## Foundation\n\nThe company's shared grid. Everyone here, every app we run, and the agents that work with us.\n\n- **⌘K** (Ctrl+K on Windows and Linux) searches everything — cards, files, CAD, Slack, GitHub\n- **⌘J** talks to the agent (or hold **Space** to speak)\n- **Drop files** anywhere — designs, CAD, PDFs, video\n- **⌘L** opens a link or an app as a live panel\n- **P** presents the board\n- **A** shows the agent layer: who is working on what, and how apps are wired",
     };
     putNote(doc, welcome);
 

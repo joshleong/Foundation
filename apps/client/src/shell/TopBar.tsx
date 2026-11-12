@@ -6,6 +6,7 @@
  * sidebar toggle, sessions and panes.
  */
 
+import { COMMANDS_GLYPH, keys } from "../lib/keys";
 import { motion, AnimatePresence } from "motion/react";
 import { closeTab, newSession, setUi, useUi } from "../state/ui";
 import { useSession } from "../state/sessions";
@@ -18,7 +19,7 @@ export function TopBar({ boardName }: { boardName: string }) {
 
   return (
     <header className="top-bar">
-      <button className={`top-btn pane-fold${ui.pane ? " is-on" : ""}`} onClick={() => setUi({ pane: !ui.pane })} data-tip={ui.pane ? "Fold the side pane (⌘\\)" : "Sessions, boards and settings (⌘\\)"}>
+      <button className={`top-btn pane-fold${ui.pane ? " is-on" : ""}`} onClick={() => setUi({ pane: !ui.pane })} data-tip={ui.pane ? `Fold the side pane (${keys("mod+\\")})` : `Sessions, boards and settings (${keys("mod+\\")})`}>
         <PaneGlyph />
       </button>
       <button className="top-btn is-agent" onClick={() => window.location.assign("/#/today")} data-tip="Today and the Shiba">
@@ -26,7 +27,7 @@ export function TopBar({ boardName }: { boardName: string }) {
       </button>
 
       <nav className="tabs" aria-label="Tabs">
-        <button className={`tab is-board${ui.tab === null ? " is-current" : ""}`} onClick={() => setUi({ tab: null })} title="The board (⌘1)">
+        <button className={`tab is-board${ui.tab === null ? " is-current" : ""}`} onClick={() => setUi({ tab: null })} title={`The board (${keys("mod+1")})`}>
           <span className="tab-glyph">▦</span>
           <span className="tab-title">{boardName || "Board"}</span>
           <span className={`f-dot ${status === "live" ? "is-ok" : status === "offline" ? "is-warn" : "is-live"}`} title={status === "live" ? "Live" : status === "offline" ? "Offline — edits will sync when back" : "Connecting…"} />
@@ -55,28 +56,28 @@ export function TopBar({ boardName }: { boardName: string }) {
               transition={{ type: "spring", stiffness: 420, damping: 32 }}
               layout="position"
             >
-              <button className="tab-main" onClick={() => setUi({ tab: t.id })} title={`${t.title}${i < 8 ? ` (⌘${i + 2})` : ""}`}>
+              <button className="tab-main" onClick={() => setUi({ tab: t.id })} title={`${t.title}${i < 8 ? ` (${keys(`mod+${i + 2}`)})` : ""}`}>
                 <TabMark id={t.id} kind={t.kind} />
                 <span className="tab-title">{t.title}</span>
               </button>
-              <button className="tab-close" onClick={() => closeTab(t.id)} aria-label={`Close ${t.title}`} title="Close (⌘W)">
+              <button className="tab-close" onClick={() => closeTab(t.id)} aria-label={`Close ${t.title}`} title={`Close (${keys("mod+W")})`}>
                 ✕
               </button>
             </motion.div>
           ))}
         </AnimatePresence>
-        <button className="top-btn tab-new" onClick={() => newSession()} data-tip="New agent session (⌘J)">
+        <button className="top-btn tab-new" onClick={() => newSession()} data-tip={`New agent session (${keys("mod+J")})`}>
           ＋
         </button>
       </nav>
 
       <div className="top-tools">
         <PresenceStack />
-        <button className={`top-btn${ui.search ? " is-on" : ""}`} onClick={() => setUi({ search: !ui.search })} data-tip="Search, drag onto the grid (⌘F)">
+        <button className={`top-btn${ui.search ? " is-on" : ""}`} onClick={() => setUi({ search: !ui.search })} data-tip={`Search, drag onto the grid (${keys("mod+F")})`}>
           ⌕
         </button>
-        <button className="top-btn" onClick={() => setUi({ command: true })} data-tip="Commands, open an app (⌘K)">
-          ⌘
+        <button className="top-btn" onClick={() => setUi({ command: true })} data-tip={`Commands, open an app (${keys("mod+K")})`}>
+          {COMMANDS_GLYPH}
         </button>
         <button className={`top-btn is-agent${ui.agentLayer ? " is-on" : ""}`} onClick={() => setUi({ agentLayer: !ui.agentLayer })} data-tip="Agent layer (A)">
           ◇

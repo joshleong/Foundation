@@ -14,12 +14,31 @@ export interface AsciiWindHooks {
   tap(x: number, y: number, force?: number): void;
   /** a wake, as if the pointer had passed (x, y) moving (wayX, wayY) */
   stir(x: number, y: number, wayX: number, wayY: number, force?: number): void;
-  /** up to 12 rects the wind's glyphs keep out of (the page draws its own characters there) */
-  holes(rects: Array<{ x: number; y: number; width: number; height: number }>): void;
-  /** a frame of the field's own glyphs, always faintly lit (`light` 0..1), `depthX`/`depthY` px deep around `rect`; null = none */
-  frame(rect: { x: number; y: number; width: number; height: number } | null, depthX?: number, depthY?: number, light?: number): void;
+  /**
+   * Up to 12 of the page's elements. The glyphs keep `gap` clear around each
+   * (rounded by `radius`), and those within `depth` beyond that trace its
+   * outline, always faintly lit (`light` 0..1). All css px, measured across:
+   * rows are twice as tall as columns, so up and down they count half. An
+   * empty list = none.
+   */
+  shapes(list: Array<AsciiWindShape>): void;
   /** glyphs nearer than `radius` (less a ragged `band`) to (x, y) are gone; the front burns bright. radius 0 = off */
   dissolve(x: number, y: number, radius: number, band: number): void;
+  /** draw one frame now (the hooks above draw on the next display frame); for measuring */
+  drawNow(): void;
+  /** how it's pacing: 0 = every display frame, 1 = 30 fps, 2 = 15 fps; and why it last backed off */
+  state(): { backoff: number; suspended: boolean; settled: boolean; backoffs: Array<{ at: number; why: string; to: number }> };
+}
+
+export interface AsciiWindShape {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  radius?: number;
+  gap?: number;
+  depth?: number;
+  light?: number;
 }
 
 declare global {

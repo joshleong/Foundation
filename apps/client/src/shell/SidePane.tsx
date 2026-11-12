@@ -4,9 +4,11 @@
  * ⌘\, resized by its right edge.
  *
  * Top to bottom: Sessions — this board's agent sessions and Vision Code's
- * threads, each opening a tab — then Boards, Activity, Settings, and you.
+ * threads, each opening a tab — then Boards, Activity, Release & plan (the
+ * app's floorplan and the plan board in Settings), Tools, and you.
  */
 
+import { keys } from "../lib/keys";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import type { UserInfo } from "@foundation/protocol";
@@ -77,13 +79,21 @@ export function SidePane({ user, boards, current, onSwitch, onNew, onUpload }: P
             <Activity />
 
             <section className="pane-group">
+              <div className="pane-eyebrow">Release & plan</div>
+              <PaneRow glyph="⌗" label="App floorplan" onClick={openFloorplan} />
+              <PaneRow glyph="◇" label="The plan" onClick={() => (window.location.hash = "#/settings/plan")} />
+              <PaneRow glyph="¶" label="What's new" onClick={() => (window.location.hash = "#/settings/releases")} />
+            </section>
+
+            <section className="pane-group">
               <div className="pane-eyebrow">Tools</div>
               <PaneRow glyph="◌" label="Today and the Shiba" onClick={() => window.location.assign("/#/today")} />
-              <PaneRow glyph="⇪" label="Upload files" kbd="⌘U" onClick={onUpload} />
+              <PaneRow glyph="⇪" label="Upload files" kbd={keys("mod+U")} onClick={onUpload} />
               <PaneRow glyph="▥" label="New section" onClick={() => appendSectionLocal("New section")} />
               <PaneRow glyph="⊡" label="Fit the board" kbd="0" onClick={() => requestSnap({ kind: "all" })} />
               <PaneRow glyph="⌁" label="Connect Claude Code" onClick={() => void copyMcpCommand()} />
               <PaneRow glyph="◐" label="Design language" onClick={() => (window.location.hash = "#/design")} />
+              <PaneRow glyph="⚙" label="Settings" onClick={() => (window.location.hash = "#/settings")} />
             </section>
           </div>
 
@@ -123,7 +133,7 @@ function Sessions() {
       <section className="pane-group">
         <div className="pane-eyebrow is-agent">
           Sessions
-          <button className="pane-eyebrow-act" onClick={() => newSession()} title="New agent session (⌘J)">
+          <button className="pane-eyebrow-act" onClick={() => newSession()} title={`New agent session (${keys("mod+J")})`}>
             ＋
           </button>
         </div>
@@ -143,7 +153,9 @@ function Sessions() {
 
       <section className="pane-group">
         <div className="pane-eyebrow">Vision Code</div>
-        {lists.t3Available === false && <div className="pane-empty">Vision Code isn't on this machine (or its store moved). Set T3CODE_HOME on the server to point at it.</div>}
+        {lists.t3Available === false && (
+          <div className="pane-empty is-paths">{lists.t3Missing ?? "Vision Code isn't on this computer (or its store moved). Set T3CODE_HOME on the server to point at it."}</div>
+        )}
         {t3.map((t) => (
           <button
             key={t.id}
@@ -224,6 +236,18 @@ function People({ board, me }: { board: string; me: string }) {
   );
 }
 
+/**
+ * Release & plan. The floorplan is a map of Foundation's own code (every part,
+ * file and connection, in plain words), made with the floorplan plugin and
+ * exported to `public/floorplan.html` — a static page the client serves.
+ * Rebuild it after a release: see docs/floorplan.md.
+ */
+export const FLOORPLAN_URL = "/floorplan.html";
+
+function openFloorplan() {
+  window.open(FLOORPLAN_URL, "_blank", "noopener");
+}
+
 function PaneRow({ glyph, label, kbd, onClick }: { glyph: string; label: string; kbd?: string; onClick(): void }) {
   return (
     <button className="pane-row" onClick={onClick}>
@@ -244,7 +268,11 @@ function Activity() {
       {items.map((a, i) => (
         <button key={a.at + ":" + i} className={`activity-row role-${a.role}`} onClick={() => a.objectId && requestSnap({ kind: "object", id: a.objectId })}>
           <span className={`f-dot ${a.role === "agent" ? "is-agent" : a.role === "human" ? "is-ok" : ""}`} />
-          <span className="activity-who">{a.who}</span>
+          {/* an agent's line says whom it worked for; a person's is just theirs */}
+          <span className="activity-who" data-tip={a.role === "agent" && a.for ? `${a.who}: an agent working for ${a.for}` : undefined}>
+            {a.role === "agent" ? "✦ " : ""}
+            {a.who}
+          </span>
           <span className="activity-text">{a.text}</span>
           <span className="activity-when">{ago(a.at)}</span>
         </button>

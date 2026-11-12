@@ -90,15 +90,44 @@ export async function repoCommits(repo: string, n = 8) {
   return rows.map((c) => ({ sha: c.sha.slice(0, 7), url: c.html_url, message: c.commit.message.split("\n")[0], author: c.commit.author.name, date: c.commit.author.date }));
 }
 
+/**
+ * The company's repos that match a query. With GITHUB_ORG set, GitHub's search
+ * inside that org; otherwise the repos this login can see (its own, its
+ * orgs', where it collaborates), matched here. Never all of GitHub: a search
+ * for "supply" should find our supply-chain repo, not strangers'.
+ */
 export async function searchRepos(q: string, limit = 8): Promise<RepoInfo[]> {
-  const scope = config.github.org ? `+org:${config.github.org}` : "+user:@me";
-  try {
-    const r = await api<{ items: GhRepo[] }>(`/search/repositories?q=${encodeURIComponent(q)}${scope}&per_page=${limit}`);
-    return r.items.map(toInfo);
-  } catch {
-    const r = await api<{ items: GhRepo[] }>(`/search/repositories?q=${encodeURIComponent(q)}&per_page=${limit}`);
+  if (config.github.org) {
+    const r = await api<{ items: GhRepo[] }>(`/search/repositories?q=${encodeURIComponent(q)}+org:${config.github.org}&per_page=${limit}`);
     return r.items.map(toInfo);
   }
+  return matchRepos(await myRepos(), q).slice(0, limit);
+}
+
+let mine: { at: number; repos: RepoInfo[] } | null = null;
+const MINE_TTL = 5 * 60_000;
+
+/** The repos this login can see, newest push first (cached five minutes). Empty without a login. */
+async function myRepos(): Promise<RepoInfo[]> {
+  if (mine && Date.now() - mine.at < MINE_TTL) return mine.repos;
+  const repos: RepoInfo[] = [];
+  for (let page = 1; page <= 3; page++) {
+    const rows = await api<GhRepo[]>(`/user/repos?per_page=100&page=${page}&sort=pushed&affiliation=owner,collaborator,organization_member`).catch(() => [] as GhRepo[]);
+    repos.push(...rows.map(toInfo));
+    if (rows.length < 100) break;
+  }
+  mine = { at: Date.now(), repos };
+  return repos;
+}
+
+/** Every word of the query in the repo's name or description; name hits first. */
+export function matchRepos(repos: RepoInfo[], q: string): RepoInfo[] {
+  const words = q.toLowerCase().split(/[\s/_-]+/).filter(Boolean);
+  if (!words.length) return [];
+  const hay = (r: RepoInfo) => `${r.fullName} ${r.description ?? ""}`.toLowerCase();
+  const hits = repos.filter((r) => words.every((w) => hay(r).includes(w)));
+  const inName = (r: RepoInfo) => words.every((w) => r.fullName.toLowerCase().includes(w));
+  return [...hits.filter(inName), ...hits.filter((r) => !inName(r))];
 }
 
 /**

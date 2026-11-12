@@ -11,7 +11,7 @@ import type { AgentEvent } from "@foundation/protocol";
 import { api, followRun, streamAgent } from "../lib/api";
 import { activeBoard } from "../sync/board";
 import { getState } from "./store";
-import { getUi, newSession, renameTab } from "./ui";
+import { getUi, newSession, newSessionId, renameTab, toast } from "./ui";
 
 export interface Turn {
   /** the server's run, once it has said (reattach and stop by it) */
@@ -85,6 +85,8 @@ async function follow(id: string, open: (ctrl: AbortController, on: (e: AgentEve
     await open(ctrl, (e) =>
       last((t) => {
         if (e.type === "run") return { ...t, runId: e.id };
+        if (e.type === "crew") noteCrew(e.id, id, e.name, e.hue, t.prompt);
+        if (e.type === "helper") void followHelper(e.session, e.runId, e.name);
         const prev = t.events[t.events.length - 1];
         // streamed text joins the text before it
         const events = e.type === "text" && prev?.type === "text" ? [...t.events.slice(0, -1), { type: "text" as const, text: prev.text + e.text }] : [...t.events, e];
@@ -122,12 +124,88 @@ export function sayToAgent(text: string) {
   void sendToSession(id, text, pref && pref !== "auto" ? pref : undefined);
 }
 
+// ---------- the crew: asks from the voice sheet run without a tab ----------
+
+export interface CrewAsk {
+  /** the crew member (its presence on the board) */
+  crew: string;
+  session: string;
+  name: string;
+  hue: number;
+  prompt: string;
+  /** when its agent joined */
+  at: number;
+}
+const crewAsks = new Map<string, CrewAsk>();
+
+function noteCrew(crew: string, session: string, name: string, hue: number, prompt: string) {
+  if (crewAsks.get(crew)?.session === session) return;
+  crewAsks.set(crew, { crew, session, name, hue, prompt, at: Date.now() });
+  emit();
+}
+
+/** how long a finished ask stays findable in the sheet after its agent has left */
+export const RECENT_ASK_MS = 15 * 60_000;
+
+/**
+ * Your asks whose agents have left the board (done, stopped or failed) in
+ * the last 15 minutes, newest first, at most three: the sheet lists them under
+ * the crew at work, so a finished ask can still be opened (it ran without a tab).
+ */
+export function useRecentCrewAsks(present: ReadonlySet<string>): Array<CrewAsk & { status: string }> {
+  useSyncExternalStore(subscribe, () => version);
+  const now = Date.now();
+  return [...crewAsks.values()]
+    .filter((a) => !present.has(a.crew) && now - a.at < RECENT_ASK_MS && !runs.get(a.session)?.busy)
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 3)
+    .map((a) => ({ ...a, status: runs.get(a.session)?.turns.at(-1)?.status ?? "done" }));
+}
+
+/** which session a crew member's work is in (to stop it, or open its tab) */
+export function crewAsk(crew: string): CrewAsk | undefined {
+  return crewAsks.get(crew);
+}
+
+/** a helper a lead called in: follow its run under its own session, so it can be stopped and opened */
+async function followHelper(session: string, runId: string, name: string) {
+  if (runs.get(session)?.busy) return;
+  patch(session, (x) => ({ ...x, loaded: true, turns: [{ runId, prompt: `${name}: called in to help`, events: [], status: "running", at: Date.now() }] }));
+  await follow(session, (ctrl, on) => followRun(runId, on, ctrl.signal), true);
+}
+
+/**
+ * Ask the crew (the voice sheet): a new agent, with its own name and cursor,
+ * in a session of its own that runs without opening a tab, so the board
+ * stays in view while you watch it work. Several can run at once.
+ */
+export function askCrew(text: string): string {
+  const id = newSessionId();
+  const pref = localStorage.getItem("foundation-runtime");
+  void sendToSession(id, text, pref && pref !== "auto" ? pref : undefined).then(() => {
+    // no tab shows this run, so a failure says so here, in the agent's name and its own words
+    const t = runs.get(id)?.turns.at(-1);
+    if (t?.status !== "error") return;
+    const err = [...t.events].reverse().find((e): e is Extract<AgentEvent, { type: "error" }> => e.type === "error" && !/^Claude Code exited/.test(e.message));
+    const who = [...crewAsks.values()].find((a) => a.session === id)?.name ?? "The crew";
+    toast(`${who} couldn't do it: ${err?.message ?? "the agent stopped with an error"}`, "bad");
+  });
+  return id;
+}
+
 /** Stop ends the run on the server; the stream then closes on its own */
 export function stopSession(id: string) {
   const t = (runs.get(id)?.turns ?? []).at(-1);
   stopped.add(id);
   if (t?.runId) void api(`/api/agent/runs/${encodeURIComponent(t.runId)}/stop`, { method: "POST" }).catch(() => ctrls.get(id)?.abort());
   else ctrls.get(id)?.abort();
+}
+
+/** The crew-wide stop: every agent of yours on this board, helpers included (the server finds them) */
+export async function stopAllCrew(board: string): Promise<number> {
+  for (const a of crewAsks.values()) stopped.add(a.session);
+  const r = await api<{ stopped: number }>("/api/agent/runs/stop-all", { method: "POST", json: { board } });
+  return r.stopped;
 }
 
 export function titleOf(prompt: string) {
@@ -158,7 +236,7 @@ export function planOf(turns: Turn[]): Plan | null {
 }
 
 /** tools that only look: what they mention isn't something the session touched */
-export const READ_ONLY = new Set(["read_board", "search", "find_images", "company", "read_file", "read_repo", "find_repo", "app_tools", "pipeline_status", "set_plan", "huddle_transcript", "slack_read"]);
+export const READ_ONLY = new Set(["read_board", "search", "find_images", "company", "read_file", "read_repo", "find_repo", "app_tools", "pipeline_status", "set_plan", "huddle_transcript", "slack_read", "point_at"]);
 
 /** cards and sections a session's tools named — ringed on the grid while it shows */
 export function touchedBy(turns: Turn[]): string[] {
@@ -187,7 +265,19 @@ export function touchedBy(turns: Turn[]): string[] {
     }
   }
   const text = parts.join(" ");
-  return text ? ids.filter((id) => text.includes(id)) : [];
+  const named = text ? ids.filter((id) => text.includes(id)) : [];
+  // and what its agents actually wrote, from the board's own activity (signed by name): a card a tool
+  // changed without naming it still gets its ring
+  const wrote = new Set<string>();
+  const log = activeBoard()?.activity() ?? [];
+  turns.forEach((t, i) => {
+    const names = new Set(t.events.flatMap((e) => (e.type === "crew" || e.type === "helper" ? [e.name] : [])));
+    if (!names.size) return;
+    const until = turns[i + 1]?.at ?? Infinity;
+    for (const a of log) if (a.objectId && names.has(a.who) && a.at >= t.at - 1000 && a.at < until) wrote.add(a.objectId);
+  });
+  const known = new Set(ids);
+  return [...new Set([...named, ...[...wrote].filter((id) => known.has(id))])];
 }
 
 /** the first board object a step names, so a step can be clicked to frame it */
@@ -250,20 +340,22 @@ export interface T3Thread {
   url: string | null;
 }
 
-let lists: { sessions: SessionSummary[]; t3: T3Thread[]; t3Available: boolean | null } = { sessions: [], t3: [], t3Available: null };
+/** t3Missing: when Vision Code's threads can't be read, the server's word on where it looked and what to set */
+let lists: { sessions: SessionSummary[]; t3: T3Thread[]; t3Available: boolean | null; t3Missing: string | null } = { sessions: [], t3: [], t3Available: null, t3Missing: null };
 const listListeners = new Set<() => void>();
 
 export async function refreshLists() {
   const board = activeBoard()?.boardId ?? "company";
   const [s, t] = await Promise.allSettled([
     api<{ sessions: SessionSummary[] }>(`/api/agent/sessions?board=${encodeURIComponent(board)}`),
-    api<{ available: boolean; threads: T3Thread[] }>("/api/t3/threads"),
+    api<{ available: boolean; threads: T3Thread[]; missing?: string }>("/api/t3/threads"),
   ]);
   lists = {
     sessions: s.status === "fulfilled" ? s.value.sessions : lists.sessions,
     t3: t.status === "fulfilled" ? t.value.threads : lists.t3,
     // unreachable (offline) isn't "not installed": keep what we last knew
     t3Available: t.status === "fulfilled" ? t.value.available : lists.t3Available,
+    t3Missing: t.status === "fulfilled" ? (t.value.missing ?? null) : lists.t3Missing,
   };
   for (const fn of listListeners) fn();
 }

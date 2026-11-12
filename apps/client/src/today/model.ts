@@ -1,6 +1,6 @@
 /**
  * Today's data and the Shiba's conversation, kept outside React so the page
- * stays in step with what the Shiba does: it points at items (point_at), adds
+ * stays in step with what the Shiba does: it points at items (point_today), adds
  * and finishes goals (set_goal), and the page refetches when a tool changes
  * something. One conversation per person, resumed across reloads.
  */
@@ -153,7 +153,7 @@ export function stepWords(name: string, input: unknown): string {
   switch (name) {
     case "today":
       return "reading your day";
-    case "point_at":
+    case "point_today":
       return "pointing";
     case "set_goal":
       return i.id ? (i.status === "done" || i.progress === 1 ? "finishing a goal" : "updating a goal") : `adding “${String(i.title ?? "a goal")}”`;
@@ -207,7 +207,7 @@ export async function ask(prompt: string) {
           patch({ answer: cur().answer + e.text });
           if (s.mood !== "speaking") set({ mood: "speaking" });
         } else if (e.type === "tool") {
-          if (e.name === "point_at") set({ pointed: ((e.input as { ids?: string[] })?.ids ?? []).slice(0, 6) });
+          if (e.name === "point_today") set({ pointed: ((e.input as { ids?: string[] })?.ids ?? []).slice(0, 6) });
           if (e.name === "set_goal" || e.name === "set_profile") changed = true;
           patch({ steps: [...cur().steps, stepWords(e.name, e.input)] });
           if (s.mood === "idle") set({ mood: "thinking" });

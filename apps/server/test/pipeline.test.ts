@@ -76,3 +76,14 @@ test("stages open in order, measure CAD, and hand off down the wire", async () =
   completeStage(board, stages[4].id, "Josh", "approved");
   assert.equal(pipelineStages(doc, r.pipeline)[5].status, "open", "approval opens Release");
 });
+
+test("the first column keeps room on its left for the wire that turns back into it", async () => {
+  const { LEFT_ROOM } = await import("../src/pipeline.ts");
+  const r = startPipeline("pipe-room", "Josh", { name: "Room", goal: "Room to turn" });
+  const stages = pipelineStages(getBoard("pipe-room").doc, r.pipeline);
+  const xs = stages.map((s) => s.x);
+  assert.equal(Math.min(...xs), LEFT_ROOM);
+  assert.ok(LEFT_ROOM >= 28, "with the section's own 28 px pad, about 42 px to turn in");
+  // Simulate (the first of the second row) sits under Brief, both in the roomy first column
+  assert.equal(stages[3].x, stages[0].x);
+});

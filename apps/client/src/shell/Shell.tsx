@@ -5,7 +5,7 @@
  * right — then the layers above: the agent layer, ⌘K, presentation mode, the
  * repo drawer and toasts.
  *
- * Keys: ⌘K commands · ⌘F search · ⌘\ side pane · ⌘J new agent session · ⌘1 the board ·
+ * Keys (⌘ is Ctrl off a Mac, and lib/keys.ts labels it so): ⌘K commands · ⌘F search · ⌘\ side pane · ⌘J new agent session · ⌘1 the board ·
  * ⌘2…9 tabs · ⌘W close the tab · A agent layer · P present · ⌘U upload ·
  * Esc releases an engaged app (then steps up the grid's levels).
  */
@@ -19,10 +19,11 @@ import { CommandBar } from "./CommandBar";
 import { TopBar } from "./TopBar";
 import { SessionView, TouchedRings } from "./SessionView";
 import { SearchPane } from "./SearchPane";
-import { toggleTalk } from "./Talk";
+import { talkTyping, toggleTalk } from "./Talk";
 import { Present } from "./Present";
 import { RepoDrawer } from "./RepoDrawer";
 import { HuddlePip } from "./HuddlePip";
+import { UploadTray } from "./UploadTray";
 import { SidePane } from "./SidePane";
 import { api } from "../lib/api";
 import { ingest } from "../lib/ingest";
@@ -158,7 +159,7 @@ export function Shell({ user }: { user: UserInfo }) {
       } else if (e.key === "Escape" && getUi().engaged) {
         e.stopPropagation();
         setUi({ engaged: null });
-      } else if (!mod && !typing(e) && !getUi().command && !getUi().presenting) {
+      } else if (!mod && !typing(e) && !talkTyping() && !getUi().command && !getUi().presenting) {
         if (e.key === "a" || e.key === "A") setUi({ agentLayer: !getUi().agentLayer });
         else if (e.key === "v" || e.key === "V") toggleTalk();
         else if (e.key === "p" || e.key === "P") setUi({ presenting: true });
@@ -191,6 +192,7 @@ export function Shell({ user }: { user: UserInfo }) {
       <Present />
       <RepoDrawer />
       <HuddlePip />
+      <UploadTray />
       <Toast />
 
       <input

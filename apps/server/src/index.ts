@@ -8,12 +8,13 @@
  */
 
 import { createServer, type ServerResponse } from "node:http";
+import type { PanelDoc, UserInfo } from "@foundation/protocol";
 import { WebSocketServer } from "ws";
 import { config } from "./config.ts";
-import "./db.ts";
+import { one } from "./db.ts";
 import { HttpError, json, readJson, Router, sse, type Req } from "./http.ts";
-import { clearSession, createSession, googleAuthUrl, googleCallback, isAllowed, requireUser, setSessionCookie, upsertUser, userFromRequest, createSession as mintToken } from "./auth.ts";
-import { attachConnection, boardEpoch, editBoard, syncAccess, ensureBoardRow, getBoard, listBoards, presence } from "./boards.ts";
+import { clearSession, createSession, googleAuthUrl, googleCallback, isAllowed, requireUser, setSessionCookie, signIn, upsertUser, userFromRequest } from "./auth.ts";
+import { boardEpoch, editBoard, ensureBoardRow, getBoard, listBoards, presence } from "./boards.ts";
 import { archiveFile, listFiles, reindexFilesIfNeeded, serveFile, uploadFile } from "./files.ts";
 import { integrationStatus, searchAll } from "./search.ts";
 import { listApps, probeApp, saveApp } from "./apps.ts";
@@ -21,19 +22,31 @@ import { parseRepo, repoCommits, repoInfo, repoReadme } from "./github.ts";
 import { companySnapshot, connectorEvents, readConnector, watchFactoryForm } from "./connectors.ts";
 import { createAsk, listAsks, resolveAsk, startHermes } from "./hermes.ts";
 import { getJob, listJobs, startJob } from "./jobs.ts";
-import { followRun, listSessions, runtimes, sessionTurns, settleOrphanRuns, startRun, stopRun } from "./agent.ts";
+import { followRun, listSessions, runtimes, sessionTurns, settleOrphanRuns, startRun, stopAllRuns, stopRun } from "./agent.ts";
 import { t3Thread, t3Threads } from "./t3.ts";
 import { pollHandoffs } from "./vision.ts";
 import { boardPeople, boardRole, canWrite, requireWriter, setBoardRole } from "./roles.ts";
-import { runTool, TOOLS } from "./tools.ts";
+import { handleUpgrade, issueTicket } from "./sockets.ts";
+import { httpToolCtx, runTool, TOOLS } from "./tools.ts";
 import { handleMcp } from "./mcp.ts";
 import { seedCompanyBoard } from "./seed.ts";
-import { addLine, attachHuddle, attachRecording, huddleArchive, transcriptText } from "./huddles.ts";
+import { addLine, attachRecording, huddleArchive, huddleForInvite, transcriptText, type NewHuddle } from "./huddles.ts";
 import { boardLink, channelHistory, channelInfo, inviteText, listChannels, postMessage, shareText, SlackError, slackStatus } from "./slack.ts";
-import { appendSection, boardMaps } from "@foundation/protocol";
+import { appendSection, boardMaps, huddleStateOf } from "@foundation/protocol";
 import { migrateAllBoards } from "./migrate.ts";
 import { saveGoal, setProfile, todayFor, type GoalInput } from "./today.ts";
 import * as flowform from "./flowform.ts";
+import { canSeeBoard, hiddenBoards, requireBoard } from "./members.ts";
+import { isPerson, requirePerson } from "./auth.ts";
+import { startGridLog } from "./gridlog.ts";
+import { answerAsk, startMachineAsks } from "./machineasks.ts";
+import { createPlanCard, movePlanCard, readPlan, syncPlan, type NewCard } from "./plan.ts";
+import { startDigest } from "./digest.ts";
+import { engineImages, engineStatus, loadImage, reconcileMachine, removeMachine, restartMachine, startMachine, stopMachine } from "./machines.ts";
+
+// people's grid edits go in the activity log, from the first board loaded
+startGridLog();
+startMachineAsks();
 
 const r = new Router();
 
@@ -45,12 +58,11 @@ r.get("/auth/config", () => ({ google: Boolean(config.google.clientId), devLogin
 r.get("/api/me", (req) => ({ user: userFromRequest(req) }));
 r.post("/auth/dev", async (req, res) => {
   if (!config.devLogin) throw new HttpError(403, "dev login is off");
-  const { email, name } = await readJson<{ email?: string; name?: string }>(req);
+  const { email, name, bearer } = await readJson<{ email?: string; name?: string; bearer?: boolean }>(req);
   if (!email || !/^[^@\s]+@[^@\s]+$/.test(email)) throw new HttpError(400, "enter an email");
   if (!isAllowed(email)) throw new HttpError(403, `${email} is not on Foundation's allowlist`);
   const user = upsertUser(email, name ?? "");
-  setSessionCookie(res, createSession(user.id));
-  return { user };
+  return { user, ...signIn(res, user.id, bearer === true) };
 });
 r.get("/auth/google/start", (_req, res) => {
   res.writeHead(302, { location: googleAuthUrl() });
@@ -71,10 +83,15 @@ r.post("/auth/logout", (req, res) => {
   clearSession(req, res);
   return { ok: true };
 });
+/** a one-time, 30-second ticket for one socket, for a client that can't send its session on a WebSocket (sockets.ts) */
+r.post("/api/ws-ticket", async (req) => {
+  const { path } = await readJson<{ path?: string }>(req);
+  return issueTicket(req, path);
+});
 /** a bearer for an external agent (Claude Code, Codex, Vision) acting as you */
 r.post("/api/agent/token", (req) => {
   const u = requireUser(req);
-  return { token: mintToken(u.id, 30 * 864e5), mcp: `${config.publicUrl}/mcp?board=company` };
+  return { token: createSession(u.id, 30 * 864e5, "agent"), mcp: `${config.publicUrl}/mcp?board=company` };
 });
 
 // ---------- boards ----------
@@ -91,6 +108,27 @@ r.get("/api/boards/:id/people", (req) => {
   requireUser(req);
   return { people: boardPeople(req.params.id) };
 });
+// ---------- the plan board (docs/plan.json; Settings → Plan) ----------
+
+r.get("/api/plan", (req) => {
+  const u = requireUser(req);
+  return { plan: readPlan(), canMove: u.role === "admin" };
+});
+r.post("/api/plan/cards/:id", async (req) => {
+  const u = requirePerson(req, "Moving a card on the plan");
+  const { status } = await readJson<{ status?: string }>(req);
+  if (!status) throw new HttpError(400, "status (a column id) required");
+  return { card: movePlanCard(u, req.params.id, status) };
+});
+r.post("/api/plan/cards", async (req) => {
+  const u = requirePerson(req, "Adding a card to the plan");
+  return { card: createPlanCard(u, await readJson<NewCard>(req)) };
+});
+r.post("/api/plan/sync", async (req) => {
+  const u = requirePerson(req, "Syncing the plan with GitHub");
+  return syncPlan(u);
+});
+
 r.post("/api/boards/:id/people", async (req) => {
   const u = requireUser(req);
   const { userId, role } = await readJson<{ userId?: string; role?: "member" | "viewer" | null }>(req);
@@ -109,51 +147,61 @@ r.post("/api/boards", async (req) => {
   return { id };
 });
 r.get("/api/boards/:id/presence", (req) => {
-  requireUser(req);
+  requireBoard(requireUser(req), req.params.id);
   return { people: presence(req.params.id) };
 });
 r.get("/api/boards/:id/tools", () => ({ tools: TOOLS.map((t) => ({ name: t.name, description: t.description, write: Boolean(t.write) })) }));
 r.post("/api/boards/:id/tools/:name", async (req) => {
   const u = requireUser(req);
+  requireBoard(u, req.params.id);
   const input = await readJson(req);
-  return { result: await runTool({ boardId: req.params.id, actor: u.name, userId: u.id }, req.params.name, input) };
+  // a person's browser acts as them; a bearer token is an agent acting for them (the activity log says which)
+  return { result: await runTool(httpToolCtx(req.params.id, u, isPerson(req)), req.params.name, input) };
 });
 
 // ---------- files ----------
 
 r.post("/api/files", async (req) => {
   const u = requireUser(req);
+  requireBoard(u, req.query.get("board"));
   const file = await uploadFile(req, u.id);
   return { file: { ...file, url: `/files/${file.id}` } };
 });
 r.get("/api/files", (req) => {
-  requireUser(req);
-  return { files: listFiles(req.query.get("board")).map((f) => ({ ...f, url: `/files/${f.id}` })) };
+  const u = requireUser(req);
+  requireBoard(u, req.query.get("board"));
+  const hidden = hiddenBoards(u);
+  return { files: listFiles(req.query.get("board")).filter((f) => !(f.board_id && hidden.has(f.board_id))).map((f) => ({ ...f, url: `/files/${f.id}` })) };
 });
 r.delete("/api/files/:id", (req) => {
-  requireUser(req);
+  requireFileBoard(requireUser(req), req.params.id);
   archiveFile(req.params.id);
   return { archived: true };
 });
 r.get("/api/files/:id/cad", async (req) => {
-  requireUser(req);
+  requireFileBoard(requireUser(req), req.params.id);
   const { cadSummaryForFile } = await import("./cad.ts");
   const s = await cadSummaryForFile(req.params.id);
   if (!s) throw new HttpError(404, "no such file");
   return s;
 });
 r.get("/files/:id", (req, res) => {
-  requireUser(req);
+  requireFileBoard(requireUser(req), req.params.id);
   serveFile(req, res, req.params.id);
 });
+
+/** a file on a members-only board is that board's */
+function requireFileBoard(user: UserInfo, fileId: string) {
+  requireBoard(user, one<{ board_id: string | null }>("select board_id from files where id = ?", fileId)?.board_id);
+}
 
 // ---------- search ----------
 
 r.get("/api/search", async (req) => {
-  requireUser(req);
+  const u = requireUser(req);
   const q = (req.query.get("q") ?? "").trim();
   if (!q) return { hits: [], sources: {} };
-  return searchAll(q, { boardId: req.query.get("board") ?? undefined, remote: req.query.get("remote") !== "0" });
+  return searchAll(q, { boardId: req.query.get("board") ?? undefined, remote: req.query.get("remote") !== "0", hidden: hiddenBoards(u) });
 });
 r.get("/api/integrations", (req) => {
   requireUser(req);
@@ -209,17 +257,21 @@ r.get("/api/connectors/:id", async (req) => {
 // ---------- Hermes asks ----------
 
 r.get("/api/asks", (req) => {
-  requireUser(req);
-  return { asks: listAsks(req.query.get("board") ?? undefined) };
+  const u = requireUser(req);
+  requireBoard(u, req.query.get("board"));
+  const hidden = hiddenBoards(u);
+  return { asks: listAsks(req.query.get("board") ?? undefined).filter((a) => !hidden.has(a.board_id)) };
 });
 r.post("/api/asks", async (req) => {
   const u = requireUser(req);
   const b = await readJson<{ board: string; assignee: string; prompt: string; kind?: string; section?: string }>(req);
+  requireBoard(u, b.board);
   return createAsk({ boardId: b.board, actor: u.name, userId: u.id }, { assignee: b.assignee, prompt: b.prompt, kind: b.kind ?? "cad_upload", section: b.section });
 });
 r.post("/api/asks/:id/resolve", async (req) => {
   const u = requireUser(req);
   const { fileId } = await readJson<{ fileId?: string }>(req);
+  requireBoard(u, one<{ board_id: string }>("select board_id from asks where id = ?", req.params.id)?.board_id);
   return resolveAsk(req.params.id, u.name, fileId);
 });
 
@@ -231,14 +283,16 @@ function huddleOn(boardId: string, id: string) {
   return o;
 }
 r.get("/api/huddles/:id", (req) => {
-  requireUser(req);
+  const u = requireUser(req);
   const board = req.query.get("board") ?? "company";
+  requireBoard(u, board);
   const panel = huddleOn(board, req.params.id);
-  return { huddle: { id: panel.id, name: panel.name, channel: panel.channel ?? null, state: panel.huddle ?? { people: [] } }, sessions: huddleArchive(board, panel.id) };
+  return { huddle: { id: panel.id, name: panel.name, channel: panel.channel ?? null, state: huddleStateOf(getBoard(board).doc, panel.id) ?? { people: [] } }, sessions: huddleArchive(board, panel.id) };
 });
 r.post("/api/huddles/:id/lines", async (req) => {
   const u = requireUser(req);
   const b = await readJson<{ board?: string; text?: string }>(req);
+  requireBoard(u, b.board ?? "company");
   try {
     return { line: addLine(b.board ?? "company", req.params.id, u, b.text ?? "", "typed") };
   } catch (e) {
@@ -249,6 +303,7 @@ r.post("/api/huddles/:id/recordings", async (req) => {
   const u = requireUser(req);
   const b = await readJson<{ board?: string; fileId?: string; sessionId?: string; startedAt?: number; endedAt?: number }>(req);
   if (!b.fileId) throw new HttpError(400, "fileId required");
+  requireBoard(u, b.board ?? "company");
   try {
     return attachRecording(b.board ?? "company", req.params.id, { fileId: b.fileId, person: u.name, sessionId: b.sessionId, startedAt: b.startedAt ?? Date.now(), endedAt: b.endedAt ?? Date.now() });
   } catch (e) {
@@ -294,10 +349,20 @@ r.post("/api/slack/channels/:id/share", async (req) => {
 /** invite the channel into a huddle on the board */
 r.post("/api/slack/channels/:id/invite", async (req) => {
   const u = requireUser(req);
-  const b = await readJson<{ board?: string; huddleId?: string }>(req);
+  const b = await readJson<{ board?: string; huddleId?: string; create?: Omit<NewHuddle, "channel"> }>(req);
   const board = b.board ?? "company";
-  const h = huddleOn(board, b.huddleId ?? "");
-  const text = inviteText({ by: u.name, board, huddleId: h.id, huddleName: h.name, live: h.huddle?.people ?? [] });
+  requireBoard(u, board);
+  // a new huddle is made here, then invited, in one request: no waiting for the card to sync first
+  let h: PanelDoc;
+  if (b.create) {
+    requireWriter(u, board);
+    try {
+      h = huddleForInvite(board, u, { ...b.create, channel: req.params.id });
+    } catch (e) {
+      throw new HttpError(400, (e as Error).message);
+    }
+  } else h = huddleOn(board, b.huddleId ?? "");
+  const text = inviteText({ by: u.name, board, huddleId: h.id, huddleName: h.name, live: huddleStateOf(getBoard(board).doc, h.id)?.people ?? [] });
   return slackDo(async () => ({ ...(await postMessage(req.params.id, text, u, { board, huddle: h.id })), url: boardLink(board, h.id) }));
 });
 /** hand a huddle session's notes (transcript + recordings) to a channel */
@@ -317,20 +382,76 @@ r.post("/api/slack/channels/:id/huddle-notes", async (req) => {
 // ---------- jobs ----------
 
 r.get("/api/jobs", (req) => {
-  requireUser(req);
-  return { jobs: listJobs() };
+  const hidden = hiddenBoards(requireUser(req));
+  return { jobs: listJobs().filter((j) => !(j.board_id && hidden.has(j.board_id))) };
 });
 r.get("/api/jobs/:id", (req) => {
-  requireUser(req);
+  const u = requireUser(req);
   const job = getJob(req.params.id);
   if (!job) throw new HttpError(404, "no such job");
+  requireBoard(u, job.board_id);
   return { job };
 });
 r.post("/api/jobs/:id/run", (req) => {
   const u = requireUser(req);
   const job = getJob(req.params.id);
   if (!job) throw new HttpError(404, "no such job");
+  requireBoard(u, job.board_id);
   return { job: startJob(job.id, job.board_id ?? "company", u.name) };
+});
+
+// ---------- machines (Kiri or Docker, through the Engine API) ----------
+
+r.get("/api/machines/engines", async (req) => {
+  requireUser(req);
+  return { engines: await engineStatus(req.query.get("fresh") === "1") };
+});
+r.get("/api/machines/images", async (req) => {
+  requireUser(req);
+  return engineImages(req.query.get("engine") ?? undefined);
+});
+// a card on screen asks: the server reads the engine and writes what's true to the board
+r.get("/api/boards/:id/machines/:panel", async (req) => {
+  requireBoard(requireUser(req), req.params.id);
+  return reconcileMachine(req.params.id, req.params.panel);
+});
+// everything that runs, stops or removes needs a person at a browser (gateWrites has already refused viewers)
+r.post("/api/boards/:id/machines/:panel/start", async (req) => {
+  const u = requirePerson(req, "Starting a machine");
+  requireBoard(u, req.params.id);
+  const b = await readJson<{ image?: string; engine?: string; ports?: number[] }>(req);
+  return { machine: await startMachine(req.params.id, req.params.panel, u.name, b) };
+});
+r.post("/api/boards/:id/machines/:panel/stop", async (req) => {
+  const u = requirePerson(req, "Stopping a machine");
+  requireBoard(u, req.params.id);
+  return { machine: await stopMachine(req.params.id, req.params.panel, u.name) };
+});
+r.post("/api/boards/:id/machines/:panel/restart", async (req) => {
+  const u = requirePerson(req, "Restarting a machine");
+  requireBoard(u, req.params.id);
+  return { machine: await restartMachine(req.params.id, req.params.panel, u.name) };
+});
+r.post("/api/boards/:id/machines/:panel/remove", async (req) => {
+  const u = requirePerson(req, "Removing a machine");
+  requireBoard(u, req.params.id);
+  const b = await readJson<{ confirm?: boolean }>(req);
+  return { machine: await removeMachine(req.params.id, req.params.panel, u.name, b.confirm === true) };
+});
+// an agent's command waiting on a machine's card: only a person at a browser, who can edit the board, answers it
+r.post("/api/boards/:id/machines/:panel/asks/:ask/:verdict", async (req) => {
+  const verdict = req.params.verdict;
+  if (verdict !== "run" && verdict !== "decline") throw new HttpError(404, "run or decline");
+  const u = requirePerson(req, verdict === "run" ? "Running an agent's command" : "Declining an agent's command");
+  requireBoard(u, req.params.id);
+  return { ask: answerAsk(req.params.id, req.params.panel, req.params.ask, u, verdict) };
+});
+r.post("/api/boards/:id/machines/load", async (req) => {
+  const u = requirePerson(req, "Loading an image into an engine");
+  requireBoard(u, req.params.id);
+  const b = await readJson<{ fileId?: string; engine?: string }>(req);
+  if (!b.fileId) throw new HttpError(400, "name the file to load");
+  return loadImage(req.params.id, b.fileId, u.name, b.engine);
 });
 
 // ---------- agent ----------
@@ -382,6 +503,7 @@ r.post("/api/agent", async (req, res) => {
   const user = requireUser(req);
   const body = await readJson<{ board?: string; prompt?: string; runtime?: string; session?: string; persona?: string }>(req);
   if (!body.prompt?.trim()) throw new HttpError(400, "say something");
+  requireBoard(user, body.board || "company");
   const send = sse(res);
   const session = body.session && /^ses_[a-z0-9]{6,24}$/.test(body.session) ? body.session : undefined;
   // the run lives on the server: closing this stream detaches, it doesn't stop it
@@ -402,6 +524,12 @@ r.get("/api/agent/runs/:id/events", async (req, res) => {
   });
   res.end();
 });
+r.post("/api/agent/runs/stop-all", async (req) => {
+  const user = requireUser(req);
+  const { board } = await readJson<{ board?: string }>(req);
+  if (!board) throw new HttpError(400, "board required");
+  return { stopped: stopAllRuns(board, user.id) };
+});
 r.post("/api/agent/runs/:id/stop", (req) => {
   const user = requireUser(req);
   return { stopped: stopRun(req.params.id, user.id) };
@@ -413,11 +541,12 @@ r.post("/api/agent/runs/:id/stop", (req) => {
  * Viewers don't write. Any non-GET under /api is a write except these: the
  * agent (its tools check per call, so a viewer can still ask it things),
  * stopping your own run, an MCP token (its tools check too), board tools
- * (runTool checks), setting roles (admins only), and a person's own Today
+ * (runTool checks), setting roles (admins only), a socket ticket (a
+ * viewer's sync socket is read-only either way), and a person's own Today
  * (their goals and profile are theirs, not a board's). The board is the
  * route's :id, or ?board=, else the person's account role decides.
  */
-const READ_POSTS = [/^\/api\/agent$/, /^\/api\/agent\/runs\/[^/]+\/stop$/, /^\/api\/agent\/token$/, /^\/api\/boards\/[^/]+\/tools\//, /^\/api\/boards\/[^/]+\/people$/, /^\/api\/apps\/probe$/, /^\/api\/today\//];
+const READ_POSTS = [/^\/api\/agent$/, /^\/api\/agent\/runs\/[^/]+\/stop$/, /^\/api\/agent\/token$/, /^\/api\/boards\/[^/]+\/tools\//, /^\/api\/boards\/[^/]+\/people$/, /^\/api\/apps\/probe$/, /^\/api\/ws-ticket$/, /^\/api\/today\//];
 function gateWrites(req: Req, path: string) {
   if (req.method === "GET" || req.method === "OPTIONS" || !path.startsWith("/api/")) return;
   if (READ_POSTS.some((p) => p.test(path))) return;
@@ -429,17 +558,24 @@ function gateWrites(req: Req, path: string) {
 
 // ---------- server ----------
 
+function corsAllowed(origin: string) {
+  return origin === config.clientUrl || /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin) || origin === "tauri://localhost" || config.corsOrigins.includes(origin);
+}
+
 const server = createServer(async (rawReq, res: ServerResponse) => {
   const req = rawReq as Req;
   const url = new URL(req.url ?? "/", "http://local");
   req.query = url.searchParams;
-  // dev: the client runs on its own port; allow it with credentials
+  // the client on its own port (dev), the desktop app's page (http://localhost:31440, tauri://localhost) and
+  // FOUNDATION_CORS_ORIGINS. The app on a hosted server sends a bearer (Authorization), so preflights are kept 10 minutes
   const origin = req.headers.origin;
-  if (origin && (origin === config.clientUrl || /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin) || origin === "tauri://localhost")) {
+  if (origin && corsAllowed(origin)) {
     res.setHeader("access-control-allow-origin", origin);
     res.setHeader("access-control-allow-credentials", "true");
-    res.setHeader("access-control-allow-headers", "content-type, authorization, mcp-session-id, mcp-protocol-version");
+    res.setHeader("access-control-allow-headers", "content-type, authorization, range, mcp-session-id, mcp-protocol-version");
     res.setHeader("access-control-allow-methods", "GET, POST, DELETE, OPTIONS");
+    res.setHeader("access-control-max-age", "600");
+    res.setHeader("vary", "origin");
   }
   if (req.method === "OPTIONS") {
     res.writeHead(204);
@@ -449,6 +585,7 @@ const server = createServer(async (rawReq, res: ServerResponse) => {
     if (url.pathname === "/mcp") {
       const user = userFromRequest(req);
       if (!user) throw new HttpError(401, "MCP needs a bearer token (POST /api/agent/token)");
+      requireBoard(user, req.query.get("board") || "company");
       return await handleMcp(req, res, user);
     }
     const m = r.match(req.method ?? "GET", url.pathname);
@@ -466,30 +603,8 @@ const server = createServer(async (rawReq, res: ServerResponse) => {
 });
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 * 1024 });
-server.on("upgrade", (rawReq, socket, head) => {
-  const req = rawReq as Req;
-  const url = new URL(req.url ?? "/", "http://local");
-  req.query = url.searchParams;
-  const user = userFromRequest(req);
-  const hm = /^\/huddle\/([A-Za-z0-9_-]{1,64})\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
-  if (hm && user) {
-    wss.handleUpgrade(req, socket, head, (ws) => attachHuddle(hm[1], hm[2], ws, user, req.query.get("send") === "1"));
-    return;
-  }
-  const m = /^\/sync\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
-  if (!m || !user) {
-    socket.write(`HTTP/1.1 ${m ? 401 : 404} ${m ? "Unauthorized" : "Not Found"}\r\n\r\n`);
-    socket.destroy();
-    return;
-  }
-  // the board a client holds must be this board: a copy from before a reset is refused, and a client
-  // that doesn't say (a build from before epochs) can read but not write until it reloads
-  const access = syncAccess(req.query.get("epoch"), boardEpoch(m[1]), canWrite(user.id, m[1]));
-  wss.handleUpgrade(req, socket, head, (ws) => {
-    if (access === "refuse") return ws.close(4002, "this board was reset");
-    attachConnection(m[1], ws, access === "read", user.id);
-  });
-});
+// every socket (sync, huddles, a machine's terminal) and how it proves who opens it: sockets.ts
+server.on("upgrade", (req, socket, head) => handleUpgrade(wss, req, socket, head));
 
 reindexFilesIfNeeded();
 watchFactoryForm();
@@ -504,12 +619,13 @@ seedCompanyBoard();
 migrateAllBoards();
 settleOrphanRuns();
 startHermes();
+startDigest();
 
 server.listen(config.port, config.host, () => {
   const rt = runtimes();
   console.log(`\n  Foundation server  ${config.publicUrl}`);
   console.log(`  data               ${config.dataDir}`);
   console.log(`  sign-in            ${config.google.clientId ? "Google" : ""}${config.google.clientId && config.devLogin ? " + " : ""}${config.devLogin ? "dev login" : ""}`);
-  console.log(`  agent              ${rt.subscription ? "Claude Code (subscription)" : "—"}${rt.api ? ` · API (${rt.model})` : ""}`);
+  console.log(`  agent              ${rt.subscription ? "Claude Code (subscription)" : rt.subscriptionNote ? `— (${rt.subscriptionNote.split("\n")[0]})` : "—"}${rt.api ? ` · API (${rt.model})` : ""}`);
   console.log(`  MCP                ${config.publicUrl}/mcp?board=company\n`);
 });

@@ -1,4 +1,5 @@
-import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { keys } from "../lib/keys";
+import { Suspense, lazy, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   CONTENT_PAD,
@@ -8,7 +9,6 @@ import {
   addNote,
   addPanel,
   addSectionAdjacent,
-  getLiveScroll,
   getState,
   cellAtWorld,
   edgeAtWorld,
@@ -17,24 +17,27 @@ import {
   createMap,
   createTable,
   effectivePos,
-  liveScroll,
+  expandSection,
+  holdSectionFit,
+  liveFit,
   moveSectionTo,
   objectPixelSize,
-  objectsInSection,
   removeSection,
   renameSection,
   requestRemoveSection,
+  releaseSectionFit,
   requestSnap,
   sectionCardRect,
+  sectionRestRect,
+  startSectionEase,
+  sectionFit,
   setActiveSection,
   setSectionDragTarget,
   setSectionHost,
-  setSectionScroll,
   splitSection,
-  hostOf,
-  useAppState,
+  useSection,
 } from "../state/store";
-import { Spring, Spring2D, presets } from "../physics/spring";
+import { Spring, presets } from "../physics/spring";
 import { TableView } from "./TableView";
 // MapLibre is ~1 MB: load it only when a board has a map
 const MapView = lazy(() => import("./MapView").then((m) => ({ default: m.MapView })));
@@ -43,13 +46,14 @@ import { MediaView } from "./MediaView";
 import { PANEL_GLYPH, PanelActions, PanelView } from "../panels/PanelView";
 import { isHostable } from "@foundation/protocol";
 import { isPanel } from "../state/store";
-import { ingest } from "../lib/ingest";
+import { ingest, ingestDrop } from "../lib/ingest";
 import { SectionEmpty } from "../panels/SectionEmpty";
 import { askAgent, setUi } from "../state/ui";
 import { openContextMenu, type MenuItem } from "./ContextMenu";
 import { api } from "../lib/api";
 import { activeBoard } from "../sync/board";
 import { toast } from "../state/ui";
+import { countRender } from "../state/renders";
 
 interface Props {
   section: Section;
@@ -68,7 +72,8 @@ export const SectionView = memo(function SectionView({
   getScale,
   zoomSpring,
 }: Props) {
-  const state = useAppState();
+  countRender("SectionView");
+  const view = useSection(section.id);
   const cardRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -100,6 +105,7 @@ export const SectionView = memo(function SectionView({
 
   const onSectionHeaderDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    if (getState().expandedSection === section.id) return; // an open section stays where it opened
     // the name is a button (click to rename) and also the natural handle: it drags too
     if ((e.target as HTMLElement).closest("button:not(.section-name), input")) return;
     const d = moveDrag.current;
@@ -111,7 +117,7 @@ export const SectionView = memo(function SectionView({
     try {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     } catch { /* synthetic */ }
-  }, []);
+  }, [section.id]);
 
   const onSectionHeaderMove = useCallback(
     (e: React.PointerEvent) => {
@@ -158,87 +164,97 @@ export const SectionView = memo(function SectionView({
     }
   }, [section.id]);
 
-  const rect = sectionCardRect(grid, section);
+  // the DOM gets where the card comes to rest; its CSS eases it there (wires follow sectionCardRect)
+  const rect = sectionRestRect(grid, section);
   // a section that hosts an app is that app; any other cards sit over it
-  const host = hostOf(section.id);
-  const objects = objectsInSection(section.id).filter((o) => o.id !== host?.id);
+  const { host, objects } = view;
   const hostable = !host && objects.length === 1 && isPanel(objects[0]) && isHostable(objects[0].panel) ? objects[0] : null;
+  const lastLayout = useRef(new Map<string, { x: number; y: number }>());
   const layout = useMemo(
     () => {
+      // a card that didn't move keeps its position object, so it doesn't render again when a neighbour is picked up
       const m = new Map<string, { x: number; y: number }>();
-      for (const o of objects) m.set(o.id, effectivePos(o));
+      for (const o of objects) {
+        const p = effectivePos(o);
+        const was = lastLayout.current.get(o.id);
+        m.set(o.id, was && was.x === p.x && was.y === p.y ? was : p);
+      }
+      lastLayout.current = m;
       return m;
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.tables, state.maps, state.notes, state.media, state.panels, rect.w, section.id],
+    [objects, view.availW, section.id],
   );
 
-  // ----- scrollable content (spring-smoothed nested grid) -----
-  const scroll = useMemo(
-    () => new Spring2D(section.scroll.x, section.scroll.y, presets.camera),
+  // ----- fitted content: a section never takes the wheel -----
+  // It shows its cards as large as its body allows (store: sectionFlow) and
+  // the wheel always pans the grid. Expanded, it grows to hold them at full size.
+  const { fit, clipped, expanded } = view;
+  // opening or closing: the card's CSS eases its size from where it's drawn now; the store's
+  // rect (wires, landings) eases with it from the same frame (store: startSectionEase)
+  const wasExpanded = useRef(expanded);
+  useLayoutEffect(() => {
+    if (wasExpanded.current === expanded) return;
+    wasExpanded.current = expanded;
+    const el = cardRef.current;
+    // offsetWidth/Height: the size the transition starts from (mid-ease too), not the new style
+    if (!el) return;
+    // the height transition the new style just started is the clock both follow (it begins on the next
+    // frame drawn, which a heavy render delays): 0 until it runs, 1 when it ends, null when it's gone
+    const tr = el.getAnimations().find((a): a is CSSTransition => a instanceof CSSTransition && (a.transitionProperty === "height" || a.transitionProperty === "width"));
+    const total = Number(tr?.effect?.getComputedTiming().duration) || 0;
+    const progress = tr && total ? () => (tr.playState === "finished" || tr.playState === "idle" ? 1 : tr.currentTime == null ? 0 : Number(tr.currentTime) / total) : undefined;
+    startSectionEase(section.id, { x: rect.x, y: rect.y, w: el.offsetWidth, h: el.offsetHeight }, progress);
+  }, [expanded, section.id, rect.x, rect.y]);
+  const fitSpring = useMemo(
+    // the camera's feel, at a scale's precision (its rest threshold is for pixels)
+    () => new Spring(view.fit, { ...presets.camera, restDelta: 0.0005, restSpeed: 0.0005 }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [section.id],
   );
-
-  const extent = useMemo(() => {
-    let w = 0;
-    let h = 0;
-    for (const o of objects) {
-      const s = objectPixelSize(o);
-      const p = layout.get(o.id) ?? { x: o.x, y: o.y };
-      w = Math.max(w, p.x + s.w);
-      h = Math.max(h, p.y + s.h);
-    }
-    return { w: w + CONTENT_PAD * 2, h: h + CONTENT_PAD * 2 };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout]);
-
-  const maxScroll = useCallback(() => {
-    const viewW = rect.w - CONTENT_PAD;
-    const viewH = rect.h - SECTION_HEADER - CONTENT_PAD;
-    return {
-      x: Math.max(0, extent.w - viewW),
-      y: Math.max(0, extent.h - viewH),
-    };
-  }, [rect.w, rect.h, extent]);
-
+  useEffect(() => fitSpring.to(fit), [fitSpring, fit]);
   useEffect(() => {
     const el = contentRef.current;
     if (!el) return;
-    const apply = (x: number, y: number) => {
-      el.style.transform = `translate3d(${-x}px, ${-y}px, 0)`;
-      liveScroll.set(section.id, { x, y });
+    const apply = (f: number) => {
+      el.style.transform = `scale(${f})`;
+      liveFit.set(section.id, f);
     };
-    apply(scroll.x.value, scroll.y.value);
-    return scroll.onChange(apply);
-  }, [scroll, section.id]);
+    apply(fitSpring.value);
+    const off = fitSpring.onChange(apply);
+    return () => {
+      off();
+      liveFit.delete(section.id);
+    };
+  }, [fitSpring, section.id]);
+  // cards convert pointer moves with the scale they're drawn at: the camera's times the fit
+  const getContentScale = useCallback(() => getScale() * fitSpring.value, [getScale, fitSpring]);
 
-  const commitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scheduleCommit = useCallback(() => {
-    if (commitTimer.current) clearTimeout(commitTimer.current);
-    commitTimer.current = setTimeout(() => {
-      setSectionScroll(section.id, scroll.x.goal, scroll.y.goal);
-    }, 500);
-  }, [section.id, scroll]);
+  // pressing inside holds the fit, so the card under the finger never rescales mid-gesture
+  const onBodyPointerDown = useCallback(() => {
+    holdSectionFit(section.id);
+    const release = () => {
+      window.removeEventListener("pointerup", release);
+      window.removeEventListener("pointercancel", release);
+      releaseSectionFit(section.id);
+    };
+    window.addEventListener("pointerup", release);
+    window.addEventListener("pointercancel", release);
+  }, [section.id]);
 
-  const onWheel = useCallback(
-    (e: React.WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) return; // viewport zoom
-      if (getScale() < 0.55) return; // zoomed way out → viewport pan
-      if ((e.target as HTMLElement).closest(".map-body, .wheel-own")) return;
-      const m = maxScroll();
-      const nx = Math.max(0, Math.min(m.x, scroll.x.goal + e.deltaX));
-      const ny = Math.max(0, Math.min(m.y, scroll.y.goal + e.deltaY));
-      // a section that can't scroll this way hands the gesture to the grid,
-      // so two-finger panning never dead-ends on a section
-      if (Math.abs(nx - scroll.x.goal) < 0.5 && Math.abs(ny - scroll.y.goal) < 0.5) return;
-      e.stopPropagation();
-      scroll.x.to(nx);
-      scroll.y.to(ny);
-      scheduleCommit();
-    },
-    [scroll, maxScroll, getScale, scheduleCommit],
-  );
+  // the cards that don't fit (only once it has stopped shrinking)
+  const hidden = useMemo(() => {
+    if (!clipped) return 0;
+    const bodyW = rect.w - 2;
+    const bodyH = rect.h - 2 - SECTION_HEADER;
+    let n = 0;
+    for (const o of objects) {
+      const p = layout.get(o.id) ?? { x: o.x, y: o.y };
+      const sz = objectPixelSize(o);
+      if ((CONTENT_PAD + p.x + sz.w) * fit > bodyW + 1 || (CONTENT_PAD + p.y + sz.h) * fit > bodyH + 1) n++;
+    }
+    return n;
+  }, [clipped, objects, layout, fit, rect.w, rect.h]);
 
   // ----- media intake: desktop drag-drop + open dialog -----
   const ingestFiles = useCallback((files: FileList | File[]) => ingest(section.id, files), [section.id]);
@@ -247,13 +263,12 @@ export const SectionView = memo(function SectionView({
     (e: React.DragEvent) => {
       e.preventDefault();
       setDropping(false);
-      void ingestFiles(e.dataTransfer.files);
+      // folders too: walked and laid out as a group (the entries must be read during the event)
+      void ingestDrop(section.id, e.dataTransfer);
     },
-    [ingestFiles],
+    [section.id],
   );
 
-  const scrollable = maxScroll();
-  const iconSpring = { type: "spring", stiffness: 500, damping: 22 } as const;
 
   // ----- right-click menu on the section's own surface -----
   const onSectionContextMenu = useCallback(
@@ -269,12 +284,12 @@ export const SectionView = memo(function SectionView({
         const st = getState();
         if (!pt) return {};
         const card = sectionCardRect(st.grid, section);
-        const scroll = getLiveScroll(section.id);
-        // centred on the click, kept inside what's visible of the section
-        const roomW = card.w - 2 - CONTENT_PAD * 2;
-        const roomH = card.h - 2 - SECTION_HEADER - CONTENT_PAD * 2;
-        const x = Math.min(pt.x - card.x - 1 - CONTENT_PAD - w / 2, roomW - w) + scroll.x;
-        const y = Math.min(pt.y - card.y - 1 - SECTION_HEADER - CONTENT_PAD - h / 3, roomH - h) + scroll.y;
+        const f = sectionFit(section.id);
+        // centred on the click (in the section's fitted content), kept inside what's visible of the section
+        const roomW = (card.w - 2) / f - CONTENT_PAD * 2;
+        const roomH = (card.h - 2 - SECTION_HEADER) / f - CONTENT_PAD * 2;
+        const x = Math.min((pt.x - card.x - 1) / f - CONTENT_PAD - w / 2, roomW - w);
+        const y = Math.min((pt.y - card.y - 1 - SECTION_HEADER) / f - CONTENT_PAD - h / 3, roomH - h);
         return { float: true, x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)) };
       };
       const channels = Object.values(getState().panels).filter((p) => p.panel === "slack" && p.channel);
@@ -294,6 +309,7 @@ export const SectionView = memo(function SectionView({
         { divider: true },
         { icon: "◐", label: "Start a huddle here", action: () => addPanel(section.id, { panel: "huddle", name: "Huddle", ...at(560, 420) }) },
         { icon: "#", label: "Add a Slack channel", action: () => addPanel(section.id, { panel: "slack", name: "Slack", ...at(420, 520) }) },
+        { icon: "▤", label: "Start a machine here", action: () => addPanel(section.id, { panel: "machine", name: "Machine", machine: { name: `box-${Math.random().toString(16).slice(2, 6)}`, state: "absent" }, ...at(760, 520) }) },
         ...tellSlack,
         ...(host
           ? [{ icon: "◱", label: `Show ${host.name} as a card`, action: () => setSectionHost(section.id, null) }]
@@ -309,7 +325,11 @@ export const SectionView = memo(function SectionView({
         { icon: "◫", label: "Split column", action: () => splitSection(section.id, "h") },
         { icon: "⬓", label: "Split row", action: () => splitSection(section.id, "v") },
         { divider: true },
-        { icon: "⤢", label: "Expand section", action: () => requestSnap({ kind: "section", id: section.id }) },
+        ...(host
+          ? [{ icon: "⤢", label: "Fill the screen with it", action: () => requestSnap({ kind: "section", id: section.id }) }]
+          : expanded
+            ? [{ icon: "⤡", label: "Back to the board", action: () => expandSection(null) }]
+            : [{ icon: "⤢", label: "Expand into its own grid", action: () => expandSection(section.id) }]),
         {
           icon: "🗑",
           label: "Remove section…",
@@ -319,11 +339,11 @@ export const SectionView = memo(function SectionView({
         },
       ]);
     },
-    [section.id, canRemove, host, hostable, worldPoint, section],
+    [section.id, canRemove, host, hostable, worldPoint, section, expanded],
   );
 
   // confirmation can be requested locally (✕ button) or via the context menu
-  const confirmingActive = confirming || state.pendingRemoval === section.id;
+  const confirmingActive = confirming || view.pendingRemoval;
   const cancelConfirm = () => {
     setConfirming(false);
     requestRemoveSection(null);
@@ -336,7 +356,7 @@ export const SectionView = memo(function SectionView({
     </button>
   );
 
-  const sectionCtx = active && state.focusLevel === "section";
+  const sectionCtx = active && view.sectionFocus;
 
   return (
     <motion.div
@@ -346,6 +366,7 @@ export const SectionView = memo(function SectionView({
         (active ? " active" : "") +
         (sectionCtx ? " ctx-active" : "") +
         (dropping ? " dropping" : "") +
+        (expanded ? " expanded" : "") +
         (confirmingActive ? " confirming" : "")
       }
       data-section-id={section.id}
@@ -412,6 +433,11 @@ export const SectionView = memo(function SectionView({
             `:${colName(section.c1)}${section.r1 + 1}`}
         </span>
         {objects.length > 0 && <span className="section-count">{objects.length}</span>}
+        {expanded && (
+          <button className="section-back" data-tip="Back to the board" data-kbd="Esc" onClick={() => expandSection(null)}>
+            <span aria-hidden>⤡</span> Back to the board
+          </button>
+        )}
 
         {/* tools wait in the top-right corner until the pointer is on the section */}
         <div className="section-tools" role="toolbar" aria-label={`${section.name} tools`}>
@@ -427,21 +453,25 @@ export const SectionView = memo(function SectionView({
               tool("Open an app or link", "◳", () => {
                 setActiveSection(section.id);
                 setUi({ command: true });
-              }, "", "⌘L")}
+              }, "", keys("mod+L"))}
             {tool("Add a table", "⊞", () => createTable(section.id))}
             {tool("Add a map", "◍", () => createMap(section.id))}
             {tool("Add a note", "▤", () => addNote(section.id))}
-            {tool("Upload an image or video", "⇪", () => fileRef.current?.click(), "", "⌘U")}
+            {tool("Upload an image or video", "⇪", () => fileRef.current?.click(), "", keys("mod+U"))}
           </div>
           <div className="sec-group">
             {tool("Split into two columns", "◫", () => splitSection(section.id, "h"))}
             {tool("Split into two rows", "⬓", () => splitSection(section.id, "v"))}
-            {tool("Fill the screen with this section", "⤢", () => requestSnap({ kind: "section", id: section.id }))}
+            {host
+              ? tool("Fill the screen with this section", "⤢", () => requestSnap({ kind: "section", id: section.id }))
+              : expanded
+                ? tool("Back to the board", "⤡", () => expandSection(null), "", "Esc")
+                : tool("Expand into its own grid", "⤢", () => expandSection(section.id))}
           </div>
           <div className="sec-group">
             {host
-              ? tool(`Ask the agent about ${host.name}`, "✦", () => askAgent(`About “${host.name}”: `), "sec-agent", "⌘J")
-              : tool("Ask the agent about this section", "✦", () => askAgent(`In the “${section.name}” section: `), "sec-agent", "⌘J")}
+              ? tool(`Ask the agent about ${host.name}`, "✦", () => askAgent(`About “${host.name}”: `), "sec-agent", keys("mod+J"))
+              : tool("Ask the agent about this section", "✦", () => askAgent(`In the “${section.name}” section: `), "sec-agent", keys("mod+J"))}
             {canRemove && tool("Remove this section…", "✕", () => setConfirming(true), "sec-remove")}
           </div>
         </div>
@@ -494,22 +524,22 @@ export const SectionView = memo(function SectionView({
         }}
       />
 
-      {/* scrollable nested grid */}
-      <div className="section-body" onWheel={onWheel}>
+      {/* the nested grid, fitted to the body — the wheel goes straight through to the board */}
+      <div className="section-body" onPointerDownCapture={onBodyPointerDown}>
         <div ref={contentRef} className="section-content">
           {objects.map((o) => {
             const pos = layout.get(o.id) ?? { x: o.x, y: o.y };
-            const isObjActive = state.focusLevel === "object" && state.activeObjectId === o.id;
+            const isObjActive = view.activeObjectId === o.id;
             const slot = (child: React.ReactNode) => (
               <div key={o.id} className="obj-slot" data-obj-id={o.id} style={{ left: CONTENT_PAD, top: CONTENT_PAD }}>
                 {child}
               </div>
             );
             if (isPanel(o))
-              return slot(<PanelView panel={o} pos={pos} isActive={isObjActive} getScale={getScale} />);
+              return slot(<PanelView panel={o} pos={pos} isActive={isObjActive} getScale={getContentScale} />);
             if ("cols" in o)
               return slot(
-                <TableView table={o} framePos={pos} isActive={isObjActive} getScale={getScale} />,
+                <TableView table={o} framePos={pos} isActive={isObjActive} getScale={getContentScale} />,
               );
             if ("sourceTableId" in o)
               return slot(
@@ -518,17 +548,17 @@ export const SectionView = memo(function SectionView({
                     map={o}
                     framePos={pos}
                     isActive={isObjActive}
-                    getScale={getScale}
+                    getScale={getContentScale}
                     zoomSpring={zoomSpring}
                   />
                 </Suspense>,
               );
             if ("text" in o)
               return slot(
-                <NoteView note={o} pos={pos} isActive={isObjActive} getScale={getScale} />,
+                <NoteView note={o} pos={pos} isActive={isObjActive} getScale={getContentScale} />,
               );
             return slot(
-              <MediaView item={o} pos={pos} isActive={isObjActive} getScale={getScale} />,
+              <MediaView item={o} pos={pos} isActive={isObjActive} getScale={getContentScale} />,
             );
           })}
         </div>
@@ -542,7 +572,15 @@ export const SectionView = memo(function SectionView({
           />
         )}
 
-        {(scrollable.x > 1 || scrollable.y > 1) && <div className="scroll-hint" />}
+        {hidden > 0 && (
+          <button
+            className="section-more"
+            data-tip="Open this section as its own grid"
+            onClick={() => expandSection(section.id)}
+          >
+            {hidden} more <span aria-hidden>⤢</span> Expand
+          </button>
+        )}
       </div>
 
       {/* the hosted app fills the section; its ports sit on the section's edges */}
@@ -551,59 +589,74 @@ export const SectionView = memo(function SectionView({
           panel={host}
           pos={{ x: 0, y: 0 }}
           hosted
-          isActive={state.focusLevel === "object" && state.activeObjectId === host.id}
+          isActive={view.activeObjectId === host.id}
           getScale={getScale}
         />
       )}
 
       {/* add-section affordances on all four edges */}
-      <motion.button
-        className="add-btn add-section-right"
-        whileHover={{ scale: 1.15 }}
-        whileTap={{ scale: 0.8 }}
-        transition={iconSpring}
-        data-tip="Add a section to the right"
-        aria-label="Add a section to the right"
-        onClick={() => addSectionAdjacent(section.id, "right")}
-      >
-        +
-      </motion.button>
-      <motion.button
-        className="add-btn add-section-below"
-        whileHover={{ scale: 1.15 }}
-        whileTap={{ scale: 0.8 }}
-        transition={iconSpring}
-        data-tip="Add a section below"
-        aria-label="Add a section below"
-        onClick={() => addSectionAdjacent(section.id, "below")}
-      >
-        +
-      </motion.button>
-      <motion.button
-        className="add-btn add-section-left"
-        whileHover={{ scale: 1.15 }}
-        whileTap={{ scale: 0.8 }}
-        transition={iconSpring}
-        data-tip="Add a section to the left"
-        aria-label="Add a section to the left"
-        onClick={() => addSectionAdjacent(section.id, "left")}
-      >
-        +
-      </motion.button>
-      <motion.button
-        className="add-btn add-section-above"
-        whileHover={{ scale: 1.15 }}
-        whileTap={{ scale: 0.8 }}
-        transition={iconSpring}
-        data-tip="Add a section above"
-        aria-label="Add a section above"
-        onClick={() => addSectionAdjacent(section.id, "above")}
-      >
-        +
-      </motion.button>
+      {ADD_EDGES.map((e) => (
+        <AddSectionButton key={e.side} sectionId={section.id} side={e.side} label={e.label} />
+      ))}
     </motion.div>
   );
 });
+
+const ADD_EDGES: Array<{ side: "right" | "below" | "left" | "above"; label: string }> = [
+  { side: "right", label: "Add a section to the right" },
+  { side: "below", label: "Add a section below" },
+  { side: "left", label: "Add a section to the left" },
+  { side: "above", label: "Add a section above" },
+];
+
+/**
+ * A + in the gap between sections. The gaps are also where people double-click
+ * to zoom, so a press only adds once it's clearly one press: the add waits out
+ * the double-click window and a second click cancels it (the double-click then
+ * zooms as it would on empty paper, GridViewport). The button answers the
+ * press at once (it squeezes and rings), so the wait doesn't read as lag.
+ */
+export const ADD_DELAY_MS = 300;
+const addSpring = { type: "spring", stiffness: 500, damping: 22 } as const;
+function AddSectionButton({ sectionId, side, label }: { sectionId: string; side: "right" | "below" | "left" | "above"; label: string }) {
+  const pending = useRef<number | null>(null);
+  const [armed, setArmed] = useState(false);
+  useEffect(() => () => {
+    if (pending.current) window.clearTimeout(pending.current);
+  }, []);
+  return (
+    <motion.button
+      className={`add-btn add-section-${side}${armed ? " is-armed" : ""}`}
+      whileHover={{ scale: 1.15 }}
+      whileTap={{ scale: 0.8 }}
+      transition={addSpring}
+      data-tip={label}
+      aria-label={label}
+      onClick={(e) => {
+        if (pending.current) window.clearTimeout(pending.current);
+        pending.current = null;
+        // the second click of a double-click: not an add
+        if (e.detail > 1) {
+          setArmed(false);
+          return;
+        }
+        // keyboard presses (detail 0) are deliberate: add at once
+        if (e.detail === 0) {
+          addSectionAdjacent(sectionId, side);
+          return;
+        }
+        setArmed(true);
+        pending.current = window.setTimeout(() => {
+          pending.current = null;
+          setArmed(false);
+          addSectionAdjacent(sectionId, side);
+        }, ADD_DELAY_MS);
+      }}
+    >
+      +
+    </motion.button>
+  );
+}
 
 function colName(col: number): string {
   let s = "";

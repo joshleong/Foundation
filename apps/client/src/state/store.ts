@@ -5,12 +5,13 @@
  * Sections occupy rectangular spans of tracks; splitting a section subdivides
  * a track (shifting/widening every other section that touches it), and
  * resizing a track resizes every section in it. Each section is its own
- * scrollable nested grid holding primitives (tables, maps). The viewport
+ * nested grid holding primitives (tables, maps), fitted to its body (it never
+ * scrolls; Expand opens it as its own grid at full size). The viewport
  * camera snaps to sections, track bands, or the whole grid.
  */
 
 import { useSyncExternalStore } from "react";
-import { isHostable, type LinkDoc, type PanelDoc } from "@foundation/protocol";
+import { isHostable, type HuddleState, type LinkDoc, type PanelDoc } from "@foundation/protocol";
 import { workbook } from "../engine/workbook";
 
 let idCounter = 0;
@@ -30,6 +31,8 @@ interface ObjectBase {
   /** false = docked into the section's flow grid, true = free position */
   float: boolean;
   bornAt: number;
+  /** the crew agent that made it (protocol ObjectBaseDoc.createdBy); people's cards leave it unset */
+  createdBy?: string;
 }
 
 export interface TableMeta extends ObjectBase {
@@ -60,7 +63,13 @@ export interface MediaMeta extends ObjectBase {
 }
 
 /** apps, links, files, machines, agents, connectors and asks — see @foundation/protocol */
-export type PanelMeta = Omit<PanelDoc, "kind">;
+export type PanelMeta = Omit<PanelDoc, "kind" | "huddle"> & {
+  /**
+   * A huddle's live state, read from the board's `huddles` map (schema 6) —
+   * never from the card, and never written back: the server alone keeps it.
+   */
+  huddle?: HuddleState;
+};
 
 export type AnyObject = TableMeta | MapMeta | NoteMeta | MediaMeta | PanelMeta;
 
@@ -76,7 +85,6 @@ export interface Section {
   r0: number;
   c1: number;
   r1: number;
-  scroll: { x: number; y: number };
   /** the app this section hosts (schema 2): it fills the section, its ports sit on the section's edges */
   host?: string;
 }
@@ -92,7 +100,9 @@ export type BoardEdge = "left" | "right" | "top" | "bottom";
 export type SnapTarget =
   | { kind: "all" }
   | { kind: "section"; id: string }
-  | { kind: "object"; id: string };
+  | { kind: "object"; id: string }
+  /** an exact camera (Back, after an agent brought you somewhere) */
+  | { kind: "view"; x: number; y: number; scale: number };
 
 export interface AppState {
   grid: GridTracks;
@@ -113,6 +123,10 @@ export interface AppState {
   sectionDragTarget: { sectionId: string; c: number; r: number; edge?: BoardEdge } | null;
   /** section awaiting the remove-confirmation popover (e.g. via context menu) */
   pendingRemoval: string | null;
+  /** the section opened as its own grid (local to this window, never shared) */
+  expandedSection: string | null;
+  /** bumped when a section's held fit is let go, so flows recompute */
+  layoutEpoch: number;
 }
 
 // ---------- geometry constants ----------
@@ -180,9 +194,55 @@ const FLOW_GAP = 26;
  * flowing AROUND floating cards so nothing ever overlays anything.
  */
 let layoutCacheState: AppState | null = null;
-const layoutCache = new Map<string, Map<string, { x: number; y: number }>>();
+const layoutCache = new Map<string, SectionFlow>();
 
-export function sectionLayout(sectionId: string): Map<string, { x: number; y: number }> {
+/**
+ * How a section presents what it holds. A section never scrolls (the wheel
+ * always belongs to the grid): it lays its cards out at the width that lets
+ * them show largest, then scales them to fit its body (never above 1). Below
+ * MIN_FIT it stops shrinking and shows what fits — `clipped` — and the rest
+ * is one Expand away (the section opened as its own grid, at full size).
+ */
+export interface SectionFlow {
+  pos: Map<string, { x: number; y: number }>;
+  /** content scale inside the section body (1 when expanded) */
+  fit: number;
+  /** some cards don't fit even at MIN_FIT */
+  clipped: boolean;
+  /** content size in content px, padding included */
+  extent: { w: number; h: number };
+  /** the flow width the docked cards wrapped at */
+  availW: number;
+}
+
+/** the smallest a section shrinks its cards to before it clips and offers Expand */
+export const MIN_FIT = 0.4;
+/** the nominal scales a section tries its flow at (wider flow ↔ smaller scale) */
+const FIT_STEPS = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4];
+
+/**
+ * While a person is pressing inside a section (picking up, dragging, resizing
+ * a card) its flow width and fit hold still, so what's under the finger never
+ * rescales; letting go re-fits.
+ */
+const fitHolds = new Map<string, { fit: number; availW: number }>();
+
+export function holdSectionFit(sectionId: string) {
+  const f = sectionFlow(sectionId);
+  fitHolds.set(sectionId, { fit: f.fit, availW: f.availW });
+}
+
+export function releaseSectionFit(sectionId: string) {
+  const held = fitHolds.get(sectionId);
+  if (!held) return;
+  fitHolds.delete(sectionId);
+  layoutCacheState = null; // the held answer is cached: work it out again
+  const now = sectionFlow(sectionId);
+  // re-fit only if letting go changes something (a plain click doesn't)
+  if (now.fit !== held.fit || now.availW !== held.availW) set({ layoutEpoch: state.layoutEpoch + 1 });
+}
+
+export function sectionFlow(sectionId: string): SectionFlow {
   const st = getState();
   // overlays ask for layouts every frame; the answer only changes with state
   if (layoutCacheState !== st) {
@@ -191,17 +251,74 @@ export function sectionLayout(sectionId: string): Map<string, { x: number; y: nu
   }
   const hit = layoutCache.get(sectionId);
   if (hit) return hit;
-  const computed = computeSectionLayout(st, sectionId);
+  const computed = computeSectionFlow(st, sectionId);
   layoutCache.set(sectionId, computed);
   return computed;
 }
 
-function computeSectionLayout(st: AppState, sectionId: string): Map<string, { x: number; y: number }> {
+export function sectionLayout(sectionId: string): Map<string, { x: number; y: number }> {
+  return sectionFlow(sectionId).pos;
+}
+
+/** the scale a section's cards are drawn at right now (SectionView's spring while it glides, else the flow's) */
+export function sectionFit(sectionId: string): number {
+  return liveFit.get(sectionId) ?? sectionFlow(sectionId).fit;
+}
+
+/**
+ * The scale a card is drawn at, at rest: the camera's zoom times its section's
+ * fit (none for a hosted app, which fills its section). Live pages run only
+ * when this is big enough (PanelView's useOnScreen).
+ */
+export function drawnScale(zoom: number, sectionId: string | null | undefined): number {
+  return zoom * (sectionId ? sectionFlow(sectionId).fit : 1);
+}
+
+/** live (mid-spring) section fits, written by SectionView */
+export const liveFit = new Map<string, number>();
+
+function computeSectionFlow(st: AppState, sectionId: string): SectionFlow {
   const sec = st.sections[sectionId];
+  if (!sec) return { pos: new Map(), fit: 1, clipped: false, extent: { w: 0, h: 0 }, availW: 0 };
+  const card = sectionBaseRect(st.grid, sec);
+  if (!Number.isFinite(card.w) || !Number.isFinite(card.h)) {
+    // a section whose tracks haven't arrived yet: lay out plainly, at full size
+    const flow = flowAt(sec, 360);
+    return { ...flow, fit: 1, clipped: false, availW: 360 };
+  }
+  const bodyW = card.w - 2;
+  const bodyH = card.h - 2 - SECTION_HEADER;
+  const fitOf = (ext: { w: number; h: number }) => Math.min(1, bodyW / Math.max(1, ext.w), bodyH / Math.max(1, ext.h));
+  const expanded = st.expandedSection === sectionId;
+  const held = fitHolds.get(sectionId);
+  if (held) {
+    const flow = flowAt(sec, held.availW);
+    return { ...flow, fit: expanded ? 1 : held.fit, clipped: !expanded && fitOf(flow.extent) < held.fit - 1e-3, availW: held.availW };
+  }
+  if (expanded) {
+    // opened as its own grid: its own width, at full size, as long as it needs (the wheel reads on down)
+    const availW = Math.max(360, card.w - CONTENT_PAD * 2);
+    return { ...flowAt(sec, availW), fit: 1, clipped: false, availW };
+  }
+  let best: (ReturnType<typeof flowAt> & { fit: number; availW: number }) | null = null;
+  for (const step of FIT_STEPS) {
+    const availW = Math.max(360, card.w / step - CONTENT_PAD * 2);
+    const flow = flowAt(sec, availW);
+    const fit = fitOf(flow.extent);
+    // a wider flow has to earn it: only take it when the cards come out clearly larger
+    if (!best || fit > best.fit + 0.02) best = { ...flow, fit, availW };
+    if (fit >= step - 1e-3) break; // fits at this width: going wider only shrinks it
+  }
+  const b = best!;
+  const clipped = b.fit < MIN_FIT;
+  return { pos: b.pos, extent: b.extent, availW: b.availW, fit: expanded ? 1 : Math.max(MIN_FIT, b.fit), clipped: !expanded && clipped };
+}
+
+function flowAt(sec: Section, availW: number): { pos: Map<string, { x: number; y: number }>; extent: { w: number; h: number } } {
+  const sectionId = sec.id;
   const out = new Map<string, { x: number; y: number }>();
-  if (!sec) return out;
-  const card = sectionCardRect(st.grid, sec);
-  const availW = Math.max(360, card.w - CONTENT_PAD * 2);
+  let extW = 0;
+  let extH = 0;
   const all = objectsInSection(sectionId).filter((o) => o.id !== sec.host); // the hosted app isn't in the flow
   const docked = all.filter((o) => !o.float).sort((a, b) => a.bornAt - b.bornAt);
   const floaters = all
@@ -244,10 +361,16 @@ function computeSectionLayout(st: AppState, sectionId: string): Map<string, { x:
       }
     }
     out.set(o.id, { x, y });
+    extW = Math.max(extW, x + w);
+    extH = Math.max(extH, y + h);
     x += w + FLOW_GAP;
     shelfH = Math.max(shelfH, h);
   }
-  return out;
+  for (const f of floaters) {
+    extW = Math.max(extW, f.x + f.w);
+    extH = Math.max(extH, f.y + f.h);
+  }
+  return { pos: out, extent: { w: extW + CONTENT_PAD * 2, h: extH + CONTENT_PAD * 2 } };
 }
 
 /** where an object actually sits in section content space */
@@ -274,8 +397,8 @@ export function sectionCellRect(grid: GridTracks, s: Section) {
   };
 }
 
-/** the visible card rect (inset from the cell span) */
-export function sectionCardRect(grid: GridTracks, s: Section) {
+/** the card rect a section has in its cells (inset from the cell span) */
+export function sectionBaseRect(grid: GridTracks, s: Section) {
   const r = sectionCellRect(grid, s);
   return {
     x: r.x + SECTION_INSET,
@@ -285,17 +408,92 @@ export function sectionCardRect(grid: GridTracks, s: Section) {
   };
 }
 
+/**
+ * The visible card rect. An expanded section grows from its top-left corner
+ * until everything it holds shows at full size: it becomes its own grid, and
+ * the wheel pans across it like any other part of the board.
+ */
+export function sectionCardRect(grid: GridTracks, s: Section) {
+  const rest = sectionRestRect(grid, s);
+  const e = sectionEase.get(s.id);
+  if (!e) return rest;
+  // the card's own transition, when it has one, is the clock; else time since the start (and never past 3× the time)
+  const own = e.progress?.();
+  const p = clock() - e.t0 > SECTION_EASE_MS * 3 ? 1 : (own ?? (clock() - e.t0) / SECTION_EASE_MS);
+  if (p >= 1) {
+    sectionEase.delete(s.id);
+    return rest;
+  }
+  const k = settle(Math.max(0, p));
+  return { x: e.from.x + (rest.x - e.from.x) * k, y: e.from.y + (rest.y - e.from.y) * k, w: e.from.w + (rest.w - e.from.w) * k, h: e.from.h + (rest.h - e.from.h) * k };
+}
+
+/** where the card comes to rest: what the DOM is given (its CSS eases it there) */
+export function sectionRestRect(grid: GridTracks, s: Section) {
+  const base = sectionBaseRect(grid, s);
+  if (getState().expandedSection !== s.id || s.host) return base;
+  const { extent } = sectionFlow(s.id);
+  return { ...base, w: Math.max(base.w, extent.w + 2), h: Math.max(base.h, SECTION_HEADER + extent.h + 2) };
+}
+
+/**
+ * Opening or closing a section eases its card over 0.5 s (App.css: .section-card,
+ * var(--ease-settle)). sectionCardRect follows the same curve meanwhile, so the
+ * wires and landings that read it travel with the card instead of jumping to
+ * the end at once (the wire layer redraws every frame).
+ */
+const SECTION_EASE_MS = 500;
+const sectionEase = new Map<string, { from: { x: number; y: number; w: number; h: number }; t0: number; progress?: () => number | null }>();
+let clock = () => performance.now();
+
+/**
+ * A section card's size just changed in the DOM (opened or closed): from now,
+ * sectionCardRect eases from `from` (where the card was drawn) to where it
+ * rests, on the CSS's curve and time. SectionView calls it as the new size
+ * lands, so the two start on the same frame.
+ */
+export function startSectionEase(id: string, from: { x: number; y: number; w: number; h: number }, progress?: () => number | null) {
+  sectionEase.set(id, { from, t0: clock(), progress });
+}
+/** tests: a clock they turn by hand */
+export function setSectionClock(fn: () => number) {
+  clock = fn;
+}
+
+/** cubic-bezier(x1, y1, x2, y2) as a function of progress, as CSS draws it */
+export function cubicBezier(x1: number, y1: number, x2: number, y2: number) {
+  const bx = (t: number) => 3 * x1 * t * (1 - t) ** 2 + 3 * x2 * t * t * (1 - t) + t ** 3;
+  const by = (t: number) => 3 * y1 * t * (1 - t) ** 2 + 3 * y2 * t * t * (1 - t) + t ** 3;
+  const dx = (t: number) => 3 * x1 * (1 - t) ** 2 + 6 * (x2 - x1) * t * (1 - t) + 3 * (1 - x2) * t * t;
+  return (x: number) => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    let t = x;
+    for (let i = 0; i < 8; i++) {
+      const d = dx(t);
+      if (Math.abs(d) < 1e-6) break;
+      t -= (bx(t) - x) / d;
+    }
+    // Newton can wander on a flat stretch: settle it by halving
+    if (t < 0 || t > 1 || Math.abs(bx(t) - x) > 1e-4) {
+      let lo = 0;
+      let hi = 1;
+      t = x;
+      for (let i = 0; i < 30; i++) {
+        if (bx(t) < x) lo = t;
+        else hi = t;
+        t = (lo + hi) / 2;
+      }
+    }
+    return by(t);
+  };
+}
+const settle = cubicBezier(0.22, 1.3, 0.36, 1);
+
 export function gridSize(grid: GridTracks) {
   const xo = trackOffsets(grid.cols);
   const yo = trackOffsets(grid.rows);
   return { w: xo[xo.length - 1], h: yo[yo.length - 1] };
-}
-
-/** live (mid-spring) section scroll positions, written by SectionView */
-export const liveScroll = new Map<string, { x: number; y: number }>();
-
-export function getLiveScroll(id: string): { x: number; y: number } {
-  return liveScroll.get(id) ?? getState().sections[id]?.scroll ?? { x: 0, y: 0 };
 }
 
 /**
@@ -352,6 +550,17 @@ export function hostOf(sectionId: string): PanelMeta | null {
   return p && p.sectionId === sectionId ? p : null;
 }
 
+/**
+ * A wire between two sections that both stepped back for an expanded one:
+ * it fades with them (DESIGN §5 Section body). A wire with an end in the open
+ * section stays, so you can see what it's connected to.
+ */
+export function wireBackstage(st: AppState, fromSection: string | undefined, toSection: string | undefined): boolean {
+  const open = st.expandedSection;
+  if (!open || !st.sections[open]) return false;
+  return fromSection !== open && toSection !== open;
+}
+
 export function isHosted(obj: AnyObject): boolean {
   return getState().sections[obj.sectionId]?.host === obj.id;
 }
@@ -362,23 +571,25 @@ export function sectionBodyRect(grid: GridTracks, s: Section) {
   return { x: card.x, y: card.y + SECTION_HEADER, w: card.w, h: card.h - SECTION_HEADER };
 }
 
-/** world-space rect of an object (accounts for section position + scroll) */
+/** world-space rect of an object (accounts for section position + fit); `s` is the scale it's drawn at */
 export function objectWorldRect(obj: AnyObject) {
   const st = getState();
   const sec = st.sections[obj.sectionId];
   if (!sec) return null;
-  if (sec.host === obj.id) return sectionBodyRect(st.grid, sec); // a hosted app is the section
+  if (sec.host === obj.id) return { ...sectionBodyRect(st.grid, sec), s: 1 }; // a hosted app is the section
   const card = sectionCardRect(st.grid, sec);
-  const scroll = getLiveScroll(sec.id);
+  const s = sectionFit(sec.id);
   const { w, h } = objectPixelSize(obj);
   const pos = liveObjPos.get(obj.id) ?? effectivePos(obj);
   // + the section card's 1 px border: its body is laid out inside it, and wires
-  // must land where the DOM puts the card (ports sit on this rect's edges)
+  // must land where the DOM puts the card (ports sit on this rect's edges).
+  // The body draws its content at the section's fit, scaled from its top-left.
   return {
-    x: card.x + 1 + CONTENT_PAD + pos.x - scroll.x,
-    y: card.y + 1 + SECTION_HEADER + CONTENT_PAD + pos.y - scroll.y,
-    w,
-    h,
+    x: card.x + 1 + (CONTENT_PAD + pos.x) * s,
+    y: card.y + 1 + SECTION_HEADER + (CONTENT_PAD + pos.y) * s,
+    w: w * s,
+    h: h * s,
+    s,
   };
 }
 
@@ -427,8 +638,7 @@ let state: AppState = {
       r0: 0,
       c1: 0,
       r1: 0,
-      scroll: { x: 0, y: 0 },
-    },
+      },
   },
   tables: {},
   maps: {},
@@ -442,6 +652,8 @@ let state: AppState = {
   snapRequest: { kind: "all", nonce: Math.random() },
   sectionDragTarget: null,
   pendingRemoval: null,
+  expandedSection: null,
+  layoutEpoch: 0,
 };
 
 const listeners = new Set<() => void>();
@@ -473,7 +685,8 @@ function emit() {
 }
 
 // dev: let the browser console (and headless checks) read the live model
-if (import.meta.env?.DEV && typeof window !== "undefined") (window as unknown as { __foundation: unknown }).__foundation = { getState: () => state, setState: (p: Partial<AppState>) => set(p), workbook };
+// the test hooks: the dev server, and a build made for the e2e checks (E2E_BUILD sets VITE_E2E_HOOKS)
+if ((import.meta.env?.DEV || import.meta.env?.VITE_E2E_HOOKS) && typeof window !== "undefined") (window as unknown as { __foundation: unknown }).__foundation = { getState: () => state, setState: (p: Partial<AppState>) => set(p), workbook, sectionCardRect, expandSection };
 
 export function getState(): AppState {
   return state;
@@ -495,8 +708,86 @@ export function useObjectSetVersion(): string {
   });
 }
 
+/** the whole store: renders on every change. Board-wide layers read a slice instead (state/slices.ts) */
 export function useAppState(): AppState {
   return useSyncExternalStore(subscribe, getState);
+}
+
+/** one panel by id (or nothing): for a page that follows the machine card it came from */
+export function usePanel(id: string | undefined): PanelMeta | undefined {
+  return useSyncExternalStore(subscribe, () => (id ? state.panels[id] : undefined));
+}
+
+/** what one section draws from the store: its cards, its app, and which of them is active */
+export interface SectionSnap {
+  /** the cards in the section's flow (not its hosted app) */
+  objects: AnyObject[];
+  host: PanelMeta | null;
+  /** the active card, if it's one of this section's */
+  activeObjectId: string | null;
+  sectionFocus: boolean;
+  pendingRemoval: boolean;
+  /** how the section presents its cards (see SectionFlow) — numbers, so an unchanged flow doesn't re-render */
+  fit: number;
+  clipped: boolean;
+  availW: number;
+  extentW: number;
+  extentH: number;
+  /** opened as its own grid in this window */
+  expanded: boolean;
+}
+
+function flowFields(sectionId: string) {
+  const f = sectionFlow(sectionId);
+  return { fit: f.fit, clipped: f.clipped, availW: f.availW, extentW: f.extent.w, extentH: f.extent.h };
+}
+
+const sectionSnaps = new Map<string, { st: AppState; snap: SectionSnap }>();
+
+export function sectionSnap(sectionId: string): SectionSnap {
+  const cached = sectionSnaps.get(sectionId);
+  if (cached && cached.st === state) return cached.snap;
+  const host = hostOf(sectionId);
+  const objects = objectsInSection(sectionId).filter((o) => o.id !== host?.id);
+  const a = state.focusLevel === "object" ? state.activeObjectId : null;
+  const next: SectionSnap = {
+    objects,
+    host,
+    activeObjectId: a && (a === host?.id || objects.some((o) => o.id === a)) ? a : null,
+    sectionFocus: state.focusLevel === "section",
+    pendingRemoval: state.pendingRemoval === sectionId,
+    ...flowFields(sectionId),
+    expanded: state.expandedSection === sectionId,
+  };
+  const prev = cached?.snap;
+  // the same cards keep the same array, so the section's layout (and its cards' props) hold
+  if (prev && prev.objects.length === objects.length && prev.objects.every((o, i) => o === objects[i])) next.objects = prev.objects;
+  const same =
+    prev &&
+    prev.objects === next.objects &&
+    prev.host === next.host &&
+    prev.activeObjectId === next.activeObjectId &&
+    prev.sectionFocus === next.sectionFocus &&
+    prev.pendingRemoval === next.pendingRemoval &&
+    prev.fit === next.fit &&
+    prev.clipped === next.clipped &&
+    prev.availW === next.availW &&
+    prev.extentW === next.extentW &&
+    prev.extentH === next.extentH &&
+    prev.expanded === next.expanded;
+  const snap = same ? prev : next;
+  sectionSnaps.set(sectionId, { st: state, snap });
+  return snap;
+}
+
+/**
+ * One section's slice of the store. A section re-renders when its own cards
+ * change, or the active card moves into, out of or within it — not when a
+ * card elsewhere is pressed, dragged or typed in (which used to re-render
+ * every section and every card on the board).
+ */
+export function useSection(sectionId: string): SectionSnap {
+  return useSyncExternalStore(subscribe, () => sectionSnap(sectionId));
 }
 
 function set(partial: Partial<AppState>) {
@@ -602,7 +893,6 @@ export function splitSection(sectionId: string, dir: "h" | "v") {
     r0: 0,
     c1: 0,
     r1: 0,
-    scroll: { x: 0, y: 0 },
   };
 
   if (dir === "h") {
@@ -677,7 +967,6 @@ export function addSectionAdjacent(
     r0: 0,
     c1: 0,
     r1: 0,
-    scroll: { x: 0, y: 0 },
   };
 
   if (dir === "right" || dir === "left") {
@@ -712,6 +1001,7 @@ export function addSectionAdjacent(
     activeSectionId: fresh.id,
     snapRequest: { kind: "section", id: fresh.id, nonce: Math.random() },
   });
+  return fresh.id;
 }
 
 /**
@@ -950,7 +1240,6 @@ export function createSectionAt(c: number, r: number) {
     c1: c,
     r0: r,
     r1: r,
-    scroll: { x: 0, y: 0 },
   };
   set({
     sections: { ...state.sections, [fresh.id]: fresh },
@@ -970,10 +1259,20 @@ export function requestRemoveSection(id: string | null) {
   if (state.pendingRemoval !== id) set({ pendingRemoval: id });
 }
 
-export function setSectionScroll(id: string, x: number, y: number) {
-  const s = state.sections[id];
-  if (!s) return;
-  set({ sections: { ...state.sections, [id]: { ...s, scroll: { x, y } } } });
+/**
+ * Open a section as its own grid (or close it, with null): it grows to show
+ * everything at full size, the rest of the board steps back, and the camera
+ * frames it. Local to this window: nobody else's view changes.
+ */
+export function expandSection(id: string | null) {
+  const was = state.expandedSection;
+  if (was === id) return;
+  if (id && (!state.sections[id] || state.sections[id].host)) return;
+  set({
+    expandedSection: id,
+    ...(id ? { activeSectionId: id } : {}),
+    ...(id || was ? { snapRequest: { kind: "section" as const, id: (id ?? was)!, nonce: Math.random() } } : {}),
+  });
 }
 
 // ---------- track resizing (spreadsheet column/row semantics) ----------
@@ -1020,6 +1319,12 @@ export function setObjectFloat(id: string, float: boolean) {
 
 /** the section under a world point (null on empty paper or off the grid) */
 export function sectionAtWorld(x: number, y: number): Section | null {
+  // an expanded section lies over its neighbours: it owns all of its paper
+  const ex = state.expandedSection ? state.sections[state.expandedSection] : undefined;
+  if (ex) {
+    const r = sectionCardRect(state.grid, ex);
+    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return ex;
+  }
   const cell = cellAtWorld(x, y);
   return cell ? sectionCovering(cell.c, cell.r) : null;
 }
@@ -1034,16 +1339,27 @@ export function placeAtWorld(id: string, wx: number, wy: number) {
   const sec = state.sections[found.obj.sectionId];
   if (!sec || sec.host === id) return; // an app that became its section's app fills it
   const card = sectionCardRect(state.grid, sec);
-  const scroll = getLiveScroll(sec.id);
+  const s = sectionFit(sec.id);
   const { w } = objectPixelSize(found.obj);
-  const x = Math.max(0, wx - card.x - 1 - CONTENT_PAD + scroll.x - Math.min(w / 2, 120));
-  const y = Math.max(0, wy - card.y - 1 - SECTION_HEADER - CONTENT_PAD + scroll.y - 16);
+  const x = Math.max(0, (wx - card.x - 1) / s - CONTENT_PAD - Math.min(w / 2, 120));
+  const y = Math.max(0, (wy - card.y - 1 - SECTION_HEADER) / s - CONTENT_PAD - 16);
   set({
     [found.key]: { ...(state[found.key] as Record<string, AnyObject>), [id]: { ...found.obj, float: true, x, y } },
   } as Partial<AppState>);
 }
 
 // ---------- note actions ----------
+
+/**
+ * A hosted app fills its section, so a card added there would be hidden under
+ * it: the app becomes a card in the flow beside it instead ("Show as a card"),
+ * as an agent's add does (cardSection in the server's tools.ts).
+ */
+function unhostFor(sectionId: string): Partial<AppState> {
+  const sec = state.sections[sectionId];
+  if (!sec?.host) return {};
+  return { sections: { ...state.sections, [sectionId]: { ...sec, host: undefined } } };
+}
 
 let noteCount = 0;
 
@@ -1063,6 +1379,7 @@ export function addNote(sectionId: string, text?: string, opts: { focus?: boolea
   };
   set({
     notes: { ...state.notes, [meta.id]: meta },
+    ...unhostFor(sectionId),
     activeSectionId: sectionId,
     ...(opts.focus === false ? {} : { snapRequest: { kind: "object" as const, id: meta.id, nonce: Math.random() } }),
   });
@@ -1130,6 +1447,7 @@ export function addMedia(
   };
   set({
     media: { ...state.media, [meta.id]: meta },
+    ...unhostFor(sectionId),
     activeSectionId: sectionId,
     ...(opts.focus === false ? {} : { snapRequest: { kind: "object" as const, id: meta.id, nonce: Math.random() } }),
   });
@@ -1204,6 +1522,7 @@ export function createTable(sectionId: string, atX?: number, atY?: number): Tabl
   workbook.addTable(id, name, cols, rows);
   set({
     tables: { ...state.tables, [id]: meta },
+    ...unhostFor(sectionId),
     activeSectionId: sectionId,
     snapRequest: { kind: "object", id, nonce: Math.random() },
   });
@@ -1308,6 +1627,7 @@ export function createMap(sectionId: string, atX?: number, atY?: number): MapMet
   };
   set({
     maps: { ...state.maps, [id]: meta },
+    ...unhostFor(sectionId),
     activeSectionId: sectionId,
     snapRequest: { kind: "object", id, nonce: Math.random() },
   });
@@ -1387,7 +1707,7 @@ export function addPanel(
   };
   set({
     panels: { ...state.panels, [meta.id]: meta },
-    ...(hosts ? { sections: { ...state.sections, [sectionId]: { ...sec, host: meta.id, name: meta.name } } } : {}),
+    ...(hosts ? { sections: { ...state.sections, [sectionId]: { ...sec, host: meta.id, name: meta.name } } } : unhostFor(sectionId)),
     activeSectionId: sectionId,
     ...(opts.focus === false ? {} : { snapRequest: { kind: "object" as const, id: meta.id, nonce: Math.random() } }),
   });

@@ -8,7 +8,9 @@ import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { durations, easings, isNight, setNight, springs } from "@foundation/ui";
 import { initAsciiWind2 } from "../login/asciiWind2";
-import { Mark } from "../login/Login";
+import { Mark } from "../brand/Mark";
+import { UpdateCard } from "../update/UpdateCard";
+import type { UpdatePhase } from "../update/updater";
 import { NightOrb } from "../shell/NightOrb";
 import { pipeCrossings, polyline, route, routeSides, sideToward, type Side } from "../shell/wireGeometry";
 import { tunnelGeometry } from "../shell/wireGeometry";
@@ -78,10 +80,26 @@ function TodayDemo() {
     </div>
   );
 }
+import { PlanBoard, ReleasesTab, type NewCardInput, type SyncState } from "../settings/SettingsPage";
+import type { ReleasePost } from "../settings/releases";
+import { syncSentence } from "../settings/plan";
+import type { Plan } from "../settings/plan";
+import { SectionEmpty } from "../panels/SectionEmpty";
+import { MachineAskList } from "../panels/MachineView";
+import type { MachineAsk } from "@foundation/protocol";
+import { COMMANDS_GLYPH, IS_MAC, keys } from "../lib/keys";
+import * as Y from "yjs";
+import { loadNoteEditor } from "../components/NoteView";
+import { renderMarkdown } from "../utils/markdown";
+import { TrayView } from "../shell/UploadTray";
+import type { UploadItem } from "../lib/uploads";
+import { snippetHtml } from "../lib/snippet";
 
 const SURFACES = ["void", "abyss", "panel", "raise"];
 const INKS = ["frost", "mist", "dim"];
-const ACCENTS = ["pulse", "volt", "moss", "agent", "ok", "warn", "bad"];
+const ACCENTS = ["pulse", "volt", "moss", "agent", "ok", "warn", "bad", "on-fill", "highlight"];
+// every combo the app prints, and the longest one (Ctrl+Shift+Z) to prove a chip never wraps
+const COMBOS = ["mod+K", "mod+F", "mod+L", "mod+U", "mod+J", "mod+\\", "mod+1", "mod+W", "mod+enter", "shift+mod+Z"];
 const TYPE = [
   { size: 32, weight: 600, label: "Display 32", font: "var(--font-display)", sample: "Foundation" },
   { size: 24, weight: 600, label: "Title 24", font: "var(--font-sans)", sample: "Airform Max program" },
@@ -176,7 +194,7 @@ export function DesignPage() {
           <button className="f-pill" disabled>
             Disabled
           </button>
-          <span className="f-kbd">⌘K</span>
+          <span className="f-kbd">{keys("mod+K")}</span>
           <span className="f-dot is-ok is-live" />
           <span className="f-dot is-warn" />
           <span className="f-dot is-bad" />
@@ -189,6 +207,47 @@ export function DesignPage() {
             <p>One backdrop-filter per region: blur 18 · saturate 1.4 · fill 72% · edge 14%.</p>
           </div>
         </div>
+      </Section>
+
+      <Section
+        title="Key labels"
+        note="Shortcuts print for the machine they're on: ⌘ on a Mac, Ctrl on Windows and Linux (lib/keys.ts — the handlers take either). A chip is one line and never shrinks; where a panel is too tight for it, the panel drops the chip, not the words around it."
+      >
+        <div className="keys-table">
+          {[
+            { label: "Mac", mac: true },
+            { label: "Windows · Linux", mac: false },
+          ].map((p) => (
+            <div key={p.label} className="keys-row">
+              <span className="keys-os">
+                {p.label}
+                {p.mac === IS_MAC && <span className="keys-here"> · this machine</span>}
+              </span>
+              {COMBOS.map((c) => (
+                <span key={c} className="f-kbd">
+                  {keys(c, p.mac)}
+                </span>
+              ))}
+              <button className="hud-search f-glass">
+                <span className="hud-glyph">⌕</span>
+                <span className="hud-label">Search</span>
+                <span className="f-kbd">{keys("mod+F", p.mac)}</span>
+              </button>
+              <div className="f-tip is-on keys-tip">
+                Ask the agent about this section <span className="f-kbd">{keys("mod+J", p.mac)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        {[680, 440].map((h) => (
+          <div key={h} className="adapt-row keys-sections">
+            {[260, 400, 560].map((w) => (
+              <div key={w} className="keys-section" style={{ width: w, height: h }}>
+                <SectionEmpty name={`Section · ${w} × ${h}`} onUpload={() => {}} onNote={() => {}} onFocus={() => {}} />
+              </div>
+            ))}
+          </div>
+        ))}
       </Section>
 
       <Section title="Motion" note="Springs move things; curves fade things. Overshoot only on arrivals (pop). Delight under 600 ms, only after a real completion.">
@@ -280,7 +339,7 @@ export function DesignPage() {
             </nav>
             <div className="top-tools">
               <span className="top-btn is-on">⌕</span>
-              <span className="top-btn">⌘</span>
+              <span className="top-btn">{COMMANDS_GLYPH}</span>
               <span className="top-btn">◇</span>
               <span className="top-btn">▶</span>
             </div>
@@ -366,18 +425,18 @@ export function DesignPage() {
               <button className="hud-search f-glass">
                 <span className="hud-glyph">⌕</span>
                 <span className="hud-label">Search</span>
-                <span className="f-kbd">⌘F</span>
+                <span className="f-kbd">{keys("mod+F")}</span>
               </button>
               <button className="hud-talk f-glass">
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
                   <rect x="5.5" y="1.5" width="5" height="9" rx="2.5" />
                   <path d="M3 7.5a5 5 0 0 0 10 0M8 12.5v2" strokeLinecap="round" />
                 </svg>
-                <span className="f-kbd">V</span>
+                <span className="f-kbd">Space</span>
               </button>
               <button className="hud-zoom f-glass">64%</button>
             </div>
-            <div className="effect-label">The search pill, talk (V: what you say goes to the agent) and the zoom</div>
+            <div className="effect-label">The search pill, talk (hold Space: what you say goes to the crew) and the zoom</div>
           </div>
           <div className="oncall-cell">
             <div className="oncall-talking">
@@ -448,13 +507,53 @@ export function DesignPage() {
               </div>
             </div>
             <div className="f-tip is-on oncall-tip">
-              Ask the agent about this section <span className="f-kbd">⌘J</span>
+              Ask the agent about this section <span className="f-kbd">{keys("mod+J")}</span>
             </div>
             <div className="effect-label">Section, hovered: no bar — tools wait top-right (add · arrange · agent · remove), each names itself on roll-over</div>
+          </div>
+          <div className="oncall-cell">
+            <div className="section-card oncall-static oncall-section" style={{ width: 420, height: 220 }}>
+              <div className="section-header" style={{ height: 42 }}>
+                <span className="section-name">Research</span>
+                <span className="section-coords">C2</span>
+                <span className="section-count">14</span>
+              </div>
+              <div className="section-body">
+                <div className="section-content" style={{ transform: "scale(0.4)" }}>
+                  {Array.from({ length: 12 }, (_, i) => (
+                    <div
+                      key={i}
+                      className="frame-card"
+                      style={{ position: "absolute", left: 28 + (i % 4) * 236, top: 28 + Math.floor(i / 4) * 156, width: 210, height: 130 }}
+                    />
+                  ))}
+                </div>
+                <span className="section-more">
+                  2 more <span aria-hidden>⤢</span> Expand
+                </span>
+              </div>
+            </div>
+            <div className="effect-label">A section never takes the wheel: it lays its cards out at the width that shows them largest and fits them to its body, down to 40%. Past that it says what doesn't fit and offers Expand</div>
+          </div>
+          <div className="oncall-cell" style={{ paddingBottom: 72 }}>
+            <div className="section-card oncall-static oncall-section expanded" style={{ width: 420, height: 64 }}>
+              <div className="section-header" style={{ height: 42 }}>
+                <span className="section-name">Research</span>
+                <span className="section-coords">C2</span>
+                <span className="section-count">14</span>
+                <span className="section-back">
+                  <span aria-hidden>⤡</span> Back to the board
+                </span>
+              </div>
+            </div>
+            <div className="effect-label">Expanded: the section opens as its own grid, at full size and its own width, as long as it needs; neighbours step back to 12%, the wheel pans down through it, Esc or ⤡ closes it</div>
           </div>
         </div>
       </Section>
 
+      <Section title="Adding files" note={`Drop files or whole folders on a section, paste onto the board (${keys("mod+V")}: they land where the pointer is), or pick them (${keys("mod+U")}). A folder comes in as a group, in path order, under a note that names it. Every upload goes through one glass tray at the bottom right: how many and how much in its head, a 3 px meter (blue while sending, green when everything landed, red when something didn't), then a row per file (its folder in dim, a percentage while it goes, ✓ when it's there). Three go at a time. It folds to its head, and goes by itself a beat after the last one lands. A failure keeps it open with Retry; its card waits until Retry or Close. Documents (PDF, Word, PowerPoint, Excel, OpenDocument) are searchable by what's inside them a moment after they land, and a result shows the words that matched.`}>
+        <UploadsDemo />
+      </Section>
       <Section title="Huddles and Slack" note="A huddle is a video portal at a place on the board: Live (green) while people are in it, REC (red, the one convention read without a legend) while it records, tabs and controls along the bottom because the hover bar covers the top. A Slack card is a channel: posts carry the person's name, ours get a blue rule. Shown at 400 and 560 px; offline says why.">
         <div className="adapt-row">
           {[560, 400].map((w) => (
@@ -593,6 +692,207 @@ export function DesignPage() {
         <TodayDemo />
       </Section>
 
+      <Section title="Machines" note="A Linux machine or container in a section, on this computer's engine: Kiri or Docker (one wire, the Docker Engine API). The state pill leads: Running (green, breathing), Pulling and Starting (amber, with the engine's own progress), Stopped and Not started (grey), Error (red, in the engine's words), No engine (amber, a hatched well that says why). Kiri installed but asleep is not No engine: the tag says Kiri · asleep and Start wakes it first; a machine whose disk is on a sleeping Kiri is Out of reach (amber), never removed. Then the engine and its version, the image in code type, and published ports as pills that open the port as a page in the section. Start is the one blue action, and only a person presses it: an agent's proposal says so in violet. Running, the shared terminal fills the card (paper, ink, the tokens as its colours); viewers watch it under an amber View only tag. Remove asks twice. A page opened from a port follows its machine: while the machine isn't running the page's poster dims and the machine's state stands over it (the card's own pill, what happened in its words, Start it for a person and Show the machine), and it reloads by itself when the machine runs again; a removed machine, or a card taken off the board, says it's gone. An agent's command (machine_run) waits on the card under the head: violet, the agent's name, the command in code type, its why, and the time left; Run is a person's blue go-ahead beside Decline, and a viewer sees who can answer instead. Running and answered asks shrink to a line (amber running, green exit 0, red otherwise, struck through when declined or unanswered) for two minutes. Shown at 560, 400 and 260 px.">
+        <div className="adapt-row">
+          <div className="frame-card live-specimen" style={{ width: 560, height: 320 }}>
+            <div className="machine-body is-running">
+              <div className="machine-head">
+                <span className="machine-state is-ok">
+                  <span className="f-dot is-ok is-live" />
+                  Running
+                </span>
+                <span className="machine-engine">Kiri 0.9.0</span>
+                <code className="machine-image">ubuntu:24.04</code>
+                <span className="machine-ports">
+                  <span className="f-pill machine-port">:8080 ↗</span>
+                </span>
+              </div>
+              <div className="machine-term-wrap">
+                <pre className="machine-term machine-term-specimen">
+                  <span className="t-ok">build-box</span>:<span className="t-pulse">~</span># uname -sm{"\n"}Linux x86_64{"\n"}
+                  <span className="t-ok">build-box</span>:<span className="t-pulse">~</span># python3 -m http.server 8080{"\n"}Serving HTTP on 0.0.0.0 port 8080 …{"\n"}
+                  <span className="t-cursor"> </span>
+                </pre>
+                <div className="machine-people">2 here</div>
+              </div>
+              <div className="machine-controls">
+                <span className="f-pill">Stop</span>
+                <span className="f-pill">Restart</span>
+                <span className="machine-name">build-box</span>
+                <span className="f-pill machine-remove">Remove</span>
+              </div>
+            </div>
+          </div>
+          <div className="frame-card live-specimen" style={{ width: 400, height: 320 }}>
+            <div className="machine-body is-absent">
+              <div className="machine-head">
+                <span className="machine-state is-idle">
+                  <span className="f-dot" />
+                  Not started
+                </span>
+                <span className="machine-engine">Docker 28.3.0</span>
+                <code className="machine-image">postgres:17</code>
+              </div>
+              <div className="machine-picker">
+                <div className="machine-proposed">
+                  <span className="f-dot is-agent" /> Proposed by Foundation Agent: a scratch database for the BOM import
+                </div>
+                <div className="f-eyebrow">A Linux machine</div>
+                <div className="machine-chips">
+                  {["ubuntu", "debian", "alpine", "fedora"].map((d) => (
+                    <span key={d} className="machine-chip">
+                      {d}
+                    </span>
+                  ))}
+                </div>
+                <div className="f-eyebrow">On Docker already</div>
+                <div className="machine-chips">
+                  <span className="machine-chip is-code is-on">postgres:17</span>
+                  <span className="machine-chip is-code">nginx:1.27</span>
+                </div>
+                <div className="machine-start">
+                  <span className="f-pill is-accent">Start postgres:17 on Docker</span>
+                  <span className="machine-terms">Pulls it if needed · ports on 127.0.0.1 only · nothing from this computer mounted</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <MachineAsksDemo />
+        <div className="adapt-row">
+          <div className="frame-card live-specimen" style={{ width: 400, height: 220 }}>
+            <div className="machine-body is-pulling">
+              <div className="machine-head">
+                <span className="machine-state is-warn">
+                  <span className="f-dot is-warn is-live" />
+                  Pulling
+                </span>
+                <span className="machine-engine">Kiri 0.9.0</span>
+                <code className="machine-image">fedora:42</code>
+              </div>
+              <div className="machine-progress">
+                <span className="f-dot is-warn is-live" />
+                <span>Pulling fedora:42: 31 MB of 64 MB</span>
+              </div>
+            </div>
+          </div>
+          <div className="frame-card live-specimen" style={{ width: 260, height: 220 }}>
+            <div className="machine-body">
+              <div className="machine-head">
+                <span className="machine-state is-warn">
+                  <span className="f-dot is-warn" />
+                  No engine
+                </span>
+              </div>
+              <div className="connector-offline">
+                <div className="connector-offline-title">No container engine is running here</div>
+                <div className="connector-offline-reason">Kiri isn't running here (nothing answers at \\.\pipe\kiri)</div>
+              </div>
+              <div className="connector-foot">
+                <span className="f-pill is-agent">✦ How do I set one up?</span>
+              </div>
+            </div>
+          </div>
+          <div className="frame-card live-specimen" style={{ width: 260, height: 220 }}>
+            <div className="machine-body is-running">
+              <div className="machine-head">
+                <span className="machine-state is-ok">
+                  <span className="f-dot is-ok is-live" />
+                  Running
+                </span>
+                <span className="machine-engine">Kiri 0.9.0</span>
+              </div>
+              <div className="machine-term-wrap">
+                <pre className="machine-term machine-term-specimen">
+                  <span className="t-ok">box</span>:<span className="t-pulse">~</span># ls{"\n"}notes.md  src{"\n"}
+                </pre>
+                <div className="machine-watching">View only: you're watching</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="adapt-row">
+          <div className="frame-card live-specimen" style={{ width: 400, height: 220 }}>
+            <div className="machine-body is-absent">
+              <div className="machine-head">
+                <span className="machine-state is-idle">
+                  <span className="f-dot" />
+                  Not started
+                </span>
+                <span className="machine-engine">Kiri · asleep</span>
+                <code className="machine-image">alpine:3.22</code>
+              </div>
+              <div className="machine-picker">
+                <div className="f-eyebrow">A Linux machine</div>
+                <div className="machine-chips">
+                  {["ubuntu", "debian", "alpine", "fedora"].map((d) => (
+                    <span key={d} className={`machine-chip${d === "alpine" ? " is-on" : ""}`}>
+                      {d}
+                    </span>
+                  ))}
+                </div>
+                <div className="machine-start">
+                  <span className="f-pill is-accent">Start alpine:3.22 on Kiri</span>
+                  <span className="machine-terms">Wakes Kiri first · Pulls it if needed · ports on 127.0.0.1 only · nothing from this computer mounted</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="frame-card live-specimen" style={{ width: 400, height: 220 }}>
+            <div className="machine-body is-stopped">
+              <div className="machine-head">
+                <span className="machine-state is-warn">
+                  <span className="f-dot is-warn" />
+                  Out of reach
+                </span>
+                <span className="machine-engine">Kiri · asleep</span>
+                <code className="machine-image">alpine:3.22</code>
+              </div>
+              <div className="machine-well">
+                <div className="connector-offline-title">build-box is out of reach</div>
+                <div className="connector-offline-reason">Kiri isn't answering here, so this machine is out of reach. Its disk is kept: Start brings Kiri back and runs it again.</div>
+              </div>
+              <div className="machine-controls">
+                <span className="f-pill is-accent">Start on Kiri</span>
+                <span className="machine-name">build-box</span>
+                <span className="f-pill machine-remove">Remove</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="adapt-row">
+          <HeldPageDemo width={400} word="Stopped" tone="idle" title="Machine stopped — web-box isn't running" reason="Stopped by Ada. Its disk is kept: Start runs it again." start show />
+          <HeldPageDemo width={400} word="Running" tone="ok" live title="web-box is running" reason="Waiting for :80 to answer…" />
+        </div>
+        <div className="adapt-row">
+          <HeldPageDemo width={400} word="Stopped" tone="idle" title="Machine stopped — web-box isn't running" reason="Its disk is kept: Start runs it again." show viewer />
+          <HeldPageDemo width={260} word="Not started" tone="idle" kind="removed" title="Machine gone — web-box was removed" reason="Removed by Ada, with its disk. Start makes a fresh one." show />
+          <HeldPageDemo width={260} word="Gone" tone="idle" kind="gone" title="Machine gone — web-box isn't on the board any more" reason="This page was port 80 of it. There's nothing left to load." />
+        </div>
+      </Section>
+
+      <Section title="The crew" note="Agents you can see. Each ask gets an agent with a generated name and a colour of its own from the violet family (six, --color-crew-0…5), and a cursor that glides on a spring to what it's about to change, a beat before the change lands, saying what it's doing in a paper chip. A helper says who called it in. Done shows in green where it finished, then the cursor fades and leaves. When an agent brings you somewhere, a glass pill under the top bar says so with Back; if you were busy moving, it asks first (Go, in violet, because an agent will act). Hold Space and the voice sheet rises from the bottom: the mic's own level in violet bars, your words as heard, the crew at work below with Open and Stop; a tap of Space types instead.">
+        <CrewDemo />
+      </Section>
+
+      <Section title="Writing together" note={`A note at rest is its markdown, tables included. Double-click and it opens as a CodeMirror editor on the note's shared text: monospace, the markdown's own marks dimmed, headings and strong text in weight, links blue — no colour of its own. Every keystroke is shared as it's typed, so two people can write in one note, even in one word, and both keep their words whole. Each person keeps their own colour: someone else's caret is a 2 px bar in it, named while it moves and quiet once it rests; their selection is a 22 % tint. A note at rest names whoever is writing in it with a breathing chip at the bottom right, clear of the bar that drops in at the top. ${keys("mod+Z")} takes back only your own words. The two editors below share one text: type in either.`}>
+        <NoteEditorDemo />
+      </Section>
+
+      <Section title="Plan board" note="Settings → Plan: Foundation's own kanban, the local copy of the issues on GitHub. Columns sit on the panel well; cards are raised paper with the title in 13/600 and a meta line in dim 11: a kind dot (red bug, blue plan, amber when it waits on a person), the milestone, the area in code type and the issue number, which links to the issue (a card made here says new in amber until it's synced). Needs you reads amber, Done green. An admin drags a card to another column (the column rings blue) or picks Move to… on the opened card; a moved card keeps an amber hairline and says who moved it until it's synced. Beside the title, + New card opens a form on the panel well, and Sync with GitHub turns while it works, then says what it sent in ok green. Every column's hint takes two lines so the cards start level. Cards travel on the camera spring. Under 720 px the columns stack.">
+        <PlanBoardDemo />
+      </Section>
+
+      <Section title="Desktop updates" note="The desktop app checks its signed feed a few seconds after it opens and puts this card up under the top bar, on glass, when a new version is ready: Update and restart is the one blue action, Later hides it until the next launch, Skip this version until a newer one. Nothing downloads until a person presses Update. The bar fills on the compositor; the mark's courses settle while it works. After the restart it says what changed, once. Settings → Updates shows the same card inline on paper, with Check for updates. Shown at 260, 400 and 560 px.">
+        <UpdateDemo />
+      </Section>
+
+      <Section title="Release notes" note="Settings → Releases: docs/blog/<version>.md, newest first. The versions run down a sticky list on the left (the current one raised paper, the one this app is built as tagged in blue); the post reads on the right at 720 px: an eyebrow with the version and date, the title in display 24, the body in mist 14/1.6 with frost headings and bold. Under 720 px the list runs across the top.">
+        <div className="design-releases">
+          <ReleasesTab posts={DEMO_POSTS} route="" />
+        </div>
+      </Section>
+
       <Section title="Panels that adapt" note="Design for the narrowest width first; container queries, never the window. Check 260, 400 and 560 px.">
         <div className="adapt-row">
           {[260, 400, 560].map((w) => (
@@ -619,6 +919,292 @@ export function DesignPage() {
           ))}
         </div>
       </Section>
+    </div>
+  );
+}
+
+/** the crew, laid out still: cursors on a card, the guide pill, the sheet listening and typing */
+/** an agent's command on a running machine's card: waiting for a person, then what became of it (560, 400 as a viewer, 260) */
+function MachineAsksDemo() {
+  const now = Date.now();
+  const waiting: MachineAsk = { id: "ask_demo1", command: "apt-get install -y python3-pip && pip install trimesh", why: "to read the STEP export and list its parts", by: "Kestrel", for: "Ada", state: "waiting", at: now - 20_000, expiresAt: now + 100_000 };
+  const answered: MachineAsk[] = [
+    { id: "ask_demo0", command: "uname -sm", by: "Kestrel", for: "Ada", state: "done", at: now - 90_000, decidedBy: "Ada", exitCode: 0, endedAt: now - 80_000 },
+    { id: "ask_demo2", command: "rm -rf /srv/cache", by: "Kestrel", for: "Ada", state: "declined", at: now - 60_000, decidedBy: "Kai", endedAt: now - 50_000 },
+  ];
+  const card = (width: number, height: number, asks: MachineAsk[], viewer = false) => (
+    <div className="frame-card live-specimen" style={{ width, height }}>
+      <div className="machine-body is-running">
+        <div className="machine-head">
+          <span className="machine-state is-ok">
+            <span className="f-dot is-ok is-live" />
+            Running
+          </span>
+          <span className="machine-engine">Kiri 0.9.0</span>
+          <code className="machine-image">ubuntu:24.04</code>
+        </div>
+        <MachineAskList asks={asks} viewer={viewer} now={now} />
+        <div className="machine-term-wrap">
+          <pre className="machine-term machine-term-specimen">
+            <span className="t-ok">build-box</span>:<span className="t-pulse">~</span># ls /srv{"\n"}cache exports{"\n"}
+            <span className="t-cursor"> </span>
+          </pre>
+        </div>
+      </div>
+    </div>
+  );
+  return (
+    <div className="adapt-row">
+      {card(560, 400, [...answered, waiting])}
+      {card(400, 360, [{ id: "ask_demo4", command: "python3 -m pip list", by: "Wren", for: "Kai", state: "running", at: now - 4_000, decidedBy: "Kai" }, waiting], true)}
+      {card(260, 300, [waiting])}
+    </div>
+  );
+}
+
+function CrewDemo() {
+  const cursor = (name: string, hue: number, doing: string, x: number, y: number, extra = "", lead?: string) => (
+    <div className={`crew-cursor is-placed${extra}`} style={{ transform: `translate3d(${x}px, ${y}px, 0)`, ["--crew" as string]: `var(--color-crew-${hue})` }}>
+      <svg className="crew-arrow" width="20" height="22" viewBox="0 0 20 22">
+        <path d="M2 2 L17.5 10.5 L10.4 12.3 L7 19.5 Z" fill="var(--crew)" stroke="var(--color-raise)" strokeWidth="1.6" strokeLinejoin="round" />
+      </svg>
+      <span className="crew-spark" />
+      <div className="crew-tag">
+        <span className="crew-name">
+          ✦ {name}
+          {lead && <span className="crew-with"> · with {lead}</span>}
+        </span>
+        <span className="crew-doing">{doing}</span>
+      </div>
+    </div>
+  );
+  const row = (name: string, hue: number, doing: string, status = "working", mine = true, extra?: string) => (
+    <li className={`crew-row${mine ? " is-mine" : ""} is-${status}`} style={{ ["--crew" as string]: `var(--color-crew-${hue})` }}>
+      <span className="crew-row-dot" />
+      <span className="crew-row-name">{name}</span>
+      <span className="crew-row-doing">
+        {doing}
+        {extra && <span className="crew-row-for"> · {extra}</span>}
+      </span>
+      {mine && (
+        <span className="crew-row-actions">
+          <button className="crew-row-btn">Open</button>
+          {status === "working" && <button className="crew-row-btn is-stop">Stop</button>}
+        </span>
+      )}
+    </li>
+  );
+  return (
+    <div className="crew-demo">
+      <div className="crew-demo-board">
+        <div className="frame-card crew-demo-card" style={{ left: 24, top: 28, width: 300, height: 170 }}>
+          <div className="crew-demo-sheet">
+            {["Part", "Qty", "Supplier"].map((h) => (
+              <b key={h}>{h}</b>
+            ))}
+            {["Vane, 6061", "12", "Kapaʻa Metals", "Hub bearing", "2", "Pacific Fasteners", "M4 cap screw", "48", "Pacific Fasteners"].map((c, i) => (
+              <span key={i}>{c}</span>
+            ))}
+          </div>
+        </div>
+        <div className="frame-card crew-demo-card" style={{ left: 360, top: 28, width: 220, height: 120 }}>
+          <div className="crew-demo-note">
+            <b>Suppliers to call</b>
+            <span>Kapaʻa Metals: 3 weeks</span>
+          </div>
+        </div>
+        <div className="crew-layer" style={{ zIndex: 2 }}>
+          {cursor("Wren", 0, "making table “Parts”", 70, 50)}
+          {cursor("Kestrel", 2, "writing “Suppliers to call”", 400, 52, "", "Wren")}
+          {cursor("Basalt", 1, "✓ done", 260, 170, " is-done")}
+          {cursor("Vega", 4, "the total, 52.62", 150, 110, " is-pointing")}
+        </div>
+        <div className="effect-label">Cursors at 100 %: Wren aiming at the table it's filling, Kestrel (a helper Wren called in), Basalt done and leaving, Vega pointing at a cell (the laser)</div>
+      </div>
+      <div className="crew-demo-col">
+        <div className="crew-guide crew-follow f-glass" style={{ ["--crew" as string]: "var(--color-crew-1)" }}>
+          <span className="crew-guide-dot" />
+          <span className="crew-guide-text">
+            Following <b>Sirocco</b>
+            <span className="crew-guide-note"> · writing “What's here”</span>
+          </span>
+          <button className="f-pill crew-guide-back">Stop</button>
+        </div>
+        <div className="crew-guide f-glass" style={{ ["--crew" as string]: "var(--color-crew-0)" }}>
+          <span className="crew-guide-dot" />
+          <span className="crew-guide-text">
+            <b>Wren</b> brought you to <b>Supply chain</b>
+            <span className="crew-guide-note"> · the parts table is ready</span>
+          </span>
+          <button className="f-pill crew-guide-back">← Back</button>
+        </div>
+        <div className="crew-guide f-glass" style={{ ["--crew" as string]: "var(--color-crew-2)" }}>
+          <span className="crew-guide-dot" />
+          <span className="crew-guide-text">
+            <b>Kestrel</b> wants to show you <b>Suppliers</b>
+          </span>
+          <button className="f-pill is-agent">Go</button>
+          <button className="crew-guide-x">✕</button>
+        </div>
+        <div className="effect-label">Brought (Back) · asked first, because you were moving (Go)</div>
+        <div className="talk-sheet f-glass is-open crew-demo-still" data-mode="listening">
+          <div className="talk-input">
+            <span className="talk-level is-on">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <span key={i} style={{ animationDelay: `${i * 90}ms` }} />
+              ))}
+            </span>
+            <p className="talk-heard">make a supply section with the parts and hook up FactoryForm</p>
+          </div>
+          <ul className="crew-roster">
+            <li className="crew-row crew-row-all">
+              <span className="crew-row-doing">2 of yours at work</span>
+              <span className="crew-row-actions">
+                <button className="crew-row-btn is-stop">Stop all</button>
+              </span>
+            </li>
+            {row("Wren", 0, "making table “Parts”")}
+            {row("Kestrel", 2, "writing “Suppliers to call”", "working", true, "with Wren")}
+            {row("Vega", 4, "searching “thermal map”", "working", false, "for Kai")}
+          </ul>
+          <div className="talk-hints">
+            <span>
+              Let go of <span className="f-kbd">Space</span> to send
+            </span>
+            <span>
+              <span className="f-kbd">Esc</span> drops it
+            </span>
+          </div>
+        </div>
+        <div className="effect-label">Holding Space: the level, the words, the crew at work</div>
+        <div className="talk-sheet f-glass is-open crew-demo-still" data-mode="typing">
+          <div className="talk-input">
+            <span className="talk-level">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <span key={i} />
+              ))}
+            </span>
+            <textarea className="talk-field" rows={1} placeholder="Ask the crew: make a section for…, hook up FactoryForm…" readOnly />
+          </div>
+          <div className="talk-hints">
+            <span>
+              <span className="f-kbd">↵</span> sends
+            </span>
+            <span>
+              Hold <span className="f-kbd">Space</span> on the board to talk
+            </span>
+          </div>
+        </div>
+        <div className="effect-label">A tap of Space: typing</div>
+      </div>
+    </div>
+  );
+}
+
+const DEMO_NOTE = [
+  "## Fan programme",
+  "",
+  "Goals:",
+  "- ship the fan",
+  "- **tooling** by the 14th",
+  "",
+  "Risks:",
+  "- supplier slip, see [the tracker](https://example.com)",
+  "",
+  "| Part | Qty |",
+  "|---|---|",
+  "| Shroud | 2 |",
+  "| Hub | 1 |",
+  "",
+].join("\n");
+
+/**
+ * Two live note editors on one Y.Text (as Ada's and Kai's browsers would be),
+ * each drawing the other's caret, beside the same note at rest: rendered
+ * markdown with its table and the chip naming who's writing.
+ */
+function NoteEditorDemo() {
+  const ada = useRef<HTMLDivElement>(null);
+  const kai = useRef<HTMLDivElement>(null);
+  const [text, setText] = useState(DEMO_NOTE);
+  useEffect(() => {
+    let gone = false;
+    const handles: Array<{ destroy(): void }> = [];
+    const doc = new Y.Doc();
+    const ytext = doc.getText("note");
+    ytext.insert(0, DEMO_NOTE);
+    const sync = () => setText(ytext.toString());
+    ytext.observe(sync);
+    // each person's selection as relative positions, as the board's awareness carries them
+    const people = [
+      { clientId: 1, name: "Ada", color: "var(--viz-5)", sel: null as null | { anchor: Y.RelativePosition; head: Y.RelativePosition } },
+      { clientId: 2, name: "Kai", color: "var(--viz-3)", sel: null as null | { anchor: Y.RelativePosition; head: Y.RelativePosition } },
+    ];
+    const rel = (i: number) => Y.createRelativePositionFromTypeIndex(ytext, i);
+    const abs = (r: Y.RelativePosition) => Y.createAbsolutePositionFromRelativePosition(r, doc)?.index ?? 0;
+    // where each starts: Kai after "ship the fan", Ada selecting "supplier slip"
+    const kaiAt = DEMO_NOTE.indexOf("ship the fan") + "ship the fan".length;
+    people[1].sel = { anchor: rel(kaiAt), head: rel(kaiAt) };
+    people[0].sel = { anchor: rel(DEMO_NOTE.indexOf("supplier")), head: rel(DEMO_NOTE.indexOf(", see")) };
+    const listeners = new Set<() => void>();
+    const source = (me: number) => ({
+      get: () =>
+        people
+          .filter((p) => p.clientId !== me && p.sel)
+          .map((p) => {
+            const [a, h] = [abs(p.sel!.anchor), abs(p.sel!.head)];
+            return { clientId: p.clientId, name: p.name, color: p.color, from: Math.min(a, h), to: Math.max(a, h), head: h };
+          }),
+      subscribe: (fn: () => void) => (listeners.add(fn), () => void listeners.delete(fn)),
+      publish: (sel: { anchor: number; head: number } | null) => {
+        const p = people.find((x) => x.clientId === me)!;
+        if (!sel) return;
+        p.sel = { anchor: rel(sel.anchor), head: rel(sel.head) };
+        for (const fn of listeners) fn();
+      },
+    });
+    void loadNoteEditor().then((m) => {
+      if (gone) return;
+      for (const [el, me, um] of [[ada.current, 1, new Y.UndoManager(ytext)], [kai.current, 2, new Y.UndoManager(ytext)]] as const)
+        if (el) handles.push(m.mountNoteEditor(el, { ytext, undoManager: um, carets: source(me), at: 0 }));
+    });
+    return () => {
+      gone = true;
+      for (const h of handles) h.destroy();
+      ytext.unobserve(sync);
+      doc.destroy();
+    };
+  }, []);
+  return (
+    <div className="adapt-row">
+      {(
+        [
+          ["Ada writing", ada],
+          ["Kai writing", kai],
+        ] as const
+      ).map(([label, ref]) => (
+        <div key={label} style={{ display: "grid", gap: 6 }}>
+          <span className="design-note">{label}</span>
+          <div className="frame-card" style={{ width: 400 }}>
+            <div className="note-inner" style={{ height: 300 }}>
+              <div ref={ref} className="note-cm" />
+            </div>
+          </div>
+        </div>
+      ))}
+      <div style={{ display: "grid", gap: 6 }}>
+        <span className="design-note">At rest, with Kai still writing</span>
+        <div className="frame-card" style={{ width: 300 }}>
+          <div className="note-inner" style={{ height: 300 }}>
+            <div className="note-writers">
+              <span className="note-writer" style={{ ["--peer" as string]: "var(--viz-3)" }}>
+                Kai
+              </span>
+            </div>
+            <div className="note-rendered" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -689,7 +1275,8 @@ function WireDemo() {
 function AppSectionsDemo() {
   const A = { x: 10, y: 14, w: 110, h: 70 };
   const B = { x: 130, y: 14, w: 110, h: 70 };
-  const C = { x: 200, y: 120, w: 130, h: 70 };
+  // ends at 164, clear of the caption along the card's foot (as the Wires demo's cards do)
+  const C = { x: 200, y: 104, w: 130, h: 60 };
   const land = (r: typeof A, s: Side, at: number) =>
     s === "right" ? { x: r.x + r.w, y: at } : s === "left" ? { x: r.x, y: at } : s === "bottom" ? { x: at, y: r.y + r.h } : { x: at, y: r.y };
   const sab = sideToward(A, B, "right");
@@ -698,7 +1285,7 @@ function AppSectionsDemo() {
   const sca = sideToward(C, A, "left");
   const ab = routeSides(land(A, sab, 50), sab, land(B, sba, 50), sba, { src: A, dst: B });
   const acFrom = land(A, sac, sac === "bottom" ? 60 : 64);
-  const acTo = land(C, sca, sca === "top" ? 290 : 160);
+  const acTo = land(C, sca, sca === "top" ? 290 : 134);
   const ac = routeSides(acFrom, sac, acTo, sca, { src: A, dst: C, obstacles: [B] });
   return (
     <svg viewBox="0 0 340 200" width="100%" height="200" className="wire-demo">
@@ -713,5 +1300,212 @@ function AppSectionsDemo() {
         </g>
       ))}
     </svg>
+  );
+}
+
+const DEMO_POSTS: ReleasePost[] = [
+  { version: "0.3.0", date: "2026-11-09", title: "The plan syncs with GitHub, and the board says what it means", body: `0.3.0 is a polish release.
+
+## The plan, synced with GitHub
+
+- **Sync with GitHub.** It reads every issue first, then sends only what changed here.
+- **New card.** A bug, a plan, or something that waits on a person.
+
+## Fixed
+
+- **Wires keep to their edge** at both ends.` },
+  { version: "0.2.0", date: "2026-11-08", title: "The crew you can see, sections that fit, and Foundation on Windows", body: "The first release that runs as a desktop app on Windows." },
+];
+
+/** The plan board with a small sample plan, moving locally. */
+function PlanBoardDemo() {
+  const [plan, setPlan] = useState<Plan>(() => ({
+    about: "",
+    repo: "joshleong/Foundation",
+    syncedAt: "2026-11-07T22:00:00.000Z",
+    columns: [
+      { id: "needs-you", name: "Needs you", hint: "Waits on a person" },
+      { id: "next", name: "Next", hint: "Picked up in this order" },
+      { id: "doing", name: "Doing", hint: "Someone is on it" },
+      { id: "done", name: "Done", hint: "Ran and was checked" },
+    ],
+    milestones: [
+      { id: "crew", name: "The crew", about: "" },
+      { id: "polish", name: "Polish", about: "" },
+    ],
+    cards: [
+      { id: "sign-in", title: "Sign Claude Code back in", kind: "hookup", milestone: "crew", area: "agent", status: "needs-you", body: "Run `claude` once and sign in.", issue: 12 },
+      { id: "gap", title: "The + buttons in the gaps catch double-clicks", kind: "bug", milestone: "polish", area: "sections", status: "next", body: "Make adding a deliberate press.", issue: 31 },
+      { id: "stop", title: "A crew-wide stop", kind: "plan", milestone: "crew", area: "crew", status: "doing", body: "Stop all of yours at once.", issue: 27, moved: { by: "Ada", at: 0, from: "next" } },
+      { id: "fit", title: "Sections fit instead of scrolling", kind: "plan", milestone: "polish", area: "sections", status: "done", body: "Expand opens one as its own grid.", issue: 4 },
+      { id: "blink", title: "Wire landings blink on undo", kind: "bug", milestone: "polish", area: "wires", status: "next", body: "Made here; the next sync makes it an issue.", issue: null },
+    ],
+  }));
+  const [sync, setSync] = useState<SyncState>({ busy: false });
+  // Sync with GitHub, played locally: a moment's work, then the marks clear and the new card gets a number
+  const onSync = () => {
+    setSync({ busy: true });
+    window.setTimeout(() => {
+      let moved = 0;
+      let created = 0;
+      setPlan((p) => ({
+        ...p,
+        syncedAt: new Date().toISOString(),
+        cards: p.cards.map((c) => {
+          if (c.moved) moved++;
+          if (!c.issue) created++;
+          return { ...c, moved: null, issue: c.issue ?? 40 + created };
+        }),
+      }));
+      setSync({ busy: false, said: syncSentence({ moved, created }) });
+    }, 1200);
+  };
+  const onCreate = async (input: NewCardInput) => {
+    const card = { id: `demo-${Date.now()}`, title: input.title, kind: input.kind, milestone: input.milestone, area: input.area, status: input.kind === "hookup" ? "needs-you" : "next", body: input.body ?? "", issue: null };
+    setPlan((p) => ({ ...p, cards: [...p.cards, card] }));
+    return card;
+  };
+  return (
+    <div className="kb-demo">
+      <PlanBoard plan={plan} source="server" canMove height={460} sync={sync} onSync={onSync} onCreate={onCreate} onMove={(id, status) => setPlan((p) => ({ ...p, cards: p.cards.map((c) => (c.id === id ? { ...c, status, moved: c.moved ?? (c.status === status ? null : { by: "Ada", at: Date.now(), from: c.status }) } : c)) }))} />
+    </div>
+  );
+}
+
+/** a page opened from a machine's port while the machine isn't running (the specimen of LiveFrame's MachineHold) */
+function HeldPageDemo(p: { width: number; word: string; tone: "ok" | "warn" | "bad" | "idle"; live?: boolean; kind?: string; title: string; reason: string; start?: boolean; show?: boolean; viewer?: boolean }) {
+  return (
+    <div className="frame-card live-specimen" style={{ width: p.width, height: 320 }}>
+      <div className="live-frame">
+        <div className="frame-poster is-held">
+          <div className="frame-poster-name">web-box:80</div>
+          <div className="frame-poster-domain">127.0.0.1:49731</div>
+          <div className="frame-poster-text">Port 80 of the machine web-box</div>
+          <div className={`machine-hold is-${p.kind ?? "stopped"}`}>
+            <span className={`machine-state is-${p.tone}`}>
+              <span className={`f-dot${p.tone === "idle" ? "" : ` is-${p.tone}`}${p.live ? " is-live" : ""}`} />
+              {p.word}
+            </span>
+            <div className="machine-hold-title">{p.title}</div>
+            <div className="machine-hold-reason">{p.reason}</div>
+            {(p.start || p.show) && (
+              <div className="machine-hold-actions">
+                {p.start && <span className="f-pill is-accent">Start it</span>}
+                {p.show && <span className="f-pill">Show the machine</span>}
+              </div>
+            )}
+            {p.viewer && <div className="machine-hold-note">View only: someone who can edit this board starts it.</div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const UPDATE_NOTES = ["## Foundation 0.3.0", "- Desktop updates: this card", "- A new icon: an F laid in masonry", "- Signed installers, checked before they run"].join("\n");
+const UPDATE_PHASES: Array<{ phase: UpdatePhase; width: number; layout?: "floating" | "inline"; extra?: Record<string, unknown> }> = [
+  { phase: "available", width: 400 },
+  { phase: "available", width: 260 },
+  { phase: "downloading", width: 400, extra: { received: 4.2 * 1048576, total: 9.6 * 1048576 } },
+  { phase: "downloading", width: 260 },
+  { phase: "installing", width: 400 },
+  { phase: "failed", width: 400, extra: { message: "The download's signature didn't match Foundation's key, so nothing was installed." } },
+  { phase: "updated", width: 560 },
+  { phase: "checking", width: 400, layout: "inline" },
+  { phase: "current", width: 400, layout: "inline" },
+  { phase: "unreachable", width: 400, layout: "inline" },
+  { phase: "off", width: 400, layout: "inline", extra: { message: "This is a development build (tauri dev): pull main to update it." } },
+];
+
+function UpdateDemo() {
+  const noop = () => {};
+  return (
+    <div className="update-demo">
+      {UPDATE_PHASES.map((d, i) => (
+        <div key={i} style={{ width: d.width }}>
+          <div className="f-eyebrow update-demo-label">
+            {d.phase} · {d.width} px{d.layout === "inline" ? " · inline" : ""}
+          </div>
+          <UpdateCard
+            phase={d.phase}
+            layout={d.layout ?? "floating"}
+            version={d.phase === "current" ? "0.3.0" : "0.3.0"}
+            current="0.2.0"
+            date="2026-11-09T08:00:00Z"
+            notes={UPDATE_NOTES}
+            onUpdate={noop}
+            onLater={noop}
+            onSkip={noop}
+            onCheck={noop}
+            onClose={noop}
+            {...d.extra}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const MB = 1024 * 1024;
+const TRAY_SENDING: UploadItem[] = [
+  { id: 1, name: "front.png", path: "Renders/front.png", size: 2.4 * MB, loaded: 2.4 * MB, state: "done" },
+  { id: 2, name: "side.png", path: "Renders/side.png", size: 2.1 * MB, loaded: 1.3 * MB, state: "sending" },
+  { id: 3, name: "shroud-rev-c.step", path: "Renders/CAD/shroud-rev-c.step", size: 18 * MB, loaded: 4 * MB, state: "sending" },
+  { id: 4, name: "test-log.xlsx", path: "Renders/test-log.xlsx", size: 220 * 1024, loaded: 0, state: "waiting" },
+  { id: 5, name: "intake-spec.pdf", path: "Renders/intake-spec.pdf", size: 1.1 * MB, loaded: 0, state: "waiting" },
+];
+const TRAY_DONE: UploadItem[] = TRAY_SENDING.map((it) => ({ ...it, loaded: it.size, state: "done" }));
+const TRAY_FAILED: UploadItem[] = [
+  ...TRAY_DONE.slice(0, 3),
+  { id: 6, name: "flythrough.mov", size: 840 * MB, loaded: 312 * MB, state: "failed", error: "network error" },
+];
+
+function UploadsDemo() {
+  return (
+    <div className="oncall-row uploads-demo">
+      <div className="oncall-cell">
+        <TrayView items={TRAY_SENDING} folded={false} demo />
+        <div className="effect-label">A folder on its way: three at a time, the rest waiting; each row names its folder in dim</div>
+      </div>
+      <div className="oncall-cell">
+        <TrayView items={TRAY_SENDING} folded demo />
+        <TrayView items={TRAY_DONE} folded demo />
+        <div className="effect-label">Folded to its head while it works; all landed (it leaves by itself 2.6 s later)</div>
+      </div>
+      <div className="oncall-cell">
+        <TrayView items={TRAY_FAILED} folded={false} demo />
+        <div className="effect-label">Something didn't make it: the tray stays, red, with Retry; its card waits for it</div>
+      </div>
+      <div className="oncall-cell" style={{ width: 420 }}>
+        <div className="search-results">
+          <div className="search-row">
+            <span className="search-row-glyph">▤</span>
+            <span className="search-row-main">
+              <span className="search-row-title">intake-spec.pdf</span>
+              <span className="search-row-snip" dangerouslySetInnerHTML={{ __html: snippetHtml("Page two of the assembly notes for the rear housing and the clamp bands: the «Osterlund» fan shroud is printed in PETG") }} />
+            </span>
+            <span className="search-row-src">file</span>
+          </div>
+          <div className="search-row">
+            <span className="search-row-glyph">▤</span>
+            <span className="search-row-main">
+              <span className="search-row-title">bom.xlsx</span>
+              <span className="search-row-snip" dangerouslySetInnerHTML={{ __html: snippetHtml("BOM Part Qty Ventura gasket 12 «03304»-10027") }} />
+            </span>
+            <span className="search-row-src">file</span>
+          </div>
+        </div>
+        <div className="cmd f-glass design-cmd-specimen">
+          <div className="cmd-list">
+            <div className="cmd-row is-hit is-sel">
+              <span className="cmd-src src-file">File</span>
+              <span className="cmd-row-label">bracket.docx</span>
+              <span className="cmd-row-hint" dangerouslySetInnerHTML={{ __html: snippetHtml("«Zephyrine» bracket assembly Torque the M6 bolts to 9 Nm then check & sign.") }} />
+            </div>
+          </div>
+        </div>
+        <div className="effect-label">What matched, inside the document: the search pane ({keys("mod+F")}) and {keys("mod+K")}, the match in blue and brought forward on its line</div>
+      </div>
+    </div>
   );
 }

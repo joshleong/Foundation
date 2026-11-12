@@ -1,12 +1,13 @@
 /**
  * Sign-in: ordinary type and physical controls (light pills that lift and
- * press on springs, raised inputs) in a frame drawn in the ASCII wind: a ring
- * of the field's own glyphs, snapped to its cells (`asciiWind.frame`). The
- * wind keeps blowing inside the frame and only clears the cells behind the
- * text (`asciiWind.holes`). There's no card. Just Google; the email sign-in
- * waits behind a click. Always day colours (`.f-day`), whatever the room.
+ * press on springs, raised inputs) standing in the ASCII wind. There's no card
+ * and no frame: the wind knows each element (`asciiWind.shapes`), parts
+ * around it and traces its outline in faintly lit glyphs, text by its words
+ * and controls by their rounded boxes; the one under the pointer or holding
+ * focus lights up. Just Google; the email sign-in waits behind a click.
+ * Always day colours (`.f-day`), whatever the room.
  *
- * The field answers. The frame opens out of the wind on arrival, typing stirs
+ * The field answers. The outlines come up out of the wind on arrival, typing stirs
  * the wind at the cursor, a press ripples from the button, and an error
  * ripples where it's written. Signing in dissolves everything outward
  * from the press, a ragged front of bright glyphs, into the board
@@ -25,11 +26,12 @@ import { motion } from "motion/react";
 import type { UserInfo } from "@foundation/protocol";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { initAsciiWind2 } from "./asciiWind2";
-import { authConfig, devLogin, flowformBegin, flowformPoll, serverUrl } from "../lib/api";
+import { activeBoard } from "../sync/board";
+import { authConfig, BEARER, chooseServer, devLogin, flowformBegin, flowformPoll, SERVER, serverUrl } from "../lib/api";
 
 const inDesktop = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-/** the frame: its width, and the paper between its edge and the form, in wind cells */
+/** where the form sits: its width, and the paper around it, in wind cells */
 const FRAME_COLS = 66;
 const PAD_COLS = 6;
 const PAD_ROWS = 3;
@@ -42,7 +44,7 @@ const press = { type: "spring", stiffness: 520, damping: 32 } as const;
 type Grid = { width: number; height: number; left: number; top: number; cw: number; ch: number };
 type Rect = { x: number; y: number; width: number; height: number };
 
-/** the grid the wind lays out (asciiWind2 resize), so the frame's edges fall between wind cells */
+/** the grid the wind lays out (asciiWind2 resize), so the form's box falls between wind cells */
 function measureGrid(el: HTMLElement): Grid {
   const { width, height } = el.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
@@ -62,6 +64,31 @@ function measureGrid(el: HTMLElement): Grid {
 }
 
 const ease = (k: number) => 1 - Math.pow(1 - k, 3);
+
+/** resolves once `ok()` holds, checked each frame (or after `cap` ms) */
+function until(ok: () => boolean, cap: number): Promise<void> {
+  return new Promise((done) => {
+    const start = performance.now();
+    const step = (t: number) => (ok() || t - start > cap ? done() : requestAnimationFrame(step));
+    requestAnimationFrame(step);
+  });
+}
+
+/** resolves once the page draws `run` frames in a row on time (or after `cap` ms, whatever happens) */
+function calm(run = 6, cap = 1500): Promise<void> {
+  return new Promise((done) => {
+    const start = performance.now();
+    let last = start;
+    let good = 0;
+    const step = (t: number) => {
+      good = t - last < 20 ? good + 1 : 0;
+      last = t;
+      if (good >= run || t - start > cap) done();
+      else requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
 
 export function Login({
   onSignedIn,
@@ -87,7 +114,10 @@ export function Login({
   const [waiting, setWaiting] = useState(false);
   /** the email sign-in, folded away until asked for */
   const [byEmail, setByEmail] = useState(false);
-  /** 0 → 1 as the frame opens out of the wind */
+  /** the app (or a page on another site) can be pointed at another server: the Server line, folded until asked for */
+  const [pickServer, setPickServer] = useState(false);
+  const [serverDraft, setServerDraft] = useState(SERVER);
+  /** 0 → 1 as the outlines come up out of the wind */
   const [open, setOpen] = useState(0);
   const [leave, setLeave] = useState<{ ox: number; oy: number; radius: number } | null>(null);
   const cancelWait = useRef<() => void>(() => {});
@@ -95,7 +125,7 @@ export function Login({
   const leaving = useRef(false);
   const reduced = useMemo(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches, []);
 
-  // the wind runs through the frame, a little calmer behind the form
+  // the wind runs through the form, a little calmer behind it
   useEffect(() => initAsciiWind2(root.current!, "wind", { quiet: 0.7 }), []);
   useLayoutEffect(() => {
     const el = root.current!;
@@ -123,7 +153,7 @@ export function Login({
 
   const hooks = () => root.current?.asciiWind;
 
-  /** the frame, on wind cell boundaries */
+  /** the form's box, on wind cell boundaries (layout only: nothing draws it) */
   const frame = useMemo<Rect | null>(() => {
     if (!g || !contentH) return null;
     const cols = Math.min(FRAME_COLS, Math.floor((g.width - g.left) / g.cw) - 4);
@@ -133,7 +163,7 @@ export function Login({
     return { x: g.left + col * g.cw, y: g.top + row * g.ch, width: cols * g.cw, height: rows * g.ch };
   }, [g, contentH]);
 
-  // the frame opens out of the wind: its hole grows from a slot in the middle
+  // on arrival the elements' outlines come up out of the wind, top to bottom
   useEffect(() => {
     if (!frame || open === 1) return;
     if (reduced || arriving) return setOpen(1);
@@ -149,42 +179,59 @@ export function Login({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frame !== null]);
 
-  /** the frame's ring as it opens out of a slot in the middle */
-  const hole = useMemo<Rect | null>(() => {
-    if (!frame || !g) return null;
-    const w = Math.max(g.cw * 4, Math.round((frame.width * ease(Math.min(1, open * 1.25))) / (g.cw * 2)) * g.cw * 2);
-    const h = Math.max(g.ch, Math.round((frame.height * ease(Math.max(0, open * 1.4 - 0.4))) / (g.ch * 2)) * g.ch * 2);
-    return { x: frame.x + (frame.width - w) / 2, y: frame.y + (frame.height - h) / 2, width: w, height: h };
-  }, [frame, g, open]);
+  // the wind knows each element: it parts around it and traces its outline
+  // (a run of text by its words, a control by its rounded box), and the one
+  // under the pointer or holding focus lights up
   useEffect(() => {
-    if (!hole || !g) return;
+    const el = root.current;
+    if (!el || !frame) return;
+    const range = document.createRange();
     const send = () => {
-      const r = root.current!.getBoundingClientRect();
-      // the wind clears only the cells behind the text, a cell around each run
-      const clear = (el: Element) => {
-        const b = el.getBoundingClientRect();
-        if (!b.width) return null;
-        const c0 = Math.floor((b.left - r.left - g.left) / g.cw) - 1;
-        const r0 = Math.floor((b.top - r.top - g.top) / g.ch);
-        const c1 = Math.ceil((b.right - r.left - g.left) / g.cw) + 1;
-        const r1 = Math.ceil((b.bottom - r.top - g.top) / g.ch);
-        return { x: g.left + c0 * g.cw, y: g.top + r0 * g.ch, width: (c1 - c0) * g.cw, height: (r1 - r0) * g.ch };
-      };
-      const rects = [...(root.current?.querySelectorAll("[data-clear]") ?? [])].map(clear).filter((x): x is Rect => !!x);
-      root.current?.asciiWind?.holes(rects);
-      // the frame: a ring of the field's own glyphs, two cells deep
-      root.current?.asciiWind?.frame(hole, g.cw * 2.5, g.ch * 1.5, 0.32);
+      const r = el.getBoundingClientRect();
+      const shapes = [...el.querySelectorAll<HTMLElement>("[data-shape]")].flatMap((node, i) => {
+        const text = node.dataset.shape === "text";
+        if (text) range.selectNodeContents(node);
+        const b = text ? range.getBoundingClientRect() : node.getBoundingClientRect();
+        if (!b.width || !b.height) return [];
+        const k = ease(Math.min(1, Math.max(0, open * 1.6 - i * 0.07)));
+        const lit = node.matches(":hover, :focus");
+        return [
+          {
+            x: b.left - r.left,
+            y: b.top - r.top,
+            width: b.width,
+            height: b.height,
+            radius: text ? 3 : parseFloat(getComputedStyle(node).borderTopLeftRadius) || 0,
+            gap: text ? 1 : 3,
+            depth: (text ? 5 : 7) * k,
+            light: k * (lit ? 0.6 : text ? 0.16 : 0.32),
+          },
+        ];
+      });
+      el.asciiWind?.shapes(shapes);
     };
-    send();
-    // again once the form's springs have settled
-    const later = window.setTimeout(send, 450);
-    const el = root.current!;
-    el.addEventListener("ascii-wind:ready", send);
+    // follow the form's springs for a moment after anything changes
+    let raf = 0;
+    const until = performance.now() + 800;
+    const follow = () => {
+      send();
+      if (performance.now() < until) raf = requestAnimationFrame(follow);
+    };
+    follow();
+    const events = ["ascii-wind:ready", "pointerover", "pointerout", "focusin", "focusout"];
+    // :hover and :focus settle after the event, so read them on the next frame
+    let soon = 0;
+    const later = () => {
+      cancelAnimationFrame(soon);
+      soon = requestAnimationFrame(send);
+    };
+    events.forEach((type) => el.addEventListener(type, later));
     return () => {
-      window.clearTimeout(later);
-      el.removeEventListener("ascii-wind:ready", send);
+      cancelAnimationFrame(raf);
+      cancelAnimationFrame(soon);
+      events.forEach((type) => el.removeEventListener(type, later));
     };
-  }, [hole, g, byEmail, error, waiting, cfg]);
+  }, [frame, open, byEmail, error, waiting, cfg]);
 
   /** centre of an element, in the root's box */
   const centreOf = (el: Element | null) => {
@@ -212,6 +259,11 @@ export function Login({
         });
         await new Promise((ok) => setTimeout(ok, 350));
       }
+      // the board mounts and syncs behind the page now; let that land first (the wind keeps turning), so
+      // the dissolve isn't dropping frames to it: 100–200 ms of work on a 200-card board, measured in
+      // e2e/frames.spec.ts. Offline, or a slow server: it goes after 2.5 s regardless.
+      await until(() => activeBoard()?.status === "live", 2500);
+      await calm();
       const o = origin ?? lastPress.current ?? (frame ? { x: frame.x + frame.width / 2, y: frame.y + frame.height / 2 } : { x: g.width / 2, y: g.height / 2 });
       const far =
         Math.max(...[[0, 0], [g.width, 0], [0, g.height], [g.width, g.height]].map(([x, y]) => Math.hypot(x - o.x, y - o.y))) + BAND;
@@ -256,9 +308,12 @@ export function Login({
   const googleDesktop = async (e: React.MouseEvent) => {
     ripple(e.currentTarget);
     setError(null);
+    // a page on another site's server (not the app) finishes the same way: Google in its own tab, this page polls
+    const tab = inDesktop ? null : window.open("", "_blank");
     try {
       const { url, poll, expiresIn } = await flowformBegin();
-      await openUrl(url);
+      if (tab) tab.location.href = url;
+      else await openUrl(url);
       setWaiting(true);
       let live = true;
       cancelWait.current = () => {
@@ -357,30 +412,30 @@ export function Login({
             animate={shown ? { opacity: 1, y: 0, scale: 1 } : { opacity: 0, y: 10, scale: 0.98 }}
             transition={{ type: "spring", stiffness: 260, damping: 22 }}
           >
-            <div className="f-eyebrow login-eyebrow" data-clear>
+            <div className="f-eyebrow login-eyebrow" data-shape="text">
               Form Industries
             </div>
-            <h1 className="login-title" data-clear>
+            <h1 className="login-title" data-shape="text">
               Foundation
             </h1>
 
             {waiting ? (
               <div className="login-waiting" role="status">
                 <span className="f-dot is-live" />
-                <span data-clear>Finish signing in with Google in your browser.</span>
-                <motion.button type="button" className="f-pill login-cancel" whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} transition={press} onClick={() => cancelWait.current()}>
+                <span data-shape="text">Finish signing in with Google in your browser.</span>
+                <motion.button type="button" className="f-pill login-cancel" data-shape="control" whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} transition={press} onClick={() => cancelWait.current()}>
                   Cancel
                 </motion.button>
               </div>
             ) : (
               google && (
                 <>
-                  {inDesktop && cfg?.flowform ? (
-                    <motion.button type="button" className="f-pill login-btn" whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} transition={press} onClick={googleDesktop}>
+                  {(inDesktop || BEARER) && cfg?.flowform ? (
+                    <motion.button type="button" className="f-pill login-btn" data-shape="control" whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} transition={press} onClick={googleDesktop}>
                       Connect with Google
                     </motion.button>
                   ) : (
-                    <motion.a className="f-pill login-btn" href={googleHref} whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} transition={press} onClick={(e) => ripple(e.currentTarget)}>
+                    <motion.a className="f-pill login-btn" data-shape="control" href={googleHref} whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} transition={press} onClick={(e) => ripple(e.currentTarget)}>
                       Connect with Google
                     </motion.a>
                   )}
@@ -389,7 +444,7 @@ export function Login({
             )}
 
             {cfg?.devLogin && !waiting && google && !byEmail && (
-              <button type="button" className="login-or" data-clear onClick={openEmail}>
+              <button type="button" className="login-or" data-shape="text" onClick={openEmail}>
                 Use your email
               </button>
             )}
@@ -403,6 +458,7 @@ export function Login({
               >
                 <input
                   className="f-input"
+                  data-shape="control"
                   placeholder="Your name"
                   value={name}
                   autoComplete="name"
@@ -414,6 +470,7 @@ export function Login({
                 />
                 <input
                   className="f-input"
+                  data-shape="control"
                   placeholder="Work email"
                   type="email"
                   value={email}
@@ -426,34 +483,53 @@ export function Login({
                   }}
                   onFocus={(e) => focused(e.currentTarget)}
                 />
-                <motion.button className="f-pill login-btn login-go" disabled={busy || !email} whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} transition={press}>
+                <motion.button className="f-pill login-btn login-go" data-shape="control" disabled={busy || !email} whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} transition={press}>
                   {busy ? "Signing in…" : "Enter Foundation"}
                 </motion.button>
               </motion.form>
             )}
             {error && (
-              <motion.div className="login-error" role="alert" data-clear initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} transition={press}>
+              <motion.div className="login-error" role="alert" data-shape="text" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} transition={press}>
                 {error}
               </motion.div>
+            )}
+            {(inDesktop || BEARER) && !waiting && !pickServer && (
+              <button type="button" className="login-or" data-shape="text" data-tip="The Foundation server this device signs in to" onClick={() => setPickServer(true)}>
+                Server · {(SERVER || window.location.origin).replace(/^https?:\/\//, "")}
+              </button>
+            )}
+            {pickServer && !waiting && (
+              <motion.form
+                className="login-fields"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  chooseServer(serverDraft);
+                }}
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              >
+                <input
+                  className="f-input"
+                  data-shape="control"
+                  placeholder="https://foundation.example.com"
+                  type="url"
+                  value={serverDraft}
+                  autoFocus
+                  aria-label="Server"
+                  onChange={(e) => setServerDraft(e.target.value)}
+                />
+                <motion.button className="f-pill login-btn" data-shape="control" whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} transition={press}>
+                  Use this server
+                </motion.button>
+              </motion.form>
             )}
           </motion.div>
         </div>
       )}
-      <div className="login-foot" data-clear>
+      <div className="login-foot" data-shape="text">
         Move the cursor — it's the wind.
       </div>
     </div>
-  );
-}
-
-export function Mark({ size = 30 }: { size?: number }) {
-  // the Foundation mark: a grid cell lifting off the paper
-  return (
-    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden>
-      <rect x="4" y="4" width="10" height="10" rx="2" fill="currentColor" opacity=".9" />
-      <rect x="18" y="4" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.6" opacity=".55" />
-      <rect x="4" y="18" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.6" opacity=".55" />
-      <rect x="18" y="18" width="10" height="10" rx="2" fill="var(--color-pulse)" />
-    </svg>
   );
 }

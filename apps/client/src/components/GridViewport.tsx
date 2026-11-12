@@ -1,3 +1,4 @@
+import { keys } from "../lib/keys";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion } from "motion/react";
 import { ShaderBackground } from "../gl/background";
@@ -24,17 +25,20 @@ import {
   setActiveSection,
   setFocusGrid,
   trackOffsets,
-  useAppState,
+  expandSection,
 } from "../state/store";
 import { SectionView } from "./SectionView";
 import { WireLayer } from "./WireLayer";
-import { publishCamera, publishPointer } from "../state/camera";
+import { camera, publishCamera, publishPointer } from "../state/camera";
 import { isNight, onNight } from "@foundation/ui";
 import { floorInsets, getUi, setUi, useUi } from "../state/ui";
 import { TalkButton } from "../shell/Talk";
 import { PeerCursors } from "../shell/Presence";
+import { CrewCursors, CrewFollow, CrewGuide } from "../shell/Crew";
 import { PortWires } from "../shell/AgentLayer";
 import { openContextMenu } from "./ContextMenu";
+import { countRender } from "../state/renders";
+import { gridViewSlice, useStoreSlice } from "../state/slices";
 
 function colName(col: number): string {
   let s = "";
@@ -63,9 +67,11 @@ export const FLOOR_FADE = 56;
  */
 function sectionFocusRect(grid: Parameters<typeof sectionCardRect>[0], s: Parameters<typeof sectionCardRect>[1]): Rect {
   const card = sectionCardRect(grid, s);
+  // an open section is framed by its width from the top; the wheel reads on down
+  if (getState().expandedSection === s.id) return { ...card, h: Math.min(card.h, card.w * 0.7) };
   const objs = objectsInSection(s.id)
     .map((o) => objectWorldRect(o))
-    .filter((r): r is Rect => Boolean(r));
+    .filter((r): r is NonNullable<typeof r> => Boolean(r));
   if (objs.length === 0) {
     const w = Math.min(card.w, 1000);
     const h = Math.min(card.h, 700);
@@ -77,6 +83,10 @@ function sectionFocusRect(grid: Parameters<typeof sectionCardRect>[0], s: Parame
   let y1 = Math.max(...objs.map((r) => r.y + r.h)) + 40;
   x1 = Math.min(card.x + card.w, Math.max(x1, card.x + 640));
   y1 = Math.min(card.y + card.h, Math.max(y1, card.y + 420));
+  // the section's tools wait at its top-right corner: keep its full width in the frame unless it's far
+  // wider than what it holds (then the cards matter more, and hover finds the tools after a pan)
+  const fitsAtCap = (card.x + card.w - x0) * 1.05 <= camera.width - floorInsets().left - floorInsets().right - 2 * SAFE_GAP;
+  if (fitsAtCap || card.x + card.w - x0 <= (x1 - x0) * 1.6) x1 = card.x + card.w;
   const rect = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
   // only tighten when it actually helps
   return rect.w * rect.h < card.w * card.h * 0.7 ? rect : card;
@@ -124,7 +134,9 @@ interface Candidate {
 }
 
 export function GridViewport() {
-  const state = useAppState();
+  countRender("GridViewport");
+  // the grid's own slice: a press, a drag frame or a keystroke in a card doesn't render the board
+  const state = useStoreSlice(gridViewSlice);
   const ui = useUi();
   const insets = floorInsets(ui);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -307,6 +319,11 @@ export function GridViewport() {
       const st = getState();
       let rect: Rect | null = null;
       let cap = 1;
+      if (target.kind === "view") {
+        zoom.to(target.scale);
+        camera.to(target.x, target.y);
+        return true;
+      }
       if (target.kind === "all") {
         const size = gridSize(st.grid);
         rect = { x: 0, y: 0, w: size.w, h: size.h };
@@ -363,6 +380,12 @@ export function GridViewport() {
         return;
       if (e.key === "Escape") {
         el?.blur(); // release e.g. a table sheet so section arrows take over
+        // an open section closes first (unless a card in it has the keys)
+        const st0 = getState();
+        if (st0.expandedSection && st0.focusLevel !== "object") {
+          expandSection(null);
+          return;
+        }
         focusUp();
         return;
       }
@@ -613,10 +636,12 @@ export function GridViewport() {
   const onDoubleClickCapture = useCallback(
     (e: React.MouseEvent) => {
       const t = e.target as HTMLElement;
-      if (t.closest("input, textarea, select, button, [contenteditable='true'], .gutter, .add-btn, .port, .side-pane, .hud")) return;
+      // a double-click in a gap can land on an add-section + (it's in the gap): that's the paper, not a press
+      const onAdd = Boolean(t.closest(".add-btn"));
+      if (!onAdd && t.closest("input, textarea, select, button, [contenteditable='true'], .gutter, .port, .side-pane, .hud")) return;
       const st = getState();
-      const objEl = t.closest<HTMLElement>("[data-obj-id]");
-      const secEl = t.closest<HTMLElement>("[data-section-id]");
+      const objEl = onAdd ? null : t.closest<HTMLElement>("[data-obj-id]");
+      const secEl = onAdd ? null : t.closest<HTMLElement>("[data-section-id]");
       let target: SnapTarget | null = null;
       let rect: Rect | null = null;
       let cap = 1.05;
@@ -744,11 +769,12 @@ export function GridViewport() {
       onPointerLeave={onPointerLeave}
       onWheel={onWheel}
       onDoubleClickCapture={onDoubleClickCapture}
-      style={{ "--floor-l": `${insets.left}px`, "--floor-t": `${insets.top}px`, "--floor-r": `${insets.right}px` } as CSSProperties}
     >
-      {/* the cards live above the paper but under the floor: masked out where the floor is */}
-      <div className="world-mask">
-      <div ref={worldRef} className="world">
+      {/* the cards live above the paper but under the floor: masked out where the floor is.
+          The floor's edges are set (and transition) on the mask alone: on the viewport, every card under
+          it restyled on each frame of a pane opening */}
+      <div className="world-mask" style={{ "--floor-l": `${insets.left}px`, "--floor-t": `${insets.top}px`, "--floor-r": `${insets.right}px` } as CSSProperties}>
+      <div ref={worldRef} className={"world" + (state.expandedSection && state.sections[state.expandedSection] ? " has-expanded" : "")}>
         {/* ----- grid chrome: track lines + spreadsheet labels ----- */}
         <div className="grid-frame" style={{ width: size.w, height: size.h }} />
         {/* track lines only where they divide sections — never across a merged one */}
@@ -894,7 +920,14 @@ export function GridViewport() {
         {/* the meta layer: app port wires (shown with the agent layer) */}
         <PortWires />
         <PeerCursors />
+        <CrewCursors />
       </div>
+      </div>
+
+      {/* an agent brought you somewhere (or asks to): Back / Go */}
+      <div className="crew-guide-slot" style={{ left: insets.left, right: insets.right, top: insets.top }}>
+        <CrewGuide />
+        <CrewFollow />
       </div>
 
       {/* the HUD: a small search pill and the zoom, bottom centre — everything else is called up */}
@@ -906,10 +939,10 @@ export function GridViewport() {
         transition={{ type: "spring", stiffness: 210, damping: 22, delay: 0.05 }}
       >
         {!ui.search && (
-          <button className="hud-search f-glass" onClick={() => setUi({ search: true })} title="Search everything and drag it onto the grid (⌘F) · ⌘K for commands">
+          <button className="hud-search f-glass" onClick={() => setUi({ search: true })} title={`Search everything and drag it onto the grid (${keys("mod+F")}) · ${keys("mod+K")} for commands`}>
             <span className="hud-glyph">⌕</span>
             <span className="hud-label">Search</span>
-            <span className="f-kbd">⌘F</span>
+            <span className="f-kbd">{keys("mod+F")}</span>
           </button>
         )}
         <TalkButton />

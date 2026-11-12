@@ -18,7 +18,7 @@ import { png } from "./fixtures/png.ts";
 const dir = mkdtempSync(join(tmpdir(), "foundation-test-"));
 process.env.FOUNDATION_DATA_DIR = dir;
 const log = join(dir, "t3-cli.log");
-const cliPath = join(dir, "t3");
+const cliPath = join(dir, "t3.cjs");
 writeFileSync(
   cliPath,
   `#!/usr/bin/env node
@@ -151,4 +151,72 @@ test("Run starts the thread with a short-lived session that's revoked after; exp
   await pollHandoffs((hh, r) => asked.push([hh.title, r]), async () => "idle");
   assert.deepEqual(asked, [["Quieter rim fan", "kai@formindustries.com"]]);
   assert.equal(getHandoff(jobId)!.status, "done");
+});
+
+/** a fresh hand-off, Run pressed, and the card once it has failed */
+async function runFails(title: string) {
+  const doc = getBoard("vis").doc;
+  const out = (await runTool(ctx, "vision_brief", { title, goal: "g", reviewers: [], section: "Design" })) as { handoff: string };
+  const jobId = (boardMaps(doc).objects.get(out.handoff) as { sessionId: string }).sessionId;
+  const before = commands.length;
+  startJob(jobId, "vis", "Ada");
+  await until(() => getJob(jobId)?.status === "error");
+  assert.equal(commands.length, before, "Vision Code was never reached");
+  return boardMaps(doc).objects.get(out.handoff) as { status: string; text: string };
+}
+
+test("T3_CLI wins even when it's wrong: the card says it wouldn't start and what to set", async () => {
+  const keep = process.env.T3_CLI;
+  process.env.T3_CLI = join(dir, "no-such-t3.exe");
+  try {
+    const card = await runFails("Wrong CLI");
+    assert.equal(card.status, "error");
+    assert.match(card.text, /Couldn't start Vision Code: Vision Code's CLI at .*no-such-t3\.exe wouldn't start/);
+    assert.match(card.text, /set T3_CLI/);
+  } finally {
+    process.env.T3_CLI = keep;
+  }
+});
+
+test("no Vision Code on this computer: Run's card lists where it looked and the env vars to set", async () => {
+  const empty = mkdtempSync(join(tmpdir(), "no-vision-"));
+  const names = ["T3_CLI", "T3CODE_HOME", "VISION_CODE_HOME", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "ProgramFiles", "SystemDrive", "XDG_DATA_HOME", "PATH"];
+  const keep = Object.fromEntries(names.map((k) => [k, process.env[k]]));
+  for (const k of ["T3_CLI", "T3CODE_HOME", "VISION_CODE_HOME", "XDG_DATA_HOME"]) delete process.env[k];
+  for (const k of ["HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "ProgramFiles", "SystemDrive", "PATH"]) process.env[k] = empty;
+  try {
+    const card = await runFails("Nowhere");
+    assert.match(card.text, /Vision Code's CLI isn't on this computer. Looked for:/);
+    assert.match(card.text, /code-server/);
+    assert.ok(card.text.includes(empty), "the paths tried are the ones under this (empty) home");
+    assert.match(card.text, /t3 on PATH/);
+    assert.match(card.text, /Vision Code's threads aren't on this computer/);
+    assert.match(card.text, /T3_CLI.*T3CODE_HOME.*T3_URL/s);
+  } finally {
+    for (const [k, v] of Object.entries(keep)) v === undefined ? delete process.env[k] : (process.env[k] = v);
+  }
+});
+
+test("no T3_URL: the hand-off goes where Vision Code's server-runtime.json says, and links there", async () => {
+  // T3CODE_HOME stays pinned to this test's folder, so only this file is read, never the real one
+  const standIn = process.env.T3_URL!;
+  const runtime = join(process.env.T3CODE_HOME!, "userdata", "server-runtime.json");
+  (await import("node:fs")).mkdirSync(join(process.env.T3CODE_HOME!, "userdata"), { recursive: true });
+  writeFileSync(runtime, JSON.stringify({ version: 1, pid: 1, host: "127.0.0.1", port: Number(new URL(standIn).port), origin: standIn, startedAt: new Date().toISOString() }));
+  delete process.env.T3_URL;
+  try {
+    const doc = getBoard("vis").doc;
+    const out = (await runTool(ctx, "vision_brief", { title: "Moved port", goal: "g", reviewers: [], section: "Design" })) as { handoff: string };
+    const jobId = (boardMaps(doc).objects.get(out.handoff) as { sessionId: string }).sessionId;
+    const before = commands.length;
+    startJob(jobId, "vis", "Ada");
+    await until(() => !!getHandoff(jobId)?.thread_id || getJob(jobId)?.status === "error");
+    assert.equal(getJob(jobId)!.status, "running", getJob(jobId)!.output ?? "");
+    assert.equal(commands.at(-1)!.type, "thread.turn.start");
+    assert.ok(commands.length > before, "the stand-in named by the file got the thread");
+    assert.equal(getHandoff(jobId)!.thread_url, `${standIn}/env-1/${getHandoff(jobId)!.thread_id}`);
+  } finally {
+    process.env.T3_URL = standIn;
+    (await import("node:fs")).rmSync(runtime, { force: true });
+  }
 });

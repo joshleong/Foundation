@@ -15,6 +15,9 @@
  * words, and the note's card (position, size) is never rewritten by typing.
  * A table's cells are a Y.Map per table (schema 4): an edit writes only the
  * cells it changed, so two people editing one table both land.
+ * A huddle's live state is in `huddles` (schema 6), written by the server
+ * alone: the store shows it on the panel, but it never goes back into the
+ * card, so moving a huddle while someone joins can't overwrite who's in it.
  *
  * Transport: y-protocols over WebSocket at /sync/:board, with backoff
  * reconnect; the session cookie authenticates it.
@@ -32,10 +35,10 @@ import * as awarenessProtocol from "y-protocols/awareness";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import { IndexeddbPersistence } from "y-indexeddb";
-import { BOARD_SCHEMA, boardMaps, noteTextOf, rebaseEdit, setNoteText, setTableCells, tableCellMap, tableCellsOf, type ObjectDoc, type SectionDoc, type UserInfo } from "@foundation/protocol";
-import { applyRemote, getState, setSyncHook, updateNoteText, type AnyObject, type AppState, type Section } from "../state/store";
+import { BOARD_SCHEMA, boardMaps, huddleStateOf, noteTextOf, setNoteText, setTableCells, tableCellMap, tableCellsOf, type HuddleState, type ObjectDoc, type SectionDoc, type UserInfo } from "@foundation/protocol";
+import { applyRemote, getState, setSyncHook, type AnyObject, type AppState, type PanelMeta, type Section } from "../state/store";
 import { workbook } from "../engine/workbook";
-import { api, wsUrl } from "../lib/api";
+import { api, openSocket } from "../lib/api";
 import { toast } from "../state/ui";
 
 const LOCAL = Symbol("local");
@@ -66,6 +69,39 @@ export interface PeerState {
   user: { name: string; color: string; email?: string; agent?: boolean };
   cursor?: { x: number; y: number } | null;
   focus?: string | null;
+  /** one of the crew: a visible agent the server runs (apps/server/src/crew.ts) */
+  crew?: CrewPresence;
+}
+
+export interface CrewPresence {
+  id: string;
+  /** 0–5: which of the crew colours (--color-crew-n) */
+  hue: number;
+  /** the person who asked (user id) and their name */
+  asker: string;
+  askerName: string;
+  /** the agent that called this one in */
+  lead?: string;
+  leadName?: string;
+  task: string;
+  doing: string;
+  /** where it's aiming; cell ("B3") or port when it points at something precise (point_at) */
+  target: { id: string; kind: "object" | "section"; cell?: string; port?: string } | null;
+  /** bring the person `to` (the asker) to `target`; a new nonce is a new ask */
+  guide: { to: string; target: { id: string; kind: "object" | "section" }; name: string; note?: string; nonce: number } | null;
+  status: "working" | "done" | "stopped" | "error";
+  at: number;
+}
+
+/** someone else writing in a note: their selection (from === to for a bare caret) */
+export interface NoteCaret {
+  clientId: number;
+  name: string;
+  color: string;
+  from: number;
+  to: number;
+  /** where their caret is (from or to) */
+  head: number;
 }
 
 class BoardSync {
@@ -105,6 +141,7 @@ class BoardSync {
     });
     this.awareness.on("update", ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => {
       if (origin !== "local") {
+        this.refreshCarets();
         this.notify();
         return;
       }
@@ -112,7 +149,8 @@ class BoardSync {
       encoding.writeVarUint(enc, MSG_AWARENESS);
       encoding.writeVarUint8Array(enc, awarenessProtocol.encodeAwarenessUpdate(this.awareness, added.concat(updated, removed)));
       this.send(encoding.toUint8Array(enc));
-      this.notify();
+      // no notify: nothing here draws this window's own cursor, caret or focus (peers() leaves them out),
+      // and notifying re-rendered every presence and crew view on each move of your own pointer
     });
     const m = boardMaps(this.doc);
     m.objects.observe((e) => e.transaction.origin !== LOCAL && this.pullObjects([...e.keysChanged]));
@@ -137,6 +175,8 @@ class BoardSync {
       }
       this.pullNoteText([...ids]);
     });
+    // the server's word on who's in each huddle: only the server writes it, so every change is remote
+    m.huddles.observe((e) => this.pullHuddles([...e.keysChanged]));
     m.activity.observe(() => this.notify());
     void this.start();
   }
@@ -208,7 +248,18 @@ class BoardSync {
       if (theirs && theirs !== mine) return this.setAside();
     }
     // say which board we hold (empty: none yet); the server refuses a copy of a board it has since made again
-    const ws = new WebSocket(wsUrl(`/sync/${encodeURIComponent(this.boardId)}?epoch=${encodeURIComponent(mine ?? "")}`));
+    let ws: WebSocket;
+    try {
+      // with a bearer (the app on another site's server) this first fetches a one-time ticket for the socket
+      ws = await openSocket(`/sync/${encodeURIComponent(this.boardId)}`, `epoch=${encodeURIComponent(mine ?? "")}`);
+    } catch {
+      // no ticket (offline, or the server is restarting): as if the socket dropped
+      if (this.closed) return;
+      this.setStatus("offline");
+      setTimeout(() => void this.connect(), this.backoff());
+      return;
+    }
+    if (this.closed) return void ws.close();
     ws.binaryType = "arraybuffer";
     this.ws = ws;
     ws.onopen = () => {
@@ -249,9 +300,12 @@ class BoardSync {
       // the server's board was made again since ours: don't keep offering the old one
       if (ev.code === 4002) return void this.setAside();
       this.setStatus("offline");
-      const delay = Math.min(15_000, 400 * 2 ** this.retry++) * (0.75 + Math.random() * 0.5);
-      setTimeout(() => void this.connect(), delay);
+      setTimeout(() => void this.connect(), this.backoff());
     };
+  }
+
+  private backoff() {
+    return Math.min(15_000, 400 * 2 ** this.retry++) * (0.75 + Math.random() * 0.5);
   }
 
   private send(data: Uint8Array) {
@@ -419,7 +473,7 @@ class BoardSync {
     const st = getState();
     const sections: Record<string, Section> = {};
     for (const s of boardMaps(this.doc).sections.values()) {
-      sections[s.id] = { ...s, scroll: st.sections[s.id]?.scroll ?? { x: 0, y: 0 } };
+      sections[s.id] = { ...s };
     }
     const partial: Partial<AppState> = { sections };
     if (!sections[st.activeSectionId]) {
@@ -481,6 +535,23 @@ class BoardSync {
     if (changed) applyRemote({ notes });
   }
 
+  /** a huddle's live state changed: show it on its panel in the store */
+  private pullHuddles(ids: string[]) {
+    const st = getState();
+    const panels = { ...st.panels };
+    let changed = false;
+    for (const id of ids) {
+      const p = panels[id];
+      if (!p) continue;
+      const huddle = huddleStateOf(this.doc, id);
+      if (JSON.stringify(huddle) !== JSON.stringify(p.huddle)) {
+        panels[id] = withHuddle(p, huddle);
+        changed = true;
+      }
+    }
+    if (changed) applyRemote({ panels });
+  }
+
   private pullLinks() {
     applyRemote({ links: Object.fromEntries(boardMaps(this.doc).links.entries()) });
   }
@@ -502,22 +573,113 @@ class BoardSync {
     }
   }
 
+  // ---------- writing in a note ----------
+
   /**
-   * A keystroke in a note: the edit that turned `base` (what the editor showed)
-   * into `next`, applied to the shared text — rebased past anything that
-   * arrived in between, so nobody's characters are lost. Returns the text now.
+   * A note's shared text, for an editor to bind to (CodeMirror through
+   * y-codemirror.next: each keystroke is its own Yjs insert/delete). Null
+   * while the board isn't wired yet, or for a viewer.
    */
-  editNote(id: string, base: string, next: string): string {
+  noteYText(id: string): Y.Text | null {
+    if (this.readOnly || !this.ready) return null;
+    const m = boardMaps(this.doc);
+    if (!m.noteText.has(id)) {
+      // a legacy note with no Y.Text yet: give it one, from what the card shows
+      const n = getState().notes[id];
+      if (!n) return null;
+      this.doc.transact(() => setNoteText(this.doc, id, n.text), LOCAL);
+    }
+    return m.noteText.get(id) ?? null;
+  }
+
+  private undoers = new Map<string, Y.UndoManager>();
+
+  /**
+   * Undo (or redo) in a note takes back only what *you* typed there: other
+   * people's words stay. One stack per note, kept while the board is open
+   * (across closing and reopening the editor); keystrokes within half a second
+   * are one step. The editor adds its own origin to it while it's open.
+   */
+  noteUndoManager(id: string): Y.UndoManager | null {
     const t = boardMaps(this.doc).noteText.get(id);
-    if (this.readOnly) return t?.toString() ?? base;
-    if (!this.ready || !t) return next;
-    const e = rebaseEdit(base, next, t.toString());
-    if (!e) return t.toString();
-    this.doc.transact(() => {
-      if (e.remove) t.delete(e.at, e.remove);
-      if (e.insert) t.insert(e.at, e.insert);
-    }, LOCAL);
-    return t.toString();
+    let u = this.undoers.get(id);
+    if (u && t && u.scope[0] === t) return u;
+    u?.destroy();
+    this.undoers.delete(id);
+    if (!t) return null;
+    u = new Y.UndoManager(t, { trackedOrigins: new Set([LOCAL]), captureTimeout: 500 });
+    this.undoers.set(id, u);
+    return u;
+  }
+
+  // ---------- carets in notes ----------
+
+  /**
+   * Where you are writing: the note and your selection, as positions in its
+   * shared text (relative, so they stay on the same characters while others
+   * type around them). null when you stop writing.
+   */
+  setCaret(noteId: string | null, anchor = 0, head = anchor) {
+    const t = noteId ? boardMaps(this.doc).noteText.get(noteId) : null;
+    const next = t
+      ? {
+          note: noteId,
+          anchor: Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(t, anchor)),
+          head: Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(t, head)),
+        }
+      : null;
+    const prev = (this.awareness.getLocalState() as { caret?: unknown } | null)?.caret ?? null;
+    if (JSON.stringify(prev) === JSON.stringify(next)) return;
+    this.awareness.setLocalStateField("caret", next);
+  }
+
+  /** other people's carets in a note, as indexes into its text now */
+  noteCarets(noteId: string): NoteCaret[] {
+    const t = boardMaps(this.doc).noteText.get(noteId);
+    if (!t) return [];
+    const out: NoteCaret[] = [];
+    for (const [clientId, s] of this.awareness.getStates()) {
+      if (clientId === this.doc.clientID) continue;
+      const c = (s as { caret?: { note: string; anchor: unknown; head: unknown } | null; user?: PeerState["user"] }).caret;
+      if (!c || c.note !== noteId || !s.user) continue;
+      const at = (j: unknown) => {
+        const abs = Y.createAbsolutePositionFromRelativePosition(Y.createRelativePositionFromJSON(j), this.doc);
+        return abs && abs.type === t ? abs.index : null;
+      };
+      const a = at(c.anchor);
+      const h = at(c.head);
+      if (a === null || h === null) continue;
+      out.push({ clientId, name: s.user.name, color: s.user.color, from: Math.min(a, h), to: Math.max(a, h), head: h });
+    }
+    return out.sort((x, y) => x.clientId - y.clientId);
+  }
+
+  private caretSig = new Map<string, string>();
+  private caretListeners = new Map<string, Set<() => void>>();
+
+  /** a note hears only when someone's caret in it moves (not on every pointer move) */
+  onNoteCarets(noteId: string, fn: () => void) {
+    let s = this.caretListeners.get(noteId);
+    if (!s) this.caretListeners.set(noteId, (s = new Set()));
+    s.add(fn);
+    return () => {
+      s!.delete(fn);
+    };
+  }
+
+  private refreshCarets() {
+    const sig = new Map<string, string>();
+    for (const [clientId, s] of this.awareness.getStates()) {
+      if (clientId === this.doc.clientID) continue;
+      const c = (s as { caret?: { note: string } | null }).caret;
+      if (!c?.note) continue;
+      sig.set(c.note, (sig.get(c.note) ?? "") + clientId + JSON.stringify(c));
+    }
+    for (const note of new Set([...sig.keys(), ...this.caretSig.keys()])) {
+      if (sig.get(note) === this.caretSig.get(note)) continue;
+      for (const fn of this.caretListeners.get(note) ?? []) fn();
+    }
+    this.caretSig = sig;
   }
 
   // ---------- presence ----------
@@ -548,6 +710,8 @@ class BoardSync {
   destroy() {
     this.closed = true;
     setSyncHook(null);
+    for (const u of this.undoers.values()) u.destroy();
+    this.undoers.clear();
     this.unsubWorkbook?.();
     awarenessProtocol.removeAwarenessStates(this.awareness, [this.doc.clientID], "local");
     this.ws?.close();
@@ -583,15 +747,23 @@ function sameCard(a: Record<string, unknown>, b: Record<string, unknown>) {
 function toObjectDoc(o: AnyObject): ObjectDoc {
   const doc = { ...o, kind: kindOf(o) } as Record<string, unknown>;
   if (doc.kind === "note") delete doc.text; // in its Y.Text
+  if (doc.kind === "panel") delete doc.huddle; // in `huddles`, the server's alone
   // blob: URLs only live in this tab; never share them
   if (typeof doc.src === "string" && (doc.src as string).startsWith("blob:")) doc.src = "";
   return doc as unknown as ObjectDoc;
+}
+
+function withHuddle(p: PanelMeta, huddle: HuddleState | undefined): PanelMeta {
+  const { huddle: _was, ...rest } = p;
+  return huddle ? { ...rest, huddle } : rest;
 }
 
 function fromObjectDoc(o: ObjectDoc, doc: Y.Doc): AnyObject {
   const { kind: _k, ...rest } = o as ObjectDoc & Record<string, unknown>;
   const local = getState();
   if (_k === "note") rest.text = noteTextOf(doc, o);
+  // a huddle's live state comes from `huddles`; a stale copy on the card (an older build's write) is ignored
+  if (_k === "panel") return withHuddle(rest as unknown as PanelMeta, huddleStateOf(doc, o.id));
   // keep a local blob preview while the shared copy has no URL yet
   if (_k === "media" && !rest.src) {
     const mine = local.media[o.id];
@@ -617,7 +789,7 @@ export function activeBoard(): BoardSync | null {
   return current;
 }
 // dev: the live sync, for headless checks
-if (import.meta.env?.DEV && typeof window !== "undefined") (window as unknown as { __foundationBoard: () => BoardSync | null }).__foundationBoard = () => current;
+if ((import.meta.env?.DEV || import.meta.env?.VITE_E2E_HOOKS) && typeof window !== "undefined") (window as unknown as { __foundationBoard: () => BoardSync | null }).__foundationBoard = () => current;
 
 export function onBoardChange(fn: () => void) {
   boardListeners.add(fn);
@@ -627,13 +799,6 @@ export function onBoardChange(fn: () => void) {
 }
 
 export type { BoardSync };
-
-/** a keystroke in a note, through the board's shared text (see BoardSync.editNote) */
-export function editNoteText(id: string, base: string, next: string) {
-  const text = current ? current.editNote(id, base, next) : next;
-  updateNoteText(id, text);
-  return text;
-}
 
 let lastNotice = 0;
 function viewOnlyNotice() {

@@ -12,15 +12,18 @@
  * crossings are recomputed only when the set of routes changes.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { LinkDoc } from "@foundation/protocol";
-import { addLink, applyWireClip, getState, gridSize, objectWorldRect, removeLink, uid, updatePanel, useAppState, wireClipRect, type PanelMeta } from "../state/store";
+import { addLink, applyWireClip, getState, gridSize, objectWorldRect, removeLink, subscribe, uid, updatePanel, usePanel, wireBackstage, wireClipRect, type PanelMeta } from "../state/store";
 import { toast, useUi } from "../state/ui";
-import { useBoardTick } from "./Presence";
+import { useActiveBoard } from "./Presence";
 import { toWorld, camera } from "../state/camera";
 import { polyline, route, routeSides, tunnelGeometry, typesCompatible, type P } from "./wireGeometry";
 import { allCrossings, publishRoutes, routesVersion, unpublishRoutes } from "./routeRegistry";
 import { cardRects, describeValue, endRect, obstaclesFor, portLayout, portPoint, portSide, toneOf } from "./ports";
+import { countRender } from "../state/renders";
+import { parsePairs, portWiresSlice, useStoreSlice } from "../state/slices";
+import type { BoardSync } from "../sync/board";
 
 const SNAP_RADIUS = 32;
 
@@ -146,16 +149,30 @@ export function beginDetach(e: React.PointerEvent, panel: string, port: string) 
   startDrag(e, nearest.from, nearest);
 }
 
+const subscribeDrag = (fn: () => void) => {
+  dragListeners.add(fn);
+  return () => {
+    dragListeners.delete(fn);
+  };
+};
+
+/** renders when a wire drag starts, snaps, lets go of a snap or ends: the ghost follows the pointer per frame, not per render */
 function useDrag() {
-  const [, set] = useState(0);
-  useEffect(() => {
-    const fn = () => set((n) => n + 1);
-    dragListeners.add(fn);
-    return () => {
-      dragListeners.delete(fn);
-    };
-  }, []);
+  useSyncExternalStore(subscribeDrag, () => (drag ? (drag.snap ? "snapped" : "free") : ""));
   return drag;
+}
+
+/** which cards other people have in focus, as a signature: their cursors moving render nothing */
+function usePeerFocus(board: BoardSync | null): string {
+  const sub = useCallback((fn: () => void) => board?.subscribe(fn) ?? (() => {}), [board]);
+  return useSyncExternalStore(
+    sub,
+    () => {
+      let out = "";
+      for (const p of board?.peers() ?? []) if (p.focus) out += `${p.focus}\u0000${p.user.name}\u0001`;
+      return out;
+    },
+  );
 }
 
 // ---------- routes ----------
@@ -226,10 +243,13 @@ function labelAt(pts: P[]) {
 
 // ---------- the layer ----------
 
-export function PortWires() {
-  const state = useAppState();
+/** memo: no props, so the grid rendering (a press moves the active section) doesn't render the wires */
+export const PortWires = memo(function PortWires() {
+  countRender("PortWires");
+  // the wires and what they show, not the cards: a drag, a keystroke or a pointer elsewhere renders nothing
+  const slice = useStoreSlice(portWiresSlice);
   const ui = useUi();
-  const board = useBoardTick();
+  const peerFocus = usePeerFocus(useActiveBoard());
   const d = useDrag();
   const groups = useRef(new Map<string, SVGGElement>());
   const ghost = useRef<SVGPathElement>(null);
@@ -237,20 +257,20 @@ export function PortWires() {
   const [selected, setSelected] = useState<string | null>(null);
   const [hover, setHover] = useState<{ id: string; x: number; y: number } | null>(null);
 
-  const links: LinkDoc[] = useMemo(() => Object.values(state.links), [state.links]);
+  const links: LinkDoc[] = useMemo(() => Object.values(slice.links), [slice.links]);
   const agentFocus = useMemo(() => {
     const out = new Map<string, { name: string }>();
-    for (const p of board?.peers() ?? []) if (p.focus) out.set(p.focus, { name: p.user.name });
-    for (const p of Object.values(state.panels)) if (p.status === "running") out.set(p.id, { name: p.createdBy ?? "agent" });
+    for (const [id, name] of parsePairs(peerFocus)) out.set(id, { name });
+    for (const [id, name] of parsePairs(slice.running)) out.set(id, { name });
     return out;
-  }, [board, state.panels, board?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [peerFocus, slice.running]);
 
   // Delete / Backspace removes the selected wire; Esc or a click elsewhere lets go
   useEffect(() => {
     if (!selected) return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
         e.stopPropagation();
@@ -361,10 +381,10 @@ export function PortWires() {
     };
   }, [links, agentFocus, d !== null]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const size = gridSize(state.grid);
+  const size = gridSize(slice.grid);
   if (links.length === 0 && !d && agentFocus.size === 0) return null;
+  const state = getState();
   const hovered = hover ? state.links[hover.id] : undefined;
-  const hoverValue = hovered ? state.panels[hovered.from.panel]?.outputs?.[hovered.from.port] : undefined;
 
   return (
     <>
@@ -384,10 +404,11 @@ export function PortWires() {
         {links.map((l) => {
           const type = portType(l.from.panel, l.from.port);
           const live = state.panels[l.from.panel]?.outputs?.[l.from.port] !== undefined;
+          const backstage = wireBackstage(state, state.panels[l.from.panel]?.sectionId, state.panels[l.to.panel]?.sectionId);
           return (
             <g
               key={l.id}
-              className={`pipe${live ? " is-live" : ""}${selected === l.id ? " is-selected" : ""}${hover?.id === l.id ? " is-hover" : ""}`}
+              className={`pipe${live ? " is-live" : ""}${selected === l.id ? " is-selected" : ""}${hover?.id === l.id ? " is-hover" : ""}${backstage ? " is-backstage" : ""}`}
               style={{ ["--wire-tone" as string]: toneOf(type) }}
               ref={(el) => {
                 if (el) groups.current.set(l.id, el);
@@ -431,24 +452,33 @@ export function PortWires() {
         })}
         {d && <path ref={ghost} className={`pipe-ghost${d.snap ? " is-snapped" : ""}`} style={{ ["--wire-tone" as string]: toneOf(d.type) }} />}
       </svg>
-      {hovered && hover && (
-        <div className="pipe-tip" style={{ transform: `translate3d(${hover.x}px, ${hover.y}px, 0) scale(${1 / camera.scale})` }}>
-          <b>
-            {hovered.label ?? "data"} <i style={{ color: toneOf(portType(hovered.from.panel, hovered.from.port)) }}>{portType(hovered.from.panel, hovered.from.port) ?? "json"}</i>
-          </b>
-          <span>
-            {state.panels[hovered.from.panel]?.name} → {state.panels[hovered.to.panel]?.name}
-          </span>
-          <span className="pipe-tip-value">{describeValue(hoverValue)}</span>
-          <span className="pipe-tip-hint">click to select · ⌫ removes</span>
-        </div>
-      )}
+      {hovered && hover && <PipeTip link={hovered} x={hover.x} y={hover.y} />}
     </>
+  );
+});
+
+/** what flows along a hovered wire: follows its two apps (the value updates while you look) */
+function PipeTip({ link, x, y }: { link: LinkDoc; x: number; y: number }) {
+  const from = usePanel(link.from.panel);
+  const to = usePanel(link.to.panel);
+  const type = from?.ports.find((p) => p.id === link.from.port)?.type;
+  return (
+    <div className="pipe-tip" style={{ transform: `translate3d(${x}px, ${y}px, 0) scale(${1 / camera.scale})` }}>
+      <b>
+        {link.label ?? "data"} <i style={{ color: toneOf(type) }}>{type ?? "json"}</i>
+      </b>
+      <span>
+        {from?.name} → {to?.name}
+      </span>
+      <span className="pipe-tip-value">{describeValue(from?.outputs?.[link.from.port])}</span>
+      <span className="pipe-tip-hint">click to select · ⌫ removes</span>
+    </div>
   );
 }
 
 /** the shared port layout for a card (PanelView renders its pills from this) */
 export function usePortLayout(panel: PanelMeta) {
-  const state = useAppState();
-  return useMemo(() => portLayout(panel, Object.values(state.links)), [panel, state.links]); // eslint-disable-line react-hooks/exhaustive-deps
+  // only the links: a whole-store subscription re-rendered every app on the board at each press, drag frame and keystroke
+  const links = useSyncExternalStore(subscribe, () => getState().links);
+  return useMemo(() => portLayout(panel, Object.values(links)), [panel, links]); // eslint-disable-line react-hooks/exhaustive-deps
 }

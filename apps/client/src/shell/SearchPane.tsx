@@ -6,6 +6,7 @@
  * Before you type, it shows this board's recent files and the known apps.
  */
 
+import { keys } from "../lib/keys";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SearchHit } from "@foundation/protocol";
 import { api, search } from "../lib/api";
@@ -13,6 +14,7 @@ import { toWorld } from "../state/camera";
 import { addMedia, addNote, addPanel, getState, placeAtWorld, requestSnap, sectionAtWorld } from "../state/store";
 import { WIDTHS, setUi, toast, useUi } from "../state/ui";
 import { activeBoard } from "../sync/board";
+import { snippetHtml, snippetText } from "../lib/snippet";
 import { openHit, openUrlAsPanel } from "./CommandBar";
 import { FloorEdge } from "./FloorEdge";
 
@@ -62,7 +64,9 @@ function Pane() {
   useEffect(() => {
     const term = q.trim();
     if (!term) {
+      // a search cut short by clearing the box leaves no dots behind
       setHits([]);
+      setLoading(false);
       return;
     }
     const ctrl = new AbortController();
@@ -110,7 +114,7 @@ function Pane() {
           onKeyDown={(e) => e.key === "Escape" && (q ? setQ("") : setUi({ search: false }))}
         />
         {loading && <span className="thinking-dots"><i /><i /><i /></span>}
-        <button className="top-btn" onClick={() => setUi({ search: false })} title="Close (⌘F)" aria-label="Close search">
+        <button className="top-btn" onClick={() => setUi({ search: false })} title={`Close (${keys("mod+F")})`} aria-label="Close search">
           ✕
         </button>
       </header>
@@ -140,7 +144,7 @@ function Pane() {
             <span className="search-row-glyph">{GLYPH[h.source]}</span>
             <span className="search-row-main">
               <span className="search-row-title">{h.title}</span>
-              {h.snippet && <span className="search-row-snip" dangerouslySetInnerHTML={{ __html: highlight(h.snippet) }} />}
+              {h.snippet && <span className="search-row-snip" dangerouslySetInnerHTML={{ __html: snippetHtml(h.snippet) }} />}
             </span>
             <span className="search-row-src">{h.source}</span>
           </Draggable>
@@ -151,10 +155,6 @@ function Pane() {
   );
 }
 
-function highlight(snippet: string) {
-  const esc = snippet.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return esc.replace(/«/g, "<mark>").replace(/»/g, "</mark>");
-}
 
 // ---------- drag a result onto the grid ----------
 
@@ -263,7 +263,7 @@ async function place(hit: SearchHit, wx: number, wy: number) {
   } else if (hit.url) {
     id = addPanel(sec.id, { panel: "link", name: hit.title, url: hit.url }, { focus: false }).id;
   } else {
-    id = addNote(sec.id, `## ${hit.title}\n\n${hit.snippet.replace(/[«»]/g, "")}`, { focus: false }).id;
+    id = addNote(sec.id, `## ${hit.title}\n\n${snippetText(hit.snippet)}`, { focus: false }).id;
   }
   if (id) placeAtWorld(id, wx, wy);
 }

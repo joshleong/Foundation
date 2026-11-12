@@ -6,8 +6,8 @@
  * docs/reference/details/ascii-cursor-2.js; Foundation's changes are marked
  * "Foundation:" — the export, following the night transition, ?rafshim
  * counting as focus, and the page hooks on `root.asciiWind` (see the .d.ts):
- * stir and tap the field from code, holes the glyphs keep out of, and a
- * dissolve front.
+ * stir and tap the field from code, the page's elements (the glyphs part
+ * around each and trace its outline), and a dissolve front.
  *
  * Mount: put `data-ascii-wind` on a positioned element (it draws a canvas
  * behind its children) and call initAsciiWind2(element). Ink comes from
@@ -29,7 +29,8 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
   const hasFocus = () => shimmed || focusWindow.document.hasFocus();
 
   const modes = {
-    wind: { base: 0.26, rest: 0.03, friction: 0.6, flick: 1.2, revealS: 4, headroom: 3, calmX: 250, calmY: 80, quiet: 0.3 },
+    // Foundation: the wind reveals in 1.6 s (the original's 4 s read as a slow load)
+    wind: { base: 0.26, rest: 0.03, friction: 0.6, flick: 1.2, revealS: 1.6, headroom: 3, calmX: 250, calmY: 80, quiet: 0.3 },
     capillary: { base: 0.3, rest: 0.008, friction: 0.25, flick: 0.7, revealS: 2.2, headroom: 2.5, calmX: 250, calmY: 80, quiet: 0.7 },
     estuary: { base: 0.30, rest: 0.008, friction: 0.6, flick: 1.2, revealS: 4, headroom: 2.5, calmX: 170, calmY: 55, quiet: 0.75 },
   };
@@ -44,7 +45,9 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
     // Foundation: options.quiet overrides how calm the centre is (1 = not calmed)
     composition: { card: { centerY: 0.45, calmX: mode.calmX, calmY: mode.calmY, left: options.quiet ?? mode.quiet } },
     grid: { cellCss: 6.5, minCols: 24, minRows: 8, maxDevicePixels: 21000000 },
-    power: { frameMs: 40, rippleFrameMs: 10, backoffFrameMs: 83, budgetS: 180, settleS: 8, resumeS: 3, retryS: 60, retryMaxS: 480, resizeSettleMs: 150, linkDeadlineMs: 20000 },
+    // Foundation: every display frame (was 25 fps on a timer); backed off to 30 then 15 fps only while its own
+    // work is behind (backoffGapMs), back up after recoverFrames that kept up; warmS of grace after (re)starting
+    power: { backoffGapMs: [0, 30, 62], drawBudgetMs: 4, recoverFrames: 180, warmS: 1.2, budgetS: 180, settleS: 8, resumeS: 3, retryS: 60, retryMaxS: 480, resizeSettleMs: 150, linkDeadlineMs: 20000 },
   };
   const fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
   const alphabet = ' !"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~·';
@@ -631,13 +634,13 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
   uniform float u_time, u_fill, u_flick;
   uniform int u_count;
   uniform vec4 u_cellCss;
-  // Foundation: cells the page keeps for its own characters, and a dissolve front (x, y, radius, band).
-  uniform vec4 u_holes[12];
-  uniform int u_holeCount;
+  // Foundation: the page's elements, which the glyphs part around and trace:
+  // rect (x, y, w, h) and look (corner radius px, clear gap, lit depth, light),
+  // gaps in columns, as rows are twice as tall. And a dissolve front (x, y, radius, band).
+  uniform vec4 u_shapes[12];
+  uniform vec4 u_looks[12];
+  uniform int u_shapeCount;
   uniform vec4 u_dissolve;
-  // Foundation: a frame drawn in the field's own glyphs: rect (x, y, w, h) and ring (depth x, depth y, light)
-  uniform vec4 u_frame;
-  uniform vec3 u_ring;
   out float v_ring;
   out vec2 v_shift;
   out vec4 v_box;
@@ -671,14 +674,30 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
       return;
     }
 
-    // Foundation: holes and the dissolve front
+    // Foundation: the page's shapes and the dissolve front
     vec2 cellAt = u_cellCss.xy + vec2(cell) * u_cellCss.zw;
+    vec2 columnsOf = vec2(1.0, u_cellCss.z / u_cellCss.w);
+    float ring = 0.0;
     for (int index = 0; index < 12; index++) {
-      if (index >= u_holeCount) break;
-      vec4 hole = u_holes[index];
-      if (cellAt.x > hole.x && cellAt.x < hole.x + hole.z && cellAt.y > hole.y && cellAt.y < hole.y + hole.w) {
+      if (index >= u_shapeCount) break;
+      vec4 shape = u_shapes[index];
+      vec4 look = u_looks[index];
+      vec2 halfSize = 0.5 * shape.zw;
+      float radius = min(look.x, min(halfSize.x, halfSize.y));
+      vec2 q = abs(cellAt - shape.xy - halfSize) - halfSize + radius;
+      vec2 beyond = max(q, 0.0);
+      float reach = length(beyond);
+      float distanceOut = reach + min(max(q.x, q.y), 0.0) - radius;
+      vec2 normal = reach > 0.0 ? beyond / reach : (q.x > q.y ? vec2(1.0, 0.0) : vec2(0.0, 1.0));
+      float gap = distanceOut * length(normal * columnsOf);
+      if (gap < look.y) {
         hideGlyph();
         return;
+      }
+      float into = gap - look.y;
+      if (look.w > 0.0 && into < look.z) {
+        ring = max(ring, look.w * (1.0 - 0.6 * smoothstep(0.0, look.z, into))
+          * (0.6 + 0.4 * random01(hash32(identity ^ 0x2Fu))));
       }
     }
     float flare = 0.0;
@@ -690,14 +709,6 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
         return;
       }
       flare = 1.0 - smoothstep(0.0, 0.6 * u_dissolve.w, past);
-    }
-
-    float ring = 0.0;
-    if (u_ring.z > 0.0) {
-      vec2 outside = max(max(u_frame.xy - cellAt, cellAt - (u_frame.xy + u_frame.zw)), vec2(0.0));
-      bool near = outside.x < u_ring.x && outside.y < u_ring.y;
-      bool inside = cellAt.x > u_frame.x && cellAt.x < u_frame.x + u_frame.z && cellAt.y > u_frame.y && cellAt.y < u_frame.y + u_frame.w;
-      if (near && !inside) ring = u_ring.z * (0.55 + 0.45 * random01(hash32(identity ^ 0x2Fu)));
     }
 
     uint timing = hash32(identity);
@@ -1027,6 +1038,7 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
     let timer = 0;
     let frame = 0;
     let paletteFrame = 0;
+    let soon = 0; // Foundation: a hook's pending draw
     let resizeTimer = 0;
     let retryTimer = 0;
     let compileTimer = 0;
@@ -1046,6 +1058,7 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
       window.clearTimeout(compileTimer);
       window.cancelAnimationFrame(frame);
       window.cancelAnimationFrame(paletteFrame);
+      window.cancelAnimationFrame(soon);
       resolveCompileWait?.();
       resolveFocusWait?.();
       resizeObserver?.disconnect();
@@ -1152,7 +1165,7 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
       if (!framebuffer) { destroy(); return; }
       gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
       const field = Object.fromEntries(['u_seed', 'u_tail', 'u_sweep', 'u_morph', 'u_wind', 'u_gust', 'u_shape', 'u_time', 'u_reveal', 'u_sampleCss', 'u_originCss', 'u_paneCss', 'u_canvasCss', 'u_now', 'u_tapCount', 'u_taps', 'u_wakeCount', 'u_wakes', 'u_ways'].map(name => [name, gl.getUniformLocation(fieldProgram, name)]));
-      const glyph = Object.fromEntries(['u_wind', 'u_atlas', 'u_boxes', 'u_sequence', 'u_seed', 'u_fill', 'u_flick', 'u_friction', 'u_glowAmount', 'u_time', 'u_count', 'u_grid', 'u_cellCss', 'u_cell', 'u_buffer', 'u_color', 'u_glowColor', 'u_inkAlpha', 'u_now', 'u_tapCount', 'u_taps', 'u_holes', 'u_holeCount', 'u_dissolve', 'u_frame', 'u_ring'].map(name => [name, gl.getUniformLocation(glyphProgram, name)]));
+      const glyph = Object.fromEntries(['u_wind', 'u_atlas', 'u_boxes', 'u_sequence', 'u_seed', 'u_fill', 'u_flick', 'u_friction', 'u_glowAmount', 'u_time', 'u_count', 'u_grid', 'u_cellCss', 'u_cell', 'u_buffer', 'u_color', 'u_glowColor', 'u_inkAlpha', 'u_now', 'u_tapCount', 'u_taps', 'u_shapes', 'u_looks', 'u_shapeCount', 'u_dissolve'].map(name => [name, gl.getUniformLocation(glyphProgram, name)]));
       gl.useProgram(fieldProgram);
       gl.uniform1ui(field.u_seed, profile.seed);
       gl.uniform1f(field.u_tail, config.wind.tail);
@@ -1195,13 +1208,16 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
       let backoff = 0;
       let suspended = false;
       // Foundation: what the page asked for (css px in the root's box)
-      const page = { holeCount: 0, holes: new Float32Array(48), dissolve: new Float32Array(4), frame: new Float32Array(4), ring: new Float32Array(3) };
+      const page = { shapeCount: 0, shapes: new Float32Array(48), looks: new Float32Array(48), dissolve: new Float32Array(4) };
       let retryDelay = power.retryS;
-      let lateSamples = [];
-      let slowFrames = 0;
       let drawCount = 0;
+      let fenceAt = 0;
       let laggingFrames = 0;
-      let requestedAt = 0;
+      // Foundation: the wind's own cost, not the page's: draws over budget, frames kept up since the last backoff
+      let costly = [];
+      let keptUp = 0;
+      let warmUntil = power.warmS;
+      let lastDrawAt = -Infinity;
 
       function canRun() { return !cancelled() && !!grid && visible && !document.hidden && hasFocus() && !settled && !suspended; }
 
@@ -1250,10 +1266,12 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
         }
       }
 
-      function draw() {
+      function draw(measuring = false) {
         if (cancelled() || !grid) return;
         try {
-          if (fence) {
+          // Foundation: read the fence three draws on. Its status only updates between tasks, so read on the
+          // very next display frame it said "behind" of a GPU that wasn't
+          if (fence && !measuring && drawCount - fenceAt >= 3) {
             laggingFrames = gl.getSyncParameter(fence, gl.SYNC_STATUS) === gl.SIGNALED ? 0 : laggingFrames + 1;
             gl.deleteSync(fence);
             fence = null;
@@ -1273,30 +1291,36 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
           gl.useProgram(glyphProgram);
           gl.uniform1f(glyph.u_time, windTime);
           sendTouch(glyph, input);
-          // Foundation: the page's holes and dissolve
-          gl.uniform1i(glyph.u_holeCount, page.holeCount);
-          if (page.holeCount) gl.uniform4fv(glyph.u_holes, page.holes);
+          // Foundation: the page's shapes and dissolve
+          gl.uniform1i(glyph.u_shapeCount, page.shapeCount);
+          if (page.shapeCount) {
+            gl.uniform4fv(glyph.u_shapes, page.shapes);
+            gl.uniform4fv(glyph.u_looks, page.looks);
+          }
           gl.uniform4fv(glyph.u_dissolve, page.dissolve);
-          gl.uniform4fv(glyph.u_frame, page.frame);
-          gl.uniform3fv(glyph.u_ring, page.ring);
           gl.drawArrays(gl.TRIANGLES, 0, 6 * grid.columns * grid.rows);
+          // Foundation: a measuring draw (drawNow) leaves the pacing's bookkeeping alone
+          if (measuring) return;
           drawCount += 1;
-          if (drawCount % 4 === 0) {
+          if (!fence && drawCount % 4 === 0) {
             fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+            fenceAt = drawCount;
             gl.flush();
           }
         } catch { destroy(); }
       }
 
+      // Foundation: on every display frame. The original waited on a timer (40 ms, 10 ms in a ripple) before
+      // each frame, which ran at 25 fps and landed off the display's beat.
       function schedule() {
-        if (timer || frame || !canRun()) return;
-        const interval = backoff > 0 ? power.backoffFrameMs : touch.rippling(now()) ? power.rippleFrameMs : power.frameMs;
-        timer = window.setTimeout(() => {
-          timer = 0;
-          if (!canRun()) return;
-          requestedAt = window.performance.now();
-          frame = window.requestAnimationFrame(tick);
-        }, interval);
+        if (frame || !canRun()) return;
+        frame = window.requestAnimationFrame(tick);
+      }
+
+      // Foundation: a page hook asked for a change; the next display frame draws it (once, however many asked)
+      function drawSoon() {
+        if (frame || soon || cancelled()) return;
+        soon = window.requestAnimationFrame(() => { soon = 0; if (!frame) draw(); });
       }
 
       function refresh() {
@@ -1318,6 +1342,9 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
         settled = false;
         suspended = false;
         backoff = 0;
+        keptUp = 0;
+        costly = [];
+        warmUntil = activeTime + power.warmS;
         revealAt = activeTime;
         resumeAt = activeTime;
         if (!keepBudget) settleAt = activeTime + power.budgetS;
@@ -1333,33 +1360,46 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
         retryDelay = Math.min(retryDelay * 2, power.retryMaxS);
       }
 
-      function late() {
+      // Foundation: 60 → 30 → 15 fps → suspended. The original suspended at the second backoff and never
+      // came back up, and it counted the page's own busy frames (a React mount, a board syncing) against the
+      // wind, so one busy second at sign-in left it at 12 fps, or gone.
+      const backoffs = []; // Foundation: why it backed off (last 8), for e2e/frames.spec.ts
+      function late(why) {
+        backoffs.push({ at: Math.round(activeTime * 1000), why, to: backoff + 1 });
+        if (backoffs.length > 8) backoffs.shift();
         backoff += 1;
-        if (backoff >= 2) suspend();
+        keptUp = 0;
+        costly = [];
+        if (backoff >= power.backoffGapMs.length) suspend();
       }
 
       function tick(timestamp) {
         frame = 0;
         if (!canRun()) return;
+        // backed off: skip display frames until this level's gap has passed
+        if (timestamp - lastDrawAt < power.backoffGapMs[backoff] - 4) { schedule(); return; }
+        lastDrawAt = timestamp;
         const startedAt = window.performance.now();
-        const targetAt = Math.max(timestamp, requestedAt);
-        lateSamples = [...lateSamples.slice(-9), startedAt - targetAt > 17];
-        if (lateSamples.filter(Boolean).length >= 5) { lateSamples = []; late(); }
         const elapsed = Math.min(Math.max((startedAt - previousFrameAt) / 1000, 0), 0.25);
         previousFrameAt = startedAt;
         activeTime += elapsed;
         windAmount = 1 - smooth((activeTime - settleAt) / power.settleS);
         windTime += elapsed * config.wind.energy * windAmount * smooth((activeTime - resumeAt) / power.resumeS);
         draw();
+        const cost = window.performance.now() - startedAt;
         if (windAmount === 0 && !touch.busy(now())) {
           settled = true;
           retryDelay = power.retryS;
-        } else if (laggingFrames >= 2 && !suspended) {
-          laggingFrames = 0;
-          late();
+        } else if (activeTime > warmUntil && !suspended) {
+          costly = [...costly.slice(-9), cost > power.drawBudgetMs];
+          if (laggingFrames >= 2 || costly.filter(Boolean).length >= 5) {
+            late(laggingFrames >= 2 ? 'gpu behind' : `draws over ${power.drawBudgetMs} ms (last ${cost.toFixed(1)} ms)`);
+            laggingFrames = 0;
+          } else if (backoff > 0 && ++keptUp >= power.recoverFrames) {
+            backoff -= 1;
+            keptUp = 0;
+          }
         }
-        slowFrames = window.performance.now() - targetAt > 50 ? slowFrames + 1 : 0;
-        if (slowFrames >= 3) { slowFrames = 0; suspend(); }
         schedule();
       }
 
@@ -1514,22 +1554,24 @@ export function initAsciiWind2(scope = document, variant = 'wind', options = {})
       root.asciiWind = {
         tap(x, y, force = 1) { touch.tap(x, y, now(), force); wake(); refresh(); },
         stir(x, y, wayX, wayY, force = 0.5) { touch.push(x, y, wayX, wayY, force, now()); wake(); refresh(); },
-        holes(rects) {
-          const list = rects.slice(0, 12);
-          page.holeCount = list.length;
-          page.holes.fill(0);
-          list.forEach((r, index) => page.holes.set([r.x, r.y, r.width, r.height], index * 4));
-          draw();
-        },
-        frame(rect, depthX = 0, depthY = 0, light = 0) {
-          if (rect) page.frame.set([rect.x, rect.y, rect.width, rect.height]);
-          page.ring.set(rect ? [depthX, depthY, light] : [0, 0, 0]);
-          draw();
+        shapes(list) {
+          const shown = list.slice(0, 12);
+          page.shapeCount = shown.length;
+          page.shapes.fill(0);
+          page.looks.fill(0);
+          shown.forEach((shape, index) => {
+            page.shapes.set([shape.x, shape.y, shape.width, shape.height], index * 4);
+            page.looks.set([shape.radius ?? 0, shape.gap ?? 0, shape.depth ?? 0, shape.light ?? 0], index * 4);
+          });
+          drawSoon();
         },
         dissolve(x, y, radius, band) {
           page.dissolve.set([x, y, radius, band]);
-          draw();
+          drawSoon();
         },
+        // Foundation: one frame now, for measuring its cost (e2e/frames.spec.ts)
+        drawNow() { draw(true); },
+        state() { return { backoff, suspended, settled, backoffs: backoffs.slice() }; },
       };
       root.dispatchEvent(new window.CustomEvent('ascii-wind:ready'));
     }

@@ -11,35 +11,44 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { findT3Home, notFoundMessage, t3Url } from "./t3paths.ts";
 
-const HOME = process.env.T3CODE_HOME ?? join(homedir(), "Library", "Application Support", "co.normallab.vision", "code");
-const DB = join(HOME, "userdata", "state.sqlite");
-const T3_URL = (process.env.T3_URL ?? "http://localhost:3783").replace(/\/$/, "");
-
-let db: DatabaseSync | null = null;
+/** where T3's store is, looked up when used: T3CODE_HOME, or Vision's home on this platform */
+let db: { path: string; db: DatabaseSync } | null = null;
+let missing: string | null = null;
 function open(): DatabaseSync | null {
-  if (db) return db;
-  if (!existsSync(DB)) return null;
+  const home = findT3Home();
+  const path = home.found ? join(home.found, "userdata", "state.sqlite") : null;
+  if (db && db.path === path) return db.db;
+  db?.db.close();
+  db = null;
+  if (!path || !existsSync(path)) {
+    missing = process.env.T3CODE_HOME
+      ? `T3CODE_HOME is ${process.env.T3CODE_HOME}, but there's no userdata/state.sqlite in it. Point it at Vision Code's data folder, or unset it to look in the usual places.`
+      : notFoundMessage(null, { found: null, tried: home.tried });
+    return null;
+  }
   try {
-    db = new DatabaseSync(DB, { readOnly: true });
-    return db;
-  } catch {
+    db = { path, db: new DatabaseSync(path, { readOnly: true }) };
+    missing = null;
+    return db.db;
+  } catch (e) {
+    missing = `Vision Code's threads are at ${path}, but they couldn't be read: ${(e as Error).message}`;
     return null;
   }
 }
 
-let envId: { id: string | null; at: number } = { id: null, at: 0 };
-/** T3's environment id, for links into Vision Code (cached a minute) */
-async function environmentId(): Promise<string | null> {
-  if (Date.now() - envId.at < 60_000) return envId.id;
+let envId: { base: string; id: string | null; at: number } = { base: "", id: null, at: 0 };
+/** T3's environment id at this address, for links into Vision Code (cached a minute per address) */
+async function environmentId(base: string): Promise<string | null> {
+  if (envId.base === base && Date.now() - envId.at < 60_000) return envId.id;
   try {
-    const r = await fetch(`${T3_URL}/.well-known/t3/environment`, { signal: AbortSignal.timeout(1200) });
+    const r = await fetch(`${base}/.well-known/t3/environment`, { signal: AbortSignal.timeout(1200) });
     const j = (await r.json()) as { environmentId?: string };
-    envId = { id: j.environmentId ?? null, at: Date.now() };
+    envId = { base, id: j.environmentId ?? null, at: Date.now() };
   } catch {
-    envId = { id: null, at: Date.now() };
+    envId = { base, id: null, at: Date.now() };
   }
   return envId.id;
 }
@@ -61,10 +70,12 @@ function statusOf(session: string | null, pending: number, error: string | null)
   return "idle";
 }
 
-export async function t3Threads(limit = 24): Promise<{ available: boolean; threads: T3Thread[] }> {
+/** `missing` says, when they can't be read, where Foundation looked and what to set */
+export async function t3Threads(limit = 24): Promise<{ available: boolean; threads: T3Thread[]; missing?: string }> {
   const d = open();
-  if (!d) return { available: false, threads: [] };
-  const env = await environmentId();
+  if (!d) return { available: false, threads: [], missing: missing ?? undefined };
+  const base = t3Url();
+  const env = await environmentId(base);
   try {
     const rows = d
       .prepare(
@@ -87,11 +98,11 @@ export async function t3Threads(limit = 24): Promise<{ available: boolean; threa
         status: statusOf(r.status, r.pending, r.last_error),
         pending: r.pending,
         updatedAt: Date.parse(r.updated_at) || 0,
-        url: env ? `${T3_URL}/${env}/${r.thread_id}` : null,
+        url: env ? `${base}/${env}/${r.thread_id}` : null,
       })),
     };
-  } catch {
-    return { available: false, threads: [] };
+  } catch (e) {
+    return { available: false, threads: [], missing: `Vision Code's threads couldn't be read (its store may have changed): ${(e as Error).message}` };
   }
 }
 

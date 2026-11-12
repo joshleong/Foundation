@@ -572,6 +572,11 @@ export const TableView = memo(function TableView({ table, framePos, isActive, ge
               {table.name}
             </button>
           )}
+          {table.createdBy && (
+            <span className="card-maker is-inline" data-tip={`Made by ${table.createdBy}, an agent`}>
+              ✦ {table.createdBy}
+            </span>
+          )}
           <div className="header-actions">
             <button
               className={"icon-btn float-btn" + (table.float ? " floating" : "")}

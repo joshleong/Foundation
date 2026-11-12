@@ -25,26 +25,28 @@ body {
 
 @property --floor-l {
   syntax: "<length>";
-  inherits: true;
+  inherits: false;
   initial-value: 0px;
 }
 @property --floor-t {
   syntax: "<length>";
-  inherits: true;
+  inherits: false;
   initial-value: 0px;
 }
 @property --floor-r {
   syntax: "<length>";
-  inherits: true;
+  inherits: false;
   initial-value: 0px;
 }
-.grid-viewport {
+/* not inherited, and set and transitioned on .world-mask only: an inherited custom property animating on
+   .grid-viewport restyled every card on the board on each frame of a pane opening (e2e/frames.spec.ts) */
+.world-mask {
   transition:
     --floor-l 0.42s var(--ease-move),
     --floor-t 0.42s var(--ease-move),
     --floor-r 0.42s var(--ease-move);
 }
-body.is-resizing-floor .grid-viewport {
+body.is-resizing-floor .world-mask {
   transition: none;
 }
 body.is-resizing-floor {
@@ -115,7 +117,7 @@ body.is-presenting .world-mask {
   width: 1px;
   background: var(--color-line);
   opacity: 0;
-  transition: opacity var(--dur-quick) var(--ease-out-soft), background var(--dur-quick) var(--ease-out-soft);
+  transition: opacity var(--dur-quick) var(--ease-out-soft);
 }
 .floor-edge:hover .floor-edge-line,
 body.is-resizing-floor .floor-edge-line {
@@ -154,7 +156,6 @@ body.is-resizing-floor .floor-edge-line {
   color: var(--color-mist);
   font: 500 var(--text-14) / 1 var(--font-sans);
   cursor: pointer;
-  transition: background var(--dur-quick) var(--ease-out-soft), color var(--dur-quick) var(--ease-out-soft);
 }
 .top-btn:hover {
   background: var(--color-pulse-dim);
@@ -189,7 +190,6 @@ body.is-resizing-floor .floor-edge-line {
   align-items: center;
   border-radius: var(--radius-card);
   color: var(--color-mist);
-  transition: background var(--dur-quick) var(--ease-out-soft), color var(--dur-quick) var(--ease-out-soft);
 }
 button.tab,
 .tab-main {
@@ -316,6 +316,11 @@ button.tab,
   color: var(--color-dim);
   font-size: var(--text-12);
   line-height: 1.45;
+}
+/* the server's "looked in…" list: one path a line, long paths wrap anywhere */
+.pane-empty.is-paths {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 .pane-row {
   display: flex;
@@ -908,6 +913,7 @@ button.tab,
 .search-row-snip mark {
   background: transparent;
   color: var(--color-pulse);
+  font-weight: 600;
 }
 .search-row-src {
   color: var(--color-dim);
@@ -1008,14 +1014,6 @@ body.is-dragging-hit * {
   font-size: var(--text-12);
 }
 
-.sync-dot {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--color-dim);
-  font-size: var(--text-11);
-}
-
 .presence-stack {
   display: flex;
   align-items: center;
@@ -1029,7 +1027,7 @@ body.is-dragging-hit * {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--color-on-fill);
   font: 700 10px / 1 var(--font-sans);
   border: 2px solid var(--color-abyss);
   flex-shrink: 0;
@@ -1123,7 +1121,7 @@ body.is-presenting .empty-cell {
   padding: 3px 8px;
   border-radius: var(--radius-pill);
   background: var(--peer);
-  color: #fff;
+  color: var(--color-on-fill);
   font: 600 var(--text-11) / 1 var(--font-sans);
   white-space: nowrap;
 }
@@ -1144,6 +1142,19 @@ body.is-presenting .empty-cell {
    marks either side and a faint trace through. */
 .pipe {
   --pipe-opacity: 0.38;
+}
+/* both ends stepped back for an expanded section: the wire steps back with them.
+   An animation, not a transition: the router rewrites the group every frame,
+   which kept restarting a transition at 0 */
+.pipe.is-backstage {
+  opacity: 0.12;
+  pointer-events: none;
+  animation: pipe-backstage var(--dur-pane) var(--ease-out-soft);
+}
+@keyframes pipe-backstage {
+  from {
+    opacity: 1;
+  }
 }
 .port-layer.is-on .pipe,
 .pipe.is-hover,
@@ -1365,10 +1376,10 @@ body.is-presenting .empty-cell {
   border-radius: var(--radius-pill);
   border: 1px solid color-mix(in srgb, var(--wire-tone) 45%, var(--color-raise));
   background:
-    linear-gradient(100deg, color-mix(in srgb, white 55%, transparent), transparent 60%),
+    linear-gradient(100deg, color-mix(in srgb, var(--color-highlight) 90%, transparent), transparent 60%),
     color-mix(in srgb, var(--wire-tone) 14%, var(--color-raise));
   box-shadow:
-    inset 0 1px 1px rgb(255 255 255 / 0.6),
+    inset 0 1px 1px var(--color-highlight),
     0 1px 3px color-mix(in srgb, var(--color-frost) 14%, transparent);
   pointer-events: auto;
   opacity: 0.7;
@@ -1545,6 +1556,52 @@ body.is-connecting .port-in.is-snap {
   background-size: 200% 100%;
   animation: shimmer 1.2s linear infinite;
 }
+/* a page from a machine's port while the machine isn't running: the poster dims to a hatched well, the state stands on it */
+.frame-poster.is-held {
+  background:
+    repeating-linear-gradient(-45deg, transparent 0 8px, color-mix(in srgb, var(--color-frost) 2.5%, transparent) 8px 9px),
+    var(--color-abyss);
+}
+.frame-poster.is-held > :not(.machine-hold) {
+  opacity: 0.4;
+}
+.machine-hold {
+  width: min(420px, 100%);
+  margin-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-line);
+  background: var(--color-raise);
+  box-shadow: var(--shadow-sheet);
+  text-align: left;
+}
+.machine-hold-title {
+  font: 600 var(--text-14) / 1.3 var(--font-sans);
+  color: var(--color-frost);
+}
+.machine-hold-reason {
+  color: var(--color-mist);
+  font: 400 var(--text-12) / 1.45 var(--font-code);
+  word-break: break-word;
+}
+.machine-hold-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.machine-hold-note {
+  color: var(--color-warn);
+  font: 500 var(--text-11) / 1.3 var(--font-sans);
+}
+.machine-hold.is-gone .machine-hold-title,
+.machine-hold.is-removed .machine-hold-title {
+  color: var(--color-mist);
+}
 @keyframes shimmer {
   from {
     background-position: 200% 0;
@@ -1657,6 +1714,15 @@ body.is-connecting .port-in.is-snap {
   gap: var(--space-4);
   container-type: inline-size;
 }
+/* a connector shown as a card (not filling its section) names itself, as pipeline stages do */
+.connector-name {
+  margin-bottom: var(--space-2);
+  color: var(--color-frost);
+  font: 600 var(--text-14) / 1.2 var(--font-sans);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .connector-head {
   display: flex;
   align-items: center;
@@ -1753,6 +1819,11 @@ body.is-connecting .port-in.is-snap {
     color-mix(in srgb, var(--color-frost) 2.5%, transparent) 8px 9px
   );
 }
+.connector-offline.is-up {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--color-ok) 35%, var(--color-line));
+  background: color-mix(in srgb, var(--color-ok) 5%, transparent);
+}
 .connector-offline-title {
   font: 600 var(--text-13) / 1.3 var(--font-sans);
 }
@@ -1781,7 +1852,6 @@ body.is-connecting .port-in.is-snap {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  transition: background var(--dur-quick) var(--ease-out-soft);
 }
 .ask-body.is-over {
   background: var(--color-pulse-dim);
@@ -2092,6 +2162,10 @@ body.is-connecting .port-in.is-snap {
   font-weight: 600;
   white-space: nowrap;
 }
+/* violet means agent (DESIGN §2) */
+.activity-row.role-agent .activity-who {
+  color: var(--color-agent);
+}
 .activity-text {
   color: var(--color-mist);
   overflow: hidden;
@@ -2101,10 +2175,6 @@ body.is-connecting .port-in.is-snap {
 .activity-when {
   color: var(--color-dim);
   font-size: var(--text-11);
-}
-.activity-empty {
-  color: var(--color-dim);
-  font-size: var(--text-12);
 }
 .toast {
   position: fixed;
@@ -2268,10 +2338,10 @@ body.is-connecting .port-in.is-snap {
   --ascii-glow: var(--color-pulse);
 }
 
-/* Sign-in (login/Login.tsx): ordinary type and physical controls in a frame
-   drawn in the wind (a ring of its own glyphs). The wind blows on inside it and
-   clears only the cells behind the text; there is no card. Day colours always
-   (.f-day). It sits over the board (fixed) so signing in can dissolve into it. */
+/* Sign-in (login/Login.tsx): ordinary type and physical controls standing in
+   the wind, with no card and no frame: the wind parts around each element and
+   traces its outline in its own glyphs. Day colours always (.f-day). It sits
+   over the board (fixed) so signing in can dissolve into it. */
 .login {
   position: fixed;
   inset: 0;
@@ -2288,6 +2358,7 @@ body.is-connecting .port-in.is-snap {
   z-index: -2;
   background: var(--color-void);
 }
+/* where the form sits; nothing draws it */
 .login-frame {
   position: absolute;
   box-sizing: border-box;
@@ -2351,7 +2422,7 @@ body.is-connecting .port-in.is-snap {
   overflow: hidden;
 }
 .login-fields .f-input {
-  box-shadow: inset 0 1px 2px rgb(32 30 25 / 0.06);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--color-frost) 6%, transparent);
 }
 .login-waiting {
   display: flex;
@@ -2381,6 +2452,10 @@ body.is-connecting .port-in.is-snap {
 }
 .login.is-leaving .login-foot {
   opacity: 0;
+}
+/* no wind to move (reduced motion, high contrast, no WebGL2): no line about it */
+.login:not(:has(canvas[data-ascii-wind-canvas])) .login-foot {
+  display: none;
 }
 
 /* ---------- design page ---------- */
@@ -2651,6 +2726,40 @@ body.is-connecting .port-in.is-snap {
 .oncall-media {
   height: 120px;
   background: linear-gradient(135deg, var(--viz-3), var(--viz-5));
+}
+/* #/design → Key labels: both platforms' chips, then the section welcome at 260 / 400 / 560 */
+.keys-table {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+.keys-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+.keys-os {
+  width: 150px;
+  color: var(--color-mist);
+  font: 600 var(--text-12) / 1 var(--font-sans);
+}
+.keys-here {
+  color: var(--color-dim);
+  font-weight: 400;
+}
+.f-tip.keys-tip {
+  position: static;
+}
+.keys-sections + .keys-sections {
+  margin-top: var(--space-5);
+}
+.keys-section {
+  position: relative;
+  background: color-mix(in srgb, var(--color-raise) 72%, transparent);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pane);
 }
 .adapt-row {
   display: flex;
@@ -2998,7 +3107,7 @@ body.is-connecting .port-in.is-snap {
   border-radius: var(--radius-paper);
   border: 1.5px solid var(--color-line-strong);
   font-size: 10px;
-  color: #fff;
+  color: var(--color-on-fill);
 }
 .is-done .tick {
   background: var(--color-ok);
@@ -3017,19 +3126,6 @@ body.is-connecting .port-in.is-snap {
 .stage-done-note {
   color: var(--color-ok);
   font-size: var(--text-12);
-}
-.stage-waiting {
-  position: absolute;
-  left: 50%;
-  top: 52%;
-  translate: -50% -50%;
-  padding: 6px 12px;
-  border-radius: var(--radius-pill);
-  background: var(--color-raise);
-  border: 1px solid var(--color-line);
-  color: var(--color-mist);
-  font-size: var(--text-12);
-  box-shadow: var(--shadow-sheet);
 }
 .stage-over {
   position: absolute;
@@ -3335,7 +3431,7 @@ body.is-viewer .port {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--color-on-fill);
   font: 600 9px / 1 var(--font-sans);
 }
 .person-role {
@@ -3513,4 +3609,225 @@ body.is-viewer .port {
 }
 .agent-handoff .f-pill {
   text-decoration: none;
+}
+
+/* ---------- the upload tray (passing chrome: glass), bottom right ---------- */
+
+.upload-tray-place {
+  position: fixed;
+  z-index: 62;
+  bottom: 16px;
+  width: min(340px, calc(100vw - 32px));
+}
+/* above the call chip while you're in a huddle */
+.huddle-pip ~ .upload-tray-place {
+  bottom: 76px;
+}
+.upload-tray {
+  border-radius: var(--radius-pane);
+  overflow: hidden;
+  color: var(--color-frost);
+  font: 500 var(--text-12) / 1.3 var(--font-sans);
+}
+.upload-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 40px;
+  padding: 0 var(--space-2) 0 var(--space-4);
+}
+.upload-state {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  font: 700 var(--text-12) / 1 var(--font-sans);
+}
+.upload-tray.is-ok .upload-state {
+  color: var(--color-ok);
+}
+.upload-tray.is-bad .upload-state {
+  color: var(--color-bad);
+}
+.upload-spin {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--color-line);
+  border-top-color: var(--color-pulse);
+  animation: spin 0.8s linear infinite;
+}
+.upload-title {
+  font: 600 var(--text-13) / 1 var(--font-sans);
+  white-space: nowrap;
+}
+.upload-size {
+  margin-left: auto;
+  color: var(--color-mist);
+  font-size: var(--text-11);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.upload-btn {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-mist);
+  font: 500 var(--text-13) / 1 var(--font-sans);
+  cursor: pointer;
+}
+.upload-btn:hover {
+  color: var(--color-frost);
+  background: var(--color-pulse-dim);
+}
+.upload-chev {
+  display: inline-block;
+  margin-top: -4px;
+  transition: transform var(--dur-quick) var(--ease-out-soft);
+}
+.upload-chev.is-up {
+  transform: rotate(180deg) translateY(-4px);
+}
+.upload-meter {
+  height: 3px;
+  margin: 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--color-line);
+  overflow: hidden;
+}
+.upload-meter i,
+.upload-row-bar i {
+  display: block;
+  height: 100%;
+  background: var(--color-pulse);
+  transform-origin: left center;
+  transition: transform var(--dur-quick) var(--ease-out-soft);
+}
+.upload-tray.is-ok .upload-meter i {
+  background: var(--color-ok);
+}
+.upload-tray.is-bad .upload-meter i {
+  background: var(--color-bad);
+}
+.upload-tray.is-folded .upload-meter {
+  margin-bottom: var(--space-4);
+}
+.upload-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-3) var(--space-2) var(--space-3);
+  max-height: 212px; /* six rows, then it scrolls */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.upload-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 34px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-card);
+}
+.upload-row-glyph {
+  width: 14px;
+  flex: none;
+  text-align: center;
+  color: var(--color-dim);
+  font-weight: 700;
+}
+.upload-row.is-sending .upload-row-glyph {
+  color: var(--color-pulse);
+}
+.upload-row.is-done .upload-row-glyph {
+  color: var(--color-ok);
+}
+.upload-row.is-failed .upload-row-glyph {
+  color: var(--color-bad);
+}
+.upload-row-main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.upload-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upload-row.is-waiting .upload-row-name {
+  color: var(--color-mist);
+}
+.upload-row-dir {
+  color: var(--color-dim);
+}
+.upload-row-err {
+  color: var(--color-bad);
+  font-size: var(--text-11);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upload-row-pct {
+  flex: none;
+  color: var(--color-dim);
+  font-size: var(--text-11);
+  font-variant-numeric: tabular-nums;
+}
+.upload-row-bar {
+  position: absolute;
+  left: 30px;
+  right: var(--space-3);
+  bottom: 3px;
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--color-line);
+  overflow: hidden;
+}
+.upload-row-retry {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--color-pulse);
+  font: 600 var(--text-12) / 1 var(--font-sans);
+  cursor: pointer;
+  padding: var(--space-2);
+}
+.upload-row-retry:hover {
+  text-decoration: underline;
+}
+.upload-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border-top: 1px solid var(--color-line);
+  color: var(--color-mist);
+  font-size: var(--text-11);
+}
+.upload-retry-all {
+  margin-left: auto;
+  flex: none;
+}
+/* #/design specimens: the tray at its own width, ⌘K's row outside its scrim */
+.oncall-cell > .upload-tray {
+  width: 340px;
+}
+.design-cmd-specimen {
+  width: 100%;
+  border-radius: var(--radius-pane);
+}
+.uploads-demo .oncall-cell {
+  padding-bottom: 68px;
+}
+.uploads-demo .effect-label {
+  right: var(--space-4);
 }

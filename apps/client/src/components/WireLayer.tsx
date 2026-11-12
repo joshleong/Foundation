@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { workbook } from "../engine/workbook";
-import { applyWireClip, bindMap, getState, gridSize, objectWorldRect, useAppState, wireClipRect } from "../state/store";
+import { applyWireClip, bindMap, getState, gridSize, objectWorldRect, wireBackstage, wireClipRect } from "../state/store";
+import { sheetWiresSlice, useStoreSlice } from "../state/slices";
 import { polyline, route, routeAvoiding, tunnelGeometry, type P } from "../shell/wireGeometry";
 import { cardRects, obstaclesFor } from "../shell/ports";
 import { allCrossings, publishRoutes, routesVersion, unpublishRoutes } from "../shell/routeRegistry";
+import { countRender } from "../state/renders";
 
 /**
  * The spreadsheet's data-flow wires, drawn by the same flow-diagram rules as
@@ -26,8 +28,11 @@ interface Edge {
   kind: "map" | "ref";
 }
 
-export function WireLayer() {
-  const state = useAppState();
+/** memo: no props, so the grid rendering (a press moves the active section) doesn't render the wires */
+export const WireLayer = memo(function WireLayer() {
+  countRender("WireLayer");
+  // which wires exist and where their ends live, not the cards themselves: moving or typing renders nothing
+  const slice = useStoreSlice(sheetWiresSlice);
   const [formulaEdges, setFormulaEdges] = useState(() => workbook.tableDependencies());
   const groupRefs = useRef(new Map<string, SVGGElement>());
   const hotUntil = useRef(new Map<string, number>()); // source tableId -> ts
@@ -111,6 +116,7 @@ export function WireLayer() {
   }, []);
 
   const edges = useMemo((): Edge[] => {
+    const state = getState();
     const out: Edge[] = [];
     for (const m of Object.values(state.maps)) {
       if (m.sourceTableId && state.tables[m.sourceTableId]) {
@@ -123,7 +129,7 @@ export function WireLayer() {
       }
     }
     return out;
-  }, [state.maps, state.tables, formulaEdges]);
+  }, [slice.maps, slice.tables, formulaEdges]);
 
   // ----- imperative per-frame geometry -----
   useEffect(() => {
@@ -179,8 +185,8 @@ export function WireLayer() {
         }
         g.style.display = "";
         const activeRebind = rebind.current?.edgeKey === edge.key ? rebind.current : null;
-        const start = { x: ra.x + ra.w, y: ra.y + ATTACH_Y };
-        const end = activeRebind ? { x: activeRebind.x, y: activeRebind.y } : { x: rb.x, y: rb.y + ATTACH_Y };
+        const start = { x: ra.x + ra.w, y: ra.y + ATTACH_Y * ra.s };
+        const end = activeRebind ? { x: activeRebind.x, y: activeRebind.y } : { x: rb.x, y: rb.y + ATTACH_Y * rb.s };
         const routeOpts = {
           src: ra,
           dst: activeRebind ? null : rb,
@@ -259,10 +265,13 @@ export function WireLayer() {
       if (timer) clearTimeout(timer);
       unpublishRoutes("sheet");
     };
-  }, [edges, state.tables, state.maps, state.notes, state.media]);
+    // the loop reads every card's place from the store each frame; only a new set of wires restarts it
+  }, [edges]);
 
-  const size = gridSize(state.grid);
+  const size = gridSize(slice.grid);
   if (edges.length === 0) return null;
+  const state = getState();
+  const sectionOf = (id: string) => (state.tables[id] ?? state.maps[id])?.sectionId;
 
   return (
     <svg
@@ -276,7 +285,7 @@ export function WireLayer() {
       {edges.map((e) => (
         <g
           key={e.key}
-          className={`pipe wire-group ${e.kind}`}
+          className={`pipe wire-group ${e.kind}${wireBackstage(state, sectionOf(e.from), sectionOf(e.to)) ? " is-backstage" : ""}`}
           style={{ ["--wire-tone" as string]: e.kind === "map" ? "var(--color-pulse)" : "var(--color-wire-formula)" }}
           ref={(el) => {
             if (el) groupRefs.current.set(e.key, el);
@@ -313,4 +322,4 @@ export function WireLayer() {
       <rect ref={highlightRef} className="rebind-highlight" rx={14} style={{ display: "none" }} />
     </svg>
   );
-}
+});

@@ -23,6 +23,7 @@ export type BoardRole = "admin" | "member" | "viewer";
 /** tools that only look, which a viewer may use */
 export const READ_TOOLS = new Set([
   "read_board",
+  "machines",
   "search",
   "company",
   "read_file",
@@ -34,11 +35,13 @@ export const READ_TOOLS = new Set([
   "slack_read",
   "set_plan", // shows the session's plan; writes nothing to the board
   "find_images",
+  "bring_view", // moves the asker's own view; changes nothing on the board
+  "crew_work", // what this ask's crew has made so far; reads only
   // Today: the person's own page. Goals and a profile are theirs, not a board's, so a viewer keeps them too
   "today",
   "set_goal",
   "set_profile",
-  "point_at",
+  "point_today",
 ]);
 
 function accountRole(userId: string): BoardRole {

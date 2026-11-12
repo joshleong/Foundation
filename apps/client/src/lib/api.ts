@@ -1,13 +1,84 @@
 /**
  * The client's one door to the Foundation server. In dev, Vite proxies /api,
  * /auth, /files, /mcp and /sync to the server (vite.config.ts), so the
- * session cookie is same-origin. VITE_FOUNDATION_SERVER points a built or
- * Tauri client at a remote server.
+ * session cookie is same-origin. VITE_FOUNDATION_SERVER (`.env.desktop` for
+ * the packaged app) points a built or Tauri client at another server, and a
+ * person can point this device elsewhere (the sign-in page's Server line,
+ * kept in localStorage).
+ *
+ * Two transports, one API:
+ *  - **cookie**: the page and the server are one origin (the web app, dev).
+ *    The HttpOnly SameSite cookie rides every request and socket, as before.
+ *  - **bearer**: the server is another origin (the desktop app's page is
+ *    http://localhost:31440; a hosted server is another site, so its SameSite
+ *    cookie never arrives). Sign-in asks for a session in the response body;
+ *    it's kept in localStorage under that server's origin (never sent to
+ *    another server) and goes out only as `Authorization: Bearer`. Sockets
+ *    can't carry a header, so each one first trades the bearer for a
+ *    one-time, 30-second ticket for that socket's path (`openSocket`).
+ *    The session never goes in a URL.
  */
 
 import type { AgentEvent, SearchHit, UserInfo } from "@foundation/protocol";
 
-export const SERVER = (import.meta.env.VITE_FOUNDATION_SERVER as string | undefined)?.replace(/\/$/, "") ?? "";
+const SERVER_KEY = "foundation-server";
+/** the server this build was made for (empty: the page's own origin) */
+export const BUILT_SERVER = (import.meta.env.VITE_FOUNDATION_SERVER as string | undefined)?.replace(/\/$/, "") ?? "";
+
+function chosenServer(): string | null {
+  try {
+    return localStorage.getItem(SERVER_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export const SERVER = (chosenServer() ?? BUILT_SERVER).replace(/\/$/, "");
+
+/** point this device at another server (empty: the one it was built for); the page reloads */
+export function chooseServer(url: string) {
+  const u = url.trim().replace(/\/$/, "");
+  try {
+    if (!u || u === BUILT_SERVER) localStorage.removeItem(SERVER_KEY);
+    else localStorage.setItem(SERVER_KEY, new URL(u).origin);
+  } catch { /* private window, or not a URL */ }
+  window.location.reload();
+}
+
+const serverOrigin = (() => {
+  try {
+    return SERVER ? new URL(SERVER).origin : window.location.origin;
+  } catch {
+    return window.location.origin;
+  }
+})();
+
+/** the server is another origin: sign in for a bearer and send it as a header (above) */
+export const BEARER = typeof window !== "undefined" && serverOrigin !== window.location.origin;
+
+const BEARER_KEY = `foundation-bearer:${serverOrigin}`;
+
+/** this device's session with this server, when it holds a bearer (never in a URL) */
+export function bearerToken(): string | null {
+  try {
+    return localStorage.getItem(BEARER_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function keepBearer(session: string | undefined | null) {
+  try {
+    if (session) localStorage.setItem(BEARER_KEY, session);
+    else localStorage.removeItem(BEARER_KEY);
+  } catch { /* private window */ }
+}
+
+/** the Authorization header for this server, if this device holds a bearer for it */
+export function authHeaders(): Record<string, string> {
+  const t = bearerToken();
+  return t ? { authorization: `Bearer ${t}` } : {};
+}
 
 export function serverUrl(path: string) {
   return `${SERVER}${path}`;
@@ -16,6 +87,19 @@ export function serverUrl(path: string) {
 export function wsUrl(path: string) {
   const base = SERVER || window.location.origin;
   return base.replace(/^http/, "ws") + path;
+}
+
+/**
+ * Open one of the server's sockets (`/sync/…`, `/huddle/…`, `/machines/…/tty`).
+ * With a bearer, first ask for a one-time ticket for exactly this path and put
+ * that in the URL; with the cookie, connect as before. Rejects if no ticket
+ * could be had (offline, signed out): callers treat it like a dropped socket.
+ */
+export async function openSocket(path: string, query = ""): Promise<WebSocket> {
+  const q = query ? `?${query}` : "";
+  if (!authHeaders().authorization) return new WebSocket(wsUrl(path + q));
+  const { ticket } = await api<{ ticket: string }>("/api/ws-ticket", { method: "POST", json: { path } });
+  return new WebSocket(wsUrl(`${path}${q ? `${q}&` : "?"}ticket=${encodeURIComponent(ticket)}`));
 }
 
 export class ApiError extends Error {
@@ -32,7 +116,7 @@ export async function api<T = unknown>(path: string, init: RequestInit & { json?
   const res = await fetch(serverUrl(path), {
     credentials: "include",
     ...rest,
-    headers: { ...(json !== undefined ? { "content-type": "application/json" } : {}), ...(rest.headers ?? {}) },
+    headers: { ...authHeaders(), ...(json !== undefined ? { "content-type": "application/json" } : {}), ...(rest.headers ?? {}) },
     body: json !== undefined ? JSON.stringify(json) : rest.body,
   });
   const text = await res.text();
@@ -45,9 +129,20 @@ export const me = () => api<{ user: UserInfo | null }>("/api/me");
 export const authConfig = () => api<{ google: boolean; devLogin: boolean; flowform?: { url: string } }>("/auth/config");
 /** desktop: Google through flowform in the system browser; the window polls with a secret only it holds */
 export const flowformBegin = () => api<{ url: string; poll: string; expiresIn: number }>("/auth/flowform/begin", { method: "POST" });
-export const flowformPoll = (poll: string) =>
-  api<{ status: "pending" | "ok" | "error"; user?: UserInfo; error?: string }>("/auth/flowform/poll", { method: "POST", headers: { authorization: `Bearer ${poll}` } });
-export const devLogin = (email: string, name: string) => api<{ user: UserInfo }>("/auth/dev", { method: "POST", json: { email, name } });
+export async function flowformPoll(poll: string) {
+  // the poll secret is this request's Authorization (it replaces any bearer); with a bearer transport, ask for the session in the body
+  const r = await api<{ status: "pending" | "ok" | "error"; user?: UserInfo; error?: string; session?: string }>(`/auth/flowform/poll${BEARER ? "?bearer=1" : ""}`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${poll}` },
+  });
+  if (r.session) keepBearer(r.session);
+  return r;
+}
+export async function devLogin(email: string, name: string) {
+  const r = await api<{ user: UserInfo; session?: string }>("/auth/dev", { method: "POST", json: BEARER ? { email, name, bearer: true } : { email, name } });
+  if (r.session) keepBearer(r.session);
+  return { user: r.user };
+}
 /** sign out: this device also forgets who you are and the board copies it kept for offline */
 export async function logout() {
   try {
@@ -57,7 +152,12 @@ export async function logout() {
   } catch { /* private window */ }
   const { forgetDevice } = await import("../sync/board");
   await forgetDevice();
-  return api("/auth/logout", { method: "POST" });
+  // the server forgets the session first (it needs the bearer to know which), then this device does
+  try {
+    return await api("/auth/logout", { method: "POST" });
+  } finally {
+    keepBearer(null);
+  }
 }
 
 const ME_KEY = "foundation-me";
@@ -111,6 +211,7 @@ export function uploadFile(file: File, board: string, onProgress?: (f: number) =
     const xhr = new XMLHttpRequest();
     xhr.open("POST", serverUrl(`/api/files?board=${encodeURIComponent(board)}&name=${encodeURIComponent(file.name)}`));
     xhr.withCredentials = true;
+    for (const [k, v] of Object.entries(authHeaders())) xhr.setRequestHeader(k, v);
     xhr.setRequestHeader("content-type", file.type || guessMime(file.name));
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
     xhr.onload = () => {
@@ -146,7 +247,7 @@ export function streamAgent(
     fetch(serverUrl("/api/agent"), {
       method: "POST",
       credentials: "include",
-      headers: { "content-type": "application/json" },
+      headers: { ...authHeaders(), "content-type": "application/json" },
       body: JSON.stringify(body),
       signal,
     }),
@@ -156,16 +257,48 @@ export function streamAgent(
 
 /** Follow a run that's already going (a reloaded tab): everything so far, then live. */
 export function followRun(id: string, onEvent: (e: AgentEvent) => void, signal: AbortSignal) {
-  return readEvents(fetch(serverUrl(`/api/agent/runs/${encodeURIComponent(id)}/events`), { credentials: "include", signal }), onEvent);
+  return readEvents(fetch(serverUrl(`/api/agent/runs/${encodeURIComponent(id)}/events`), { credentials: "include", headers: authHeaders(), signal }), onEvent);
 }
 
-async function readEvents(req: Promise<Response>, onEvent: (e: AgentEvent) => void) {
-  const res = await req;
-  if (!res.ok || !res.body) {
-    const t = await res.text();
-    throw new ApiError(res.status, (t && JSON.parse(t).error) || "agent unavailable");
-  }
-  const reader = res.body.getReader();
+/** fetch a file of this server's (`/files/…`) with this device's session, wherever the server is */
+export function fetchFile(path: string, init: RequestInit = {}) {
+  return fetch(path.startsWith("/") ? serverUrl(path) : path, { credentials: "include", ...init, headers: { ...authHeaders(), ...(init.headers ?? {}) } });
+}
+
+/**
+ * Follow a server-sent event stream with fetch (EventSource can't send a
+ * header, and the bearer transport needs one). Reconnects with backoff until
+ * stopped; returns the stop function.
+ */
+export function eventStream(path: string, onData: (data: string) => void): () => void {
+  let stopped = false;
+  let ctrl: AbortController | null = null;
+  let tries = 0;
+  const loop = async () => {
+    while (!stopped) {
+      ctrl = new AbortController();
+      try {
+        const res = await fetch(serverUrl(path), { credentials: "include", headers: { ...authHeaders(), accept: "text/event-stream" }, signal: ctrl.signal });
+        if (res.ok && res.body) {
+          tries = 0;
+          await readStream(res.body, onData);
+        }
+      } catch {
+        /* dropped: try again */
+      }
+      if (stopped) return;
+      await new Promise((ok) => setTimeout(ok, Math.min(30_000, 1000 * 2 ** tries++)));
+    }
+  };
+  void loop();
+  return () => {
+    stopped = true;
+    ctrl?.abort();
+  };
+}
+
+async function readStream(body: ReadableStream<Uint8Array>, onData: (data: string) => void) {
+  const reader = body.getReader();
   const dec = new TextDecoder();
   let buf = "";
   for (;;) {
@@ -177,7 +310,16 @@ async function readEvents(req: Promise<Response>, onEvent: (e: AgentEvent) => vo
       const chunk = buf.slice(0, i);
       buf = buf.slice(i + 2);
       const line = chunk.split("\n").find((l) => l.startsWith("data: "));
-      if (line) onEvent(JSON.parse(line.slice(6)) as AgentEvent);
+      if (line) onData(line.slice(6));
     }
   }
+}
+
+async function readEvents(req: Promise<Response>, onEvent: (e: AgentEvent) => void) {
+  const res = await req;
+  if (!res.ok || !res.body) {
+    const t = await res.text();
+    throw new ApiError(res.status, (t && JSON.parse(t).error) || "agent unavailable");
+  }
+  await readStream(res.body, (data) => onEvent(JSON.parse(data) as AgentEvent));
 }

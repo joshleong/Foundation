@@ -6,7 +6,7 @@
  * - BomForm (remote MCP, stateless JSON-RPC over HTTP, bearer + private CA):
  *   projects, certification progress, critical components, BOM costs.
  * - Vision (desktop): no HTTP API yet — the connector reports what's reachable
- *   (Vision Code/T3 on :3783, the Archive on :63727).
+ *   (Vision Code/T3 at its address, usually :3783 (t3paths.ts), the Archive on :63727).
  * - Airform Data Room: public site, linked.
  *
  * Every connector answers { ok, summary, metrics, flows } so the company
@@ -14,9 +14,11 @@
  */
 
 import { EventEmitter } from "node:events";
+import { plural } from "./words.ts";
 import { config } from "./config.ts";
 import { callMcpTool } from "./mcpclient.ts";
 import { one } from "./db.ts";
+import { t3Url } from "./t3paths.ts";
 
 export interface ConnectorState {
   id: string;
@@ -230,7 +232,7 @@ async function bomform(): Promise<ConnectorState> {
     url: roomUrl.replace(/\/api\/foundation\/bomform$/, "/admin"),
     provenance: `Airform Data Room's copy, synced ${when} (${ageDays === 0 ? "today" : `${ageDays} day${ageDays === 1 ? "" : "s"} ago`})${stale ? " — the daily sync has stopped; check BOMFORM_API_KEY and CRON_SECRET on the Data Room" : ""}`,
     provenanceLabel: stale ? `copy · ${ageDays}d old` : "Data Room copy",
-    summary: `${d.certProjects.length} cert programs · ${c.itemsOpen} items open (${c.itemsWithUs} with us) · ${c.criticalDocumented}/${c.criticalTotal} critical parts documented`,
+    summary: `${plural(d.certProjects.length, "cert program")} · ${plural(c.itemsOpen, "item")} open (${c.itemsWithUs} with us) · ${c.criticalDocumented}/${c.criticalTotal} critical parts documented`,
     metrics: [
       { label: "Cert items resolved", value: items ? `${Math.round((resolved / items) * 100)}%` : "unknown" },
       { label: "Open items with us", value: c.itemsWithUs, tone: c.itemsWithUs ? "warn" : "ok" },
@@ -281,7 +283,7 @@ async function bomformDirect(url: string, key: string): Promise<ConnectorState> 
     name: "BomForm",
     ok: true,
     url,
-    summary: certRows.length ? `${certRows.length} certification programs · ${resolved}/${total} items resolved` : certs.text.slice(0, 160),
+    summary: certRows.length ? `${plural(certRows.length, "certification program")} · ${resolved}/${total} items resolved` : certs.text.slice(0, 160),
     metrics: [
       { label: "Cert programs", value: certRows.length },
       { label: "Cert items resolved", value: total ? `${Math.round((resolved / total) * 100)}%` : "unknown" },
@@ -310,7 +312,7 @@ function foundation(): ConnectorState {
     name: "Foundation",
     ok: true,
     url: config.publicUrl,
-    summary: `${people} people · ${boards} boards · ${files} files`,
+    summary: `${plural(people, "person", "people")} · ${plural(boards, "board")} · ${plural(files, "file")}`,
     metrics: [
       { label: "Boards", value: boards },
       { label: "Files", value: files },
@@ -348,8 +350,9 @@ async function creation(): Promise<ConnectorState> {
 
 async function vision(): Promise<ConnectorState> {
   const reach: string[] = [];
-  const t3 = await timed(fetch("http://127.0.0.1:3783/.well-known/t3/environment"), 1200).then((r) => r.ok).catch(() => false);
-  if (t3) reach.push("Vision Code (T3) on :3783");
+  const t3Base = t3Url(); // T3_URL, or where Vision Code says it's serving (t3paths.ts)
+  const t3 = await timed(fetch(`${t3Base}/.well-known/t3/environment`), 1200).then((r) => r.ok).catch(() => false);
+  if (t3) reach.push(`Vision Code (T3) at ${t3Base.replace(/^https?:\/\//, "")}`);
   const archive = await timed(fetch("http://127.0.0.1:63727/api/health"), 1200).then((r) => r.ok).catch(() => false);
   if (archive) reach.push("Archive on :63727");
   const web = await timed(fetch(config.connectors.vision), 1200).then((r) => r.ok).catch(() => false);
@@ -366,6 +369,28 @@ async function vision(): Promise<ConnectorState> {
     ],
     checkedAt: Date.now(),
   };
+}
+
+/**
+ * Why a service didn't answer, in words: Node's fetch says only "fetch failed",
+ * with the real reason (refused, no such host, reset) on its cause.
+ */
+export function offlineReason(e: unknown, url?: string): string {
+  const err = e as Error & { cause?: { code?: string; message?: string } };
+  let host = "";
+  try {
+    host = url ? new URL(url).host : "";
+  } catch {
+    /* not a URL */
+  }
+  const at = host ? ` at ${host}` : "";
+  if (err?.message !== "fetch failed") return err?.message === "timed out" ? `nothing answered${at} within a few seconds` : (err?.message ?? String(e));
+  const code = err.cause?.code ?? "";
+  if (code === "ECONNREFUSED") return `nothing is running${at}`;
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") return `${host || "its address"} can't be found from here (offline, or a typo in its URL)`;
+  if (code === "ECONNRESET" || code === "UND_ERR_SOCKET") return `it hung up${at}`;
+  if (/CERT|SSL|TLS/.test(code)) return `its certificate isn't trusted${at}`;
+  return `it didn't answer${at}${code ? ` (${code})` : ""}`;
 }
 
 export async function readConnector(id: string, fresh = false): Promise<ConnectorState> {
@@ -387,7 +412,7 @@ export async function readConnector(id: string, fresh = false): Promise<Connecto
       name: meta?.name ?? id,
       ok: false,
       url: "",
-      summary: `offline — ${(e as Error).message}`,
+      summary: `offline — ${offlineReason(e, (config.connectors as Record<string, string>)[id])}`,
       metrics: [],
       checkedAt: Date.now(),
     };

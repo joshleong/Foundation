@@ -4,6 +4,7 @@
  * registered apps, one click from being live in this section.
  */
 
+import { keys } from "../lib/keys";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { askAgent, setUi } from "../state/ui";
@@ -41,7 +42,7 @@ export function SectionEmpty({ name, onUpload, onNote, onFocus }: { name: string
         <div className="empty-actions">
           <button
             className="empty-action"
-            data-tip="Open an app or link (⌘L)"
+            data-tip={`Open an app or link (${keys("mod+L")})`}
             onClick={() => {
               onFocus();
               setUi({ command: true });
@@ -52,23 +53,23 @@ export function SectionEmpty({ name, onUpload, onNote, onFocus }: { name: string
               <b>Open an app or link</b>
               <small>Paste a URL — it finds the repo, MCP and ports</small>
             </span>
-            <span className="f-kbd">⌘L</span>
+            <span className="f-kbd">{keys("mod+L")}</span>
           </button>
-          <button className="empty-action" data-tip="Drop files (⌘U)" onClick={onUpload}>
+          <button className="empty-action" data-tip={`Drop files (${keys("mod+U")})`} onClick={onUpload}>
             <span className="empty-glyph">⇪</span>
             <span>
               <b>Drop files</b>
               <small>Designs, CAD, PDFs, video — or drag them here</small>
             </span>
-            <span className="f-kbd">⌘U</span>
+            <span className="f-kbd">{keys("mod+U")}</span>
           </button>
-          <button className="empty-action is-agent" data-tip="Ask the agent to build it (⌘J)" onClick={() => askAgent(`Set up the “${name}” section: `)}>
+          <button className="empty-action is-agent" data-tip={`Ask the agent to build it (${keys("mod+J")})`} onClick={() => askAgent(`Set up the “${name}” section: `)}>
             <span className="empty-glyph">✦</span>
             <span>
               <b>Ask the agent to build it</b>
               <small>It can organize, open apps and chase people for CAD</small>
             </span>
-            <span className="f-kbd">⌘J</span>
+            <span className="f-kbd">{keys("mod+J")}</span>
           </button>
           <button className="empty-action" data-tip="Write a note" onClick={onNote}>
             <span className="empty-glyph">▤</span>

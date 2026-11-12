@@ -21,7 +21,6 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, extname } from "node:path";
-import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
 import { boardMaps, logActivity, uid, type MediaDoc, type PanelDoc } from "@foundation/protocol";
@@ -30,15 +29,9 @@ import { all, one, run } from "./db.ts";
 import { editBoard } from "./boards.ts";
 import { storeFile, isCad } from "./files.ts";
 import { t3Thread } from "./t3.ts";
+import { addressSaid, findT3Cli, findT3Home, notFoundMessage, t3Command, t3Url } from "./t3paths.ts";
 import { imageSize } from "./construct.ts";
 
-const T3_HOME = process.env.T3CODE_HOME ?? join(homedir(), "Library", "Application Support", "co.normallab.vision", "code");
-const T3_URL = (process.env.T3_URL ?? "http://localhost:3783").replace(/\/$/, "");
-function t3Cli() {
-  if (process.env.T3_CLI) return process.env.T3_CLI;
-  const vision = join(homedir(), "Development", "Vision", ".tools", "code-server", "t3");
-  return existsSync(vision) ? vision : "t3";
-}
 const HANDOFFS = () => join(config.dataDir, "handoffs");
 
 /** T3's provider for a Claude thread (Vision's own defaults, handoff.ts) */
@@ -46,14 +39,35 @@ const PROVIDER = { instanceId: "claudeAgent", model: process.env.T3_MODEL ?? "cl
 
 // ---------- a session for one hand-off ----------
 
+/**
+ * Where Vision Code's CLI and home are (t3paths.ts), or why not: the message
+ * a person sees on the hand-off card names every place looked and what to set.
+ */
+export function t3Where(): { cli: string; home: string } {
+  const cli = findT3Cli();
+  const home = findT3Home();
+  if (!cli.found || !home.found) throw new Error(notFoundMessage(cli, home));
+  return { cli: cli.found, home: home.found };
+}
+
 function cli(args: string[]): Promise<string> {
   return new Promise((ok, fail) => {
-    const child = spawn(t3Cli(), [...args, "--base-dir", T3_HOME, "--log-level", "error"], { stdio: ["ignore", "pipe", "pipe"] });
+    let where: { cli: string; home: string };
+    let cmd: string;
+    let pre: string[];
+    try {
+      where = t3Where();
+      ({ cmd, pre } = t3Command(where.cli));
+    } catch (e) {
+      return fail(e as Error);
+    }
+    // no shell: the arguments go to the program as they are
+    const child = spawn(cmd, [...pre, ...args, "--base-dir", where.home, "--log-level", "error"], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     let out = "";
     let err = "";
     child.stdout.on("data", (b: Buffer) => (out += b));
     child.stderr.on("data", (b: Buffer) => (err += b));
-    child.on("error", (e) => fail(new Error(`Vision Code's CLI (${t3Cli()}) isn't here: ${e.message}`)));
+    child.on("error", (e) => fail(new Error(`Vision Code's CLI at ${where.cli} wouldn't start (${e.message}). If it lives elsewhere, set T3_CLI to its t3 program (t3.exe on Windows) where Foundation's server starts.`)));
     child.on("close", (code) => (code === 0 ? ok(out) : fail(new Error(`t3 ${args.slice(0, 3).join(" ")} failed: ${(err || out).slice(-400)}`))));
   });
 }
@@ -80,13 +94,15 @@ class Rpc {
     });
   }
 
-  static open(token: string): Promise<Rpc> {
-    const url = `${T3_URL.replace(/^http/, "ws")}/ws?orchestrationProtocol=1&clientSurface=desktop`;
+  /** `base` is the address in use, so a failure names it (and where it came from) */
+  static open(token: string, base: string): Promise<Rpc> {
+    const url = `${base.replace(/^http/, "ws")}/ws?orchestrationProtocol=1&clientSurface=desktop`;
+    const where = () => `Vision Code at ${addressSaid()}`;
     return new Promise((ok, fail) => {
       const ws = new WebSocket(url, { headers: { authorization: `Bearer ${token}` } });
-      const t = setTimeout(() => (ws.terminate(), fail(new Error("Vision Code didn't answer"))), 8000);
+      const t = setTimeout(() => (ws.terminate(), fail(new Error(`${where()} didn't answer. If it's somewhere else, set T3_URL for Foundation's server.`))), 8000);
       ws.on("open", () => (clearTimeout(t), ok(new Rpc(ws))));
-      ws.on("error", (e) => (clearTimeout(t), fail(new Error(`Vision Code refused the connection: ${e.message}`))));
+      ws.on("error", (e) => (clearTimeout(t), fail(new Error(`${where()} refused the connection (${e.message}). If it's somewhere else, set T3_URL for Foundation's server.`))));
     });
   }
 
@@ -176,9 +192,9 @@ export function turnStart(threadId: string, projectId: string, title: string, te
   };
 }
 
-async function environmentId(): Promise<string | null> {
+async function environmentId(base: string): Promise<string | null> {
   try {
-    const r = await fetch(`${T3_URL}/.well-known/t3/environment`, { signal: AbortSignal.timeout(2000) });
+    const r = await fetch(`${base}/.well-known/t3/environment`, { signal: AbortSignal.timeout(2000) });
     return ((await r.json()) as { environmentId?: string }).environmentId ?? null;
   } catch {
     return null;
@@ -189,7 +205,8 @@ async function environmentId(): Promise<string | null> {
 export async function startThread(folder: string, title: string, text: string): Promise<{ threadId: string; url: string | null }> {
   const root = HANDOFFS();
   return withSession(async (token) => {
-    const rpc = await Rpc.open(token);
+    const base = t3Url(); // one address for the whole hand-off
+    const rpc = await Rpc.open(token, base);
     try {
       let projectId: string | null = null;
       await rpc
@@ -204,9 +221,9 @@ export async function startThread(folder: string, title: string, text: string): 
       }
       const threadId = randomUUID();
       await rpc.call("orchestration.dispatchCommand", turnStart(threadId, projectId, title, text));
-      const env = await environmentId();
+      const env = await environmentId(base);
       void folder;
-      return { threadId, url: env ? `${T3_URL}/${env}/${threadId}` : null };
+      return { threadId, url: env ? `${base}/${env}/${threadId}` : null };
     } finally {
       rpc.close();
     }

@@ -11,6 +11,7 @@
  */
 
 import { queueHandoff } from "./vision.ts";
+import { plural } from "./words.ts";
 import { findImages, layOut } from "./construct.ts";
 import { READ_TOOLS, canWrite } from "./roles.ts";
 import { HttpError } from "./http.ts";
@@ -23,16 +24,20 @@ import {
   findSection,
   isHostable,
   logActivity,
+  MACHINE_DISTROS,
   uid,
   type LinkDoc,
   type NoteDoc,
   putNote,
   setNoteText,
+  setTableCells,
+  type TableDoc,
   type PanelDoc,
   type PanelKind,
   type Port,
 } from "@foundation/protocol";
 import { editBoard, getBoard } from "./boards.ts";
+import { one } from "./db.ts";
 import { searchAll } from "./search.ts";
 import { discoverRepo, parseRepo, repoCommits, repoInfo, repoReadme } from "./github.ts";
 import { callMcpTool, listMcpTools } from "./mcpclient.ts";
@@ -44,8 +49,11 @@ import { attachToStage, chooseArtifact, completeStage, describePipeline, setChec
 import { stageDef } from "@foundation/protocol";
 import { huddleArchive, transcriptText } from "./huddles.ts";
 import { channelHistory, channelInfo, listChannels } from "./slack.ts";
+import { describeMachines, proposeMachine, validImage } from "./machines.ts";
+import { askToRun } from "./machineasks.ts";
+import { writeDigest } from "./digest.ts";
+import { aim, canCallHelp, crewMember, crewWork, describeStep, guide, resolveTarget, setDoing, stepTarget, travel, type CrewMember } from "./crew.ts";
 import { saveGoal, setProfile, todayFor } from "./today.ts";
-import { one } from "./db.ts";
 import type { UserInfo } from "@foundation/protocol";
 
 /** the person a tool acts for (Today's tools are theirs, not the board's) */
@@ -59,6 +67,26 @@ export interface ToolCtx {
   boardId: string;
   actor: string; // display name of the agent or person acting
   userId: string;
+  /** the crew member (a visible agent) acting, when it's one of Foundation's own runs */
+  crew?: string;
+  /**
+   * A person at their browser (the HTTP door with a session cookie and no
+   * bearer), not an agent: their writes are logged as theirs. Everything else
+   * (the built-in agent, MCP, a bearer token) is an agent.
+   */
+  person?: boolean;
+  /** the same, as origin/main's activity log said it ("human" is a person); kept so both callers agree */
+  role?: "human" | "agent";
+}
+
+/**
+ * Who is acting at the HTTP door. A person's browser (cookie, no bearer) acts
+ * as themselves; a bearer token is an agent acting for its person (or the
+ * service token, Foundation's own agent).
+ */
+export function httpToolCtx(boardId: string, user: { id: string; name: string }, person: boolean): ToolCtx {
+  if (person) return { boardId, actor: user.name, userId: user.id, person: true };
+  return { boardId, actor: user.id === "agent" ? user.name : `${user.name}'s agent`, userId: user.id };
 }
 
 export interface BoardTool<S extends z.ZodTypeAny = z.ZodTypeAny> {
@@ -68,6 +96,14 @@ export interface BoardTool<S extends z.ZodTypeAny = z.ZodTypeAny> {
   write?: boolean;
   run: (ctx: ToolCtx, input: z.infer<S>) => Promise<unknown> | unknown;
 }
+
+/** a person's display name, for "Ada's agent" lines */
+function userName(id: string) {
+  return one<{ name: string }>("select name from users where id = ?", id)?.name;
+}
+
+/** the crew agent making a card, when one is (people's cards leave createdBy unset) */
+const madeBy = (ctx: ToolCtx) => (ctx.crew && crewMember(ctx.crew) ? ctx.actor : undefined);
 
 const seenRequests = new Map<string, unknown>();
 /** Vision briefs land in the pipeline's fourth column, level with the stage that wrote them */
@@ -107,15 +143,52 @@ function sectionOrCreate(doc: Y.Doc, section?: string) {
   return first ?? appendSection(doc, "Workspace");
 }
 
+/**
+ * The section a new card goes into. A hosted app fills its section, so a card
+ * added there would be hidden under it: the app becomes a card in the flow
+ * instead (what "Show as a card" does). A real crew turn hooked a connector up
+ * first, then added a table and two notes that nobody could see (2026-11-07).
+ */
+function cardSection(doc: Y.Doc, section?: string) {
+  const sec = sectionOrCreate(doc, section);
+  if (!sec.host) return sec;
+  const { host: _hosted, ...rest } = sec;
+  boardMaps(doc).sections.set(sec.id, rest);
+  return rest;
+}
+
+/**
+ * Starts a helper run for call_in_help. agent.ts registers it (tools can't
+ * import the runtime without a cycle).
+ */
+let helperStarter: ((lead: CrewMember, task: string) => { name: string; runId: string }) | null = null;
+export function setHelperStarter(fn: typeof helperStarter) {
+  helperStarter = fn;
+}
+
 function touch(ctx: ToolCtx, objectId: string | undefined, text: string) {
   const board = getBoard(ctx.boardId);
-  // the agent's presence: a ring on whatever it's touching
+  const member = crewMember(ctx.crew);
+  if (member) {
+    // a crew member: its own cursor lands on what it touched, and the board says who, and for whom
+    aim(member, objectId ? resolveTarget(ctx.boardId, objectId) : null);
+    if (objectId && (boardMaps(board.doc).objects.get(objectId) as { createdBy?: string } | undefined)?.createdBy === member.name) member.made.add(objectId);
+    editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: member.name, role: "agent", text, objectId, for: member.userName }));
+    return;
+  }
+  if (ctx.person || ctx.role === "human") {
+    // a person's own call (a card's button, ⌘K): theirs in the log, and no agent ring
+    editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: ctx.actor, role: "human", text, objectId }));
+    return;
+  }
+  // an agent without a cursor of its own (MCP, a bearer token): the shared presence rings what it's touching
   board.awareness.setLocalState({
     user: { name: `${ctx.actor}`, color: "#6b5bd6", agent: true },
     focus: objectId ?? null,
     at: Date.now(),
   });
-  editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: ctx.actor, role: "agent", text, objectId }));
+  const forWhom = ctx.userId === "agent" ? undefined : userName(ctx.userId);
+  editBoard(ctx.boardId, "agent", (doc) => logActivity(doc, { who: ctx.actor, role: "agent", text, objectId, ...(forWhom ? { for: forWhom } : {}) }));
 }
 
 export function addPanel(
@@ -152,10 +225,11 @@ export function addPanel(
     };
     for (const k of Object.keys(panel) as Array<keyof PanelDoc>) if (panel[k] === undefined) delete panel[k];
     const m = boardMaps(doc);
-    // an app opened into an empty section becomes that section's app
+    // an app opened into an empty section becomes that section's app; anything else joins the flow
     const empty = ![...m.objects.values()].some((o) => o.sectionId === sec.id);
     m.objects.set(panel.id, panel);
     if (empty && isHostable(panel.panel)) m.sections.set(sec.id, { ...sec, host: panel.id });
+    else if (sec.host) cardSection(doc, sec.id);
     return panel;
   });
 }
@@ -188,6 +262,8 @@ export const TOOLS: BoardTool[] = [
     schema: z.object({ object_id: z.string(), note: z.string().optional() }),
     run: (ctx, { object_id, note }) => {
       touch(ctx, object_id, note ?? "pointed at a card");
+      const member = crewMember(ctx.crew);
+      if (member) aim(member, resolveTarget(ctx.boardId, object_id), note ?? "pointing");
       return "ok";
     },
   }),
@@ -199,7 +275,12 @@ export const TOOLS: BoardTool[] = [
       goal: z.string().describe("one sentence: what done looks like"),
       steps: z.array(z.object({ text: z.string(), status: z.enum(["pending", "active", "done"]) })).max(12),
     }),
-    run: (_ctx, { steps }) => `plan set: ${steps.filter((x) => x.status === "done").length}/${steps.length} done`,
+    run: (ctx, { goal, steps }) => {
+      // a lead's plan goes to the helpers it calls in (crew_work)
+      const member = crewMember(ctx.crew);
+      if (member) member.plan = { goal, steps };
+      return `plan set: ${steps.filter((x) => x.status === "done").length}/${steps.length} done`;
+    },
   }),
   // ---- Today: the person's own page (goals, what wants them, their apps). Personal, never a board write ----
   def({
@@ -237,7 +318,7 @@ export const TOOLS: BoardTool[] = [
     run: (ctx, p) => ({ profile: setProfile(ctx.userId, p) }),
   }),
   def({
-    name: "point_at",
+    name: "point_today",
     description:
       "On the person's Today page, point at what you're talking about: a focus item or goal by its id (e.g. 'ask:…', 'goal_…') or an app id. The page lights it up beside your words. Use it whenever your answer is about one or more specific items.",
     schema: z.object({ ids: z.array(z.string()).min(1).max(6) }),
@@ -270,7 +351,7 @@ export const TOOLS: BoardTool[] = [
     write: true,
     run: async (ctx, i) => {
       const out = await layOut(ctx, i);
-      touch(ctx, out.section, `laid out “${i.title}” (${out.cards} cards)`);
+      touch(ctx, out.section, `laid out “${i.title}” (${plural(out.cards, "card")})`);
       return out;
     },
   }),
@@ -280,7 +361,11 @@ export const TOOLS: BoardTool[] = [
     schema: z.object({ name: z.string(), request_id: z.string().optional() }),
     write: true,
     run: (ctx, { name }) => {
+      const had = findSection(getBoard(ctx.boardId).doc, name);
       const sec = editBoard(ctx.boardId, "agent", (doc) => findSection(doc, name) ?? appendSection(doc, name));
+      // a crew member's own section: its teammates see it in crew_work
+      const member = crewMember(ctx.crew);
+      if (member && !had && !member.sections.includes(sec.id)) member.sections.push(sec.id);
       touch(ctx, undefined, `added section “${name}”`);
       return sec;
     },
@@ -292,8 +377,8 @@ export const TOOLS: BoardTool[] = [
     write: true,
     run: (ctx, { section, title, markdown }) => {
       const note = editBoard(ctx.boardId, "agent", (doc) => {
-        const sec = sectionOrCreate(doc, section);
-        const n: NoteDoc & { text: string } = { id: uid("note"), kind: "note", sectionId: sec.id, name: title, x: 0, y: 0, float: false, bornAt: Date.now(), w: 420, h: 300, text: markdown };
+        const sec = cardSection(doc, section);
+        const n: NoteDoc & { text: string } = { id: uid("note"), kind: "note", sectionId: sec.id, name: title, x: 0, y: 0, float: false, bornAt: Date.now(), w: 420, h: 300, text: markdown, ...(madeBy(ctx) ? { createdBy: madeBy(ctx) } : {}) };
         putNote(doc, n);
         return n;
       });
@@ -348,7 +433,7 @@ export const TOOLS: BoardTool[] = [
         const next = { ...o } as Record<string, unknown>;
         for (const [k, v] of Object.entries(patch)) if (v !== undefined) next[k] = v;
         if (section) {
-          const sec = sectionOrCreate(doc, section);
+          const sec = cardSection(doc, section);
           next.sectionId = sec.id;
           next.float = false;
         }
@@ -374,6 +459,7 @@ export const TOOLS: BoardTool[] = [
         const m = boardMaps(doc);
         m.objects.delete(id);
         m.noteText.delete(id);
+        m.huddles.delete(id);
         for (const [lid, l] of m.links.entries()) if (l.from.panel === id || l.to.panel === id) m.links.delete(lid);
       });
       touch(ctx, undefined, `removed a card`);
@@ -522,7 +608,7 @@ export const TOOLS: BoardTool[] = [
     run: (ctx, i) => {
       const md = `## ${i.title}\n\n**Goal** ${i.goal}\n\n${i.constraints ? `**Constraints** ${i.constraints}\n\n` : ""}${i.simulate ? `**Simulate** ${i.simulate}\n\n` : ""}**Reviewers** ${i.reviewers.join(", ") || "—"}\n\n*Brief written by ${ctx.actor} for Vision.*`;
       const noteId = editBoard(ctx.boardId, "agent", (doc) => {
-        const sec = sectionOrCreate(doc, i.section);
+        const sec = cardSection(doc, i.section);
         const n: NoteDoc & { text: string } = { id: uid("note"), kind: "note", sectionId: sec.id, name: `Brief · ${i.title}`, x: 0, y: 0, float: false, bornAt: Date.now(), w: 440, h: 320, text: md };
         putNote(doc, n);
         return n.id;
@@ -555,6 +641,59 @@ export const TOOLS: BoardTool[] = [
       });
       touch(ctx, p.id, `queued reverse-engineering of ${target}`);
       return { job: job.id, card: p.id, note: "waiting for a person to press Run on the card" };
+    },
+  }),
+  // ---------- machines: Linux machines and containers on Kiri or Docker (machines.ts) ----------
+  def({
+    name: "propose_machine",
+    description:
+      "Propose a Linux machine or container for a section: a machine card that runs on this computer's container engine (Kiri or Docker) once a person presses Start on it. Agents can't start, stop or remove machines — that runs third-party code, so a person does it. Distros: ubuntu, debian, alpine, fedora, arch, rocky, opensuse (or any image name, e.g. 'postgres:17', 'nginx:1.27'). Ports are container ports to publish on 127.0.0.1.",
+    schema: z.object({
+      name: z.string().describe("short machine name, e.g. 'build box'"),
+      image: z.string().optional().describe("a distro id (ubuntu…) or an image ref; omit to let the person pick on the card"),
+      ports: z.array(z.number().int().min(1).max(65535)).max(8).optional(),
+      why: z.string().optional().describe("what it's for, in a sentence: shown on the card"),
+      section: z.string().optional(),
+      request_id: z.string().optional(),
+    }),
+    write: true,
+    run: (ctx, input) => {
+      const distro = MACHINE_DISTROS.find((d) => d.id === input.image?.toLowerCase());
+      const image = distro?.image ?? input.image?.trim();
+      if (image && !validImage(image)) throw new Error(`“${image}” isn't an image name an engine will take`);
+      const p = addPanel(ctx, { section: input.section, panel: "machine", name: input.name, text: input.why });
+      editBoard(ctx.boardId, "agent", (doc) => {
+        const cur = getPanel(doc, p.id);
+        boardMaps(doc).objects.set(p.id, proposeMachine(cur, image, ctx.actor, input.ports));
+      });
+      touch(ctx, p.id, `proposed a machine “${input.name}”${image ? ` (${image})` : ""}`);
+      return { card: p.id, image: image ?? null, note: "waiting for a person to press Start on the card" };
+    },
+  }),
+  def({
+    name: "machines",
+    description:
+      "Read the machine cards on this board: which engines (Kiri, Docker) answer here, each machine's image, state (absent, pulling, starting, running, stopped, error), published ports as URLs, and the last screen of its shared terminal (what people ran and saw).",
+    schema: z.object({}),
+    run: (ctx) => describeMachines(ctx.boardId),
+  }),
+  def({
+    name: "machine_run",
+    description:
+      "Ask to run one shell command in a machine on this board that a person has started (its card id or machine name; `machines` lists them). It goes on the machine's card, and runs only when a person who can edit the board presses Run there; they may Decline. This call waits for them (wait_s, 120 s by default), then returns the exit code and output, or says it was declined or nobody answered, in which case nothing ran: don't try another way, tell the person. It runs as the machine's user (root), without a terminal or prompts (use -y and the like), stopped after timeout_s (120 s by default). One waiting command per agent per machine; say why in a few words.",
+    schema: z.object({
+      machine: z.string().describe("the machine card's id, or the machine's name"),
+      command: z.string().min(1).max(2000).describe("a /bin/sh command line"),
+      why: z.string().max(160).optional().describe("why, in a few words, for the person deciding"),
+      wait_s: z.number().int().min(5).max(600).optional(),
+      timeout_s: z.number().int().min(1).max(600).optional(),
+      request_id: z.string().optional(),
+    }),
+    write: true,
+    run: (ctx, { machine, command, why, wait_s, timeout_s }) => {
+      const member = crewMember(ctx.crew);
+      const forName = member ? member.userName : ctx.person || ctx.userId === "agent" ? undefined : userName(ctx.userId);
+      return askToRun({ boardId: ctx.boardId, actor: ctx.actor, userId: ctx.userId, crew: ctx.crew, forName }, machine, command, { why, waitS: wait_s, timeoutS: timeout_s });
     },
   }),
   // ---------- design pipelines: design → CAD → simulation → release ----------
@@ -745,6 +884,158 @@ export const TOOLS: BoardTool[] = [
       return msgs.map((m) => `[${new Date(m.at).toISOString().slice(0, 16).replace("T", " ")}] ${m.name}: ${m.text}`).join("\n") || "(no messages)";
     },
   }),
+  def({
+    name: "add_table",
+    description:
+      "Make a table (a spreadsheet card) in a section, filled with data: a header row of column names, then rows. Cells take numbers, text or formulas as typed (=SUM(B2:B9)). Use it to put data on the board people can read, sort and chart.",
+    schema: z.object({
+      section: z.string().optional(),
+      name: z.string(),
+      columns: z.array(z.string()).min(1).max(26),
+      rows: z.array(z.array(z.union([z.string(), z.number(), z.null()]))).max(500).optional(),
+      request_id: z.string().optional(),
+    }),
+    write: true,
+    run: (ctx, { section, name, columns, rows = [] }) => {
+      const table = editBoard(ctx.boardId, "agent", (doc) => {
+        const sec = cardSection(doc, section);
+        const cols = Math.max(columns.length, ...rows.map((r) => r.length), 3);
+        const t: TableDoc = { id: uid("tbl"), kind: "table", sectionId: sec.id, name, x: 0, y: 0, float: false, bornAt: Date.now(), cols, rows: Math.max(rows.length + 1, 6), ...(madeBy(ctx) ? { createdBy: madeBy(ctx) } : {}) };
+        const raw: Record<string, string> = {};
+        columns.forEach((c, i) => c && (raw[`${i},0`] = c));
+        rows.forEach((r, ri) => r.forEach((v, ci) => v !== null && v !== "" && (raw[`${ci},${ri + 1}`] = String(v))));
+        boardMaps(doc).objects.set(t.id, t);
+        setTableCells(doc, t.id, raw); // made with the table, in the same change (schema 5)
+        return t;
+      });
+      touch(ctx, table.id, `made table “${name}” (${plural(rows.length, "row")})`);
+      return { id: table.id, cols: table.cols, rows: table.rows };
+    },
+  }),
+  def({
+    name: "rename_section",
+    description: "Rename a section (by its name or id).",
+    schema: z.object({ section: z.string(), name: z.string().min(1).max(80), request_id: z.string().optional() }),
+    write: true,
+    run: (ctx, { section, name }) => {
+      const sec = editBoard(ctx.boardId, "agent", (doc) => {
+        const found = findSection(doc, section);
+        if (!found) throw new Error(`no section “${section}”`);
+        const next = { ...found, name };
+        boardMaps(doc).sections.set(found.id, next);
+        return next;
+      });
+      touch(ctx, undefined, `renamed a section to “${name}”`);
+      const member = crewMember(ctx.crew);
+      if (member) aim(member, { id: sec.id, kind: "section" });
+      return { id: sec.id, name };
+    },
+  }),
+  def({
+    name: "arrange_section",
+    description:
+      "Organize a section: its cards flow left to right, top to bottom, in the order given (ids; cards not named keep their order after them). Floating cards are docked into the flow. Use it to tidy a section after adding to it, or to put related cards side by side.",
+    schema: z.object({ section: z.string(), order: z.array(z.string()).optional(), request_id: z.string().optional() }),
+    write: true,
+    run: (ctx, { section, order = [] }) => {
+      const n = editBoard(ctx.boardId, "agent", (doc) => {
+        const sec = findSection(doc, section);
+        if (!sec) throw new Error(`no section “${section}”`);
+        const m = boardMaps(doc);
+        const cards = [...m.objects.values()].filter((o) => o.sectionId === sec.id && o.id !== sec.host);
+        // the flow is ordered by bornAt: hand the same times out again in the new order (no new times, so nothing re-arrives)
+        const times = cards.map((o) => o.bornAt).sort((a, b) => a - b);
+        const rank = (id: string) => (order.indexOf(id) >= 0 ? order.indexOf(id) : order.length);
+        const sorted = [...cards].sort((a, b) => rank(a.id) - rank(b.id) || a.bornAt - b.bornAt);
+        sorted.forEach((o, i) => {
+          if (o.bornAt !== times[i] || o.float) m.objects.set(o.id, { ...o, bornAt: times[i], float: false } as never);
+        });
+        return sorted.length;
+      });
+      touch(ctx, undefined, `arranged ${plural(n, "card")} in “${findSection(getBoard(ctx.boardId).doc, section)?.name ?? section}”`);
+      const member = crewMember(ctx.crew);
+      if (member) aim(member, resolveTarget(ctx.boardId, section));
+      return `arranged ${plural(n, "card")}`;
+    },
+  }),
+  def({
+    name: "write_digest",
+    description:
+      "Write today's digest now: a note, newest first in the “Daily digest” section, saying what changed since the last one — on this board (who did what, people and agents; sections and cards added or removed) and in the company's systems (FactoryForm, BomForm … compared with the reading the last digest saw; offline ones say so). One note per day: asking again the same day brings today's note up to date. Built from the board and the connectors, no model. The server also writes one each morning on the company board.",
+    schema: z.object({ request_id: z.string().optional() }),
+    write: true,
+    run: async (ctx) => {
+      const out = await writeDigest(ctx.boardId, { by: ctx.actor });
+      return out && { id: out.id, title: out.title, day: out.day, did: out.did };
+    },
+  }),
+  def({
+    name: "bring_view",
+    description:
+      "Bring the person who asked to a section or card: their view glides there (if they're busy moving around, they're asked first, and they can always go back). Use it when what you made or found is somewhere they aren't looking, once it's ready to see. Other people just see you go there.",
+    schema: z.object({ target: z.string().describe("a section name or id, or a card id"), note: z.string().optional().describe("a few words on why: “the parts table is ready”") }),
+    run: (ctx, { target, note }) => {
+      const t = resolveTarget(ctx.boardId, target);
+      if (!t) throw new Error(`nothing called “${target}” on this board`);
+      const member = crewMember(ctx.crew);
+      if (!member) return "only Foundation's own agents can move a person's view; use focus to point instead";
+      const m = boardMaps(getBoard(ctx.boardId).doc);
+      const name = t.kind === "section" ? (m.sections.get(t.id)?.name ?? target) : (m.objects.get(t.id)?.name ?? target);
+      guide(member, t, name, note);
+      return `bringing ${member.userName} to ${name}`;
+    },
+  }),
+  def({
+    name: "point_at",
+    description:
+      "Point your cursor at something precise while you explain it: a table cell (\"B3\") or a panel's port, or just a card or section. Everyone on the board sees your cursor there with a laser ring on the spot. It changes nothing on the board.",
+    schema: z.object({
+      target: z.string().describe("a card id, or a section name or id"),
+      cell: z.string().regex(/^[A-Za-z]{1,3}[1-9][0-9]{0,4}$/).optional().describe("a table cell, A1-style"),
+      port: z.string().optional().describe("a panel's port, by name or id"),
+      note: z.string().max(80).optional().describe("what you're pointing out, in a few words"),
+    }),
+    run: (ctx, { target, cell, port, note }) => {
+      const t = resolveTarget(ctx.boardId, target);
+      if (!t) throw new Error(`nothing called “${target}” on this board`);
+      const o = t.kind === "object" ? boardMaps(getBoard(ctx.boardId).doc).objects.get(t.id) : undefined;
+      if (cell && o?.kind !== "table") throw new Error("cells are on tables; point at a table's id with cell");
+      if (port && (o?.kind !== "panel" || !(o as PanelDoc).ports.some((p) => p.id === port || p.name === port))) throw new Error(`no port “${port}” on that card`);
+      const member = crewMember(ctx.crew);
+      if (!member) return "only Foundation's own agents have a cursor to point with";
+      const spot = cell ? `cell ${cell.toUpperCase()}` : port ? `port “${port}”` : (o?.name ?? target);
+      aim(member, { ...t, ...(cell ? { cell: cell.toUpperCase() } : {}), ...(port ? { port } : {}) }, note ?? `pointing at ${spot}`);
+      return `pointing at ${spot}`;
+    },
+  }),
+  def({
+    name: "crew_work",
+    description:
+      "What the crew on this ask has done so far: the ask, the lead's plan, and for each agent on it (the lead and every helper) what it's doing now and the sections and cards it has made. A helper reads it before making each thing, so two agents don't make the same card; build on what's there instead.",
+    schema: z.object({}),
+    run: (ctx) => {
+      const member = crewMember(ctx.crew);
+      if (!member) return "only Foundation's own agents work in a crew";
+      return crewWork(member);
+    },
+  }),
+  def({
+    name: "call_in_help",
+    description: `Call in a helper agent for a separate part of this ask that can run at the same time as yours (a different section, a different data source). It gets its own name and cursor, works through the same tools and finishes on its own; say exactly what it should do and where. At most two per ask; helpers can't call helpers. Don't use it for small or dependent steps.`,
+    schema: z.object({ task: z.string().min(8).max(2000), section: z.string().optional() }),
+    write: true,
+    run: (ctx, { task, section }) => {
+      const member = crewMember(ctx.crew);
+      if (!member) return "help can only be called in by one of Foundation's own agents";
+      const why = canCallHelp(member);
+      if (why) throw new Error(`can't call in help: ${why}`);
+      if (!helperStarter) throw new Error("no agent runtime to start a helper");
+      member.helpers++;
+      const h = helperStarter(member, section ? `${task}\n\n(Work in the section “${section}”.)` : task);
+      touch(ctx, undefined, `called in ${h.name}: ${task.slice(0, 120)}`);
+      return `${h.name} is on it`;
+    },
+  }),
 ];
 
 export function toolByName(name: string) {
@@ -764,6 +1055,14 @@ export async function runTool(ctx: ToolCtx, name: string, rawInput: unknown): Pr
   const rid = (parsed.data as { request_id?: string }).request_id;
   const key = rid ? `${ctx.boardId}:${ctx.userId}:${rid}` : null;
   if (key && seenRequests.has(key)) return seenRequests.get(key);
+  // a visible agent says what it's doing, and goes to what it's about to change before changing it
+  const member = crewMember(ctx.crew);
+  if (member && member.boardId === ctx.boardId) {
+    const input = parsed.data as Record<string, unknown>;
+    const doing = describeStep(name, input, ctx.boardId);
+    if (tool.write) await travel(member, stepTarget(ctx.boardId, name, input), doing);
+    else setDoing(member, doing);
+  }
   const out = await tool.run(ctx, parsed.data);
   if (key) {
     seenRequests.set(key, out);

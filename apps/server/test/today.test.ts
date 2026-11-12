@@ -105,7 +105,7 @@ test("a viewer keeps their own goals through the tools, and still can't write a 
   assert.equal(goal.title, "Learn the fleet");
   const t = (await runTool(ctx, "today", {})) as { goals: Array<{ id: string }> };
   assert.deepEqual(t.goals.map((g) => g.id), [goal.id]);
-  assert.deepEqual(await runTool(ctx, "point_at", { ids: [goal.id] }), { pointed: [goal.id] });
+  assert.deepEqual(await runTool(ctx, "point_today", { ids: [goal.id] }), { pointed: [goal.id] });
   await assert.rejects(runTool(ctx, "add_note", { section: "Rim drive", title: "hi", markdown: "hi" }), /View only/);
   // and the agent can't reach someone else's goal
   await assert.rejects(runTool({ ...ctx, userId: kai.id }, "set_goal", { id: goal.id, status: "done" }), /no such goal of yours/);

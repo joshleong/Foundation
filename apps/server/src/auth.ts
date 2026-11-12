@@ -7,9 +7,11 @@
  *   testing. Disabled with FOUNDATION_DEV_LOGIN=0.
  *
  * Sessions are random 32-byte tokens in an HttpOnly cookie (browser) or a
- * Bearer header (Tauri, agents); only their SHA-256 is stored, and a bearer
- * never travels in a URL (flowform-server's rules). The service token authenticates other
- * services and agents as the "foundation-agent" user.
+ * Bearer header (the app on another site's server, agents); only their
+ * SHA-256 is stored, and a bearer never travels in a URL (flowform-server's
+ * rules). Sockets that can't send a header use a one-time ticket instead
+ * (sockets.ts). The service token authenticates other services and agents as
+ * the "foundation-agent" user.
  */
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -44,13 +46,33 @@ export function upsertUser(email: string, name: string): UserInfo {
   return { id, email: e, name: name || e.split("@")[0], color, role };
 }
 
-const hashToken = (t: string) => createHash("sha256").update(t).digest("hex");
+export const hashToken = (t: string) => createHash("sha256").update(t).digest("hex");
 
-export function createSession(userId: string, ttlMs = SESSION_DAYS * 864e5): string {
+/**
+ * What a session is for. `browser`: the sign-in cookie. `app`: a person's own
+ * app holding a bearer because the cookie can't reach this server (the
+ * desktop app on a hosted server); it counts as a person, like the cookie.
+ * `agent`: a bearer handed to an agent (/api/agent/token, an agent run's MCP).
+ */
+export type SessionKind = "browser" | "app" | "agent";
+
+export function createSession(userId: string, ttlMs = SESSION_DAYS * 864e5, kind: SessionKind = "browser"): string {
   const token = randomBytes(32).toString("base64url");
   const now = Date.now();
-  run("insert into sessions (token, user_id, created_at, expires_at) values (?, ?, ?, ?)", hashToken(token), userId, now, now + ttlMs);
+  run("insert into sessions (token, user_id, created_at, expires_at, kind) values (?, ?, ?, ?, ?)", hashToken(token), userId, now, now + ttlMs, kind);
   return token;
+}
+
+/**
+ * Finish a sign-in. A browser gets the cookie. A client that asked for a
+ * bearer (`{ bearer: true }`: the app on a server that isn't its own site,
+ * where a SameSite cookie never arrives) gets an `app` session in the
+ * response body instead, to keep outside URLs and send as Authorization.
+ */
+export function signIn(res: ServerResponse, userId: string, bearer: boolean): { session?: string } {
+  if (bearer) return { session: createSession(userId, SESSION_DAYS * 864e5, "app") };
+  setSessionCookie(res, createSession(userId));
+  return {};
 }
 
 export function revokeSession(token: string) {
@@ -68,7 +90,7 @@ export function clearSession(req: Req, res: ServerResponse) {
   res.setHeader("set-cookie", `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
 }
 
-function tokenFrom(req: Req): string | null {
+export function tokenFrom(req: Req): string | null {
   const auth = req.headers.authorization;
   if (auth?.startsWith("Bearer ")) return auth.slice(7);
   return parseCookies(req.headers.cookie)[COOKIE] ?? null;
@@ -85,10 +107,20 @@ function safeEq(a: string, b: string) {
 export function userFromRequest(req: Req): UserInfo | null {
   const token = tokenFrom(req);
   if (!token) return null;
-  if (config.serviceToken.length >= 32 && safeEq(token, config.serviceToken)) return AGENT_USER;
-  const row = one<UserInfo & { expires_at: number }>(
-    "select u.id, u.email, u.name, u.color, u.role, s.expires_at from sessions s join users u on u.id = s.user_id where s.token = ?",
-    hashToken(token),
+  if (isServiceToken(token)) return AGENT_USER;
+  const found = userFromSessionHash(hashToken(token));
+  if (!found) return null;
+  const { kind: _k, ...user } = found;
+  return user;
+}
+
+export const isServiceToken = (token: string) => config.serviceToken.length >= 32 && safeEq(token, config.serviceToken);
+
+/** the live session stored under this hash, as its person (and what kind of session it is) */
+export function userFromSessionHash(sessionHash: string): (UserInfo & { kind: SessionKind | null }) | null {
+  const row = one<UserInfo & { expires_at: number; kind: SessionKind | null }>(
+    "select u.id, u.email, u.name, u.color, u.role, s.expires_at, s.kind from sessions s join users u on u.id = s.user_id where s.token = ?",
+    sessionHash,
   );
   if (!row || row.expires_at < Date.now()) return null;
   const { expires_at: _e, ...user } = row;
@@ -100,6 +132,39 @@ export function requireUser(req: Req): UserInfo {
   if (!u) throw new HttpError(401, "sign in first");
   req.user = u;
   return u;
+}
+
+/**
+ * A person at their own screen, not an agent: the session is the sign-in
+ * cookie with no bearer on the request, or a bearer the person's app was
+ * given at sign-in (kind `app`). Agents, MCP clients and the service token
+ * hold `agent` bearers (or none of these), so things that run third-party
+ * code (starting a machine) can ask for this.
+ */
+export function requirePerson(req: Req, what = "This"): UserInfo {
+  const u = requireUser(req);
+  const refuse = () => new HttpError(403, `${what} needs a person: press the button on the card. Agents can propose, not run.`);
+  if (u.id === AGENT_USER.id) throw refuse();
+  const auth = req.headers.authorization;
+  if (auth) {
+    // a bearer is a person only if it is an app's sign-in session
+    const s = auth.startsWith("Bearer ") ? userFromSessionHash(hashToken(auth.slice(7))) : null;
+    if (s?.kind !== "app") throw refuse();
+    return u;
+  }
+  const cookie = parseCookies(req.headers.cookie)[COOKIE];
+  if (!cookie || userFromSessionHash(hashToken(cookie))?.kind === "agent") throw refuse();
+  return u;
+}
+
+/** is this request a person (requirePerson's test: their browser's cookie, or their app's sign-in bearer), without refusing it */
+export function isPerson(req: Req, _user?: UserInfo): boolean {
+  try {
+    requirePerson(req);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ---------- Google OAuth ----------

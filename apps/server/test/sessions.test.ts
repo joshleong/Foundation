@@ -60,7 +60,9 @@ test("set_plan is a tool every runtime can call", async () => {
 });
 
 test("Vision Code: no store is 'unavailable'; a store lists live threads and replays one", async () => {
-  assert.deepEqual(await t3Threads(), { available: false, threads: [] });
+  const none = await t3Threads();
+  assert.deepEqual({ ...none, missing: undefined }, { available: false, threads: [], missing: undefined });
+  assert.match(none.missing!, /T3CODE_HOME is .*no userdata\/state\.sqlite/, "says where it looked");
 
   // the slice of T3's projection Foundation reads
   mkdirSync(join(t3home, "userdata"));

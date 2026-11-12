@@ -22,6 +22,8 @@ export const BOARD = {
   meta: "meta", // name, createdAt, ...
   activity: "activity", // Y.Array<ActivityEntry>
   noteText: "noteText", // noteId → Y.Text (schema 3: typing merges character by character)
+  huddles: "huddles", // huddle panel id → HuddleState (schema 6: kept by the server alone, off the card)
+  machineAsks: "machineAsks", // machine panel id → MachineAsk[] (commands agents asked to run; kept by the server alone, off the card)
 } as const;
 
 export interface GridTracks {
@@ -49,8 +51,10 @@ export interface SectionDoc {
  * 3: note text is a Y.Text. 4: each table's cells are a Y.Map. 5: every table
  * has its cell map from the start (made with the table, never lazily — two
  * people making it at once would each make one, and one would be lost).
+ * 6: a huddle's live state lives in `huddles`, not on its card, so moving the
+ * card while someone joins can't overwrite who's in it.
  */
-export const BOARD_SCHEMA = 5;
+export const BOARD_SCHEMA = 6;
 
 /** Panel kinds a section can host — whole apps, not artifacts. */
 export const HOSTABLE_KINDS = ["app", "link", "machine", "connector"] as const;
@@ -67,6 +71,12 @@ interface ObjectBaseDoc {
   y: number;
   float: boolean;
   bornAt: number;
+  /**
+   * Who made it, when it wasn't a person at the board: the crew agent's name
+   * (notes and tables an agent writes say so on the card). Panels also carry
+   * the actor of the tool call that made them.
+   */
+  createdBy?: string;
 }
 
 export interface TableDoc extends ObjectBaseDoc {
@@ -144,14 +154,18 @@ export interface PanelDoc extends ObjectBaseDoc {
   connector?: string;
   /** Slack channel id — a "slack" card's channel, or the channel a huddle was opened for */
   channel?: string;
-  /** a huddle's live state, kept by the server: who is in it now and whether it records; its sessions are archived */
+  /**
+   * Only on boards older than schema 6. A huddle's live state lives in the
+   * board's `huddles` map, written by the server alone, so a person moving
+   * the card while someone joins can't overwrite it; read it with
+   * huddleStateOf. Readers ignore this field.
+   */
   huddle?: HuddleState;
   /** agent session id for panel === "agent" */
   sessionId?: string;
   /** for asks: who, and whether it's done */
   assignee?: string;
   status?: "open" | "done" | "running" | "idle" | "error";
-  createdBy?: string;
   /** last value each output port emitted (JSON-able) */
   outputs?: Record<string, unknown>;
   // ---- design pipeline stages (panel === "stage") ----
@@ -161,6 +175,95 @@ export interface PanelDoc extends ObjectBaseDoc {
   checklist?: Array<{ text: string; done: boolean }>;
   /** stage-specific settings, e.g. { analysis: "CFD", loads: "…" } */
   settings?: Record<string, string>;
+  // ---- machines on a container engine (panel === "machine" without a url) ----
+  /** a Linux machine or container this card runs on Kiri or Docker, kept by the server (machines.ts) */
+  machine?: MachineState;
+  /**
+   * A page opened from a machine card's port pill: which card and which
+   * container port (and the machine's name then, for when the card is gone).
+   * The page follows that machine: live while it runs, an honest stopped
+   * state otherwise, reloaded when it runs again. Optional, so no migration.
+   */
+  fromMachine?: { panel: string; port: number; name: string };
+}
+
+// ---------- machines: Linux machines and containers on a local engine ----------
+
+/**
+ * A machine card's engine-side state. The engine is the truth: the server
+ * reads it back (by the container's labels) and writes what it finds here,
+ * so everyone sees the same state. Starting needs a person; agents propose.
+ */
+export interface MachineState {
+  /** machine name; the container is `machine-<name>` (Kiri's convention, so `kiri machine shell <name>` finds it) */
+  name: string;
+  /** image it runs ("ubuntu:24.04"): picked by a person on the card, or proposed by an agent */
+  image?: string;
+  /** "kiri" | "docker"; unset: the first engine that answers, Kiri first */
+  engine?: string;
+  state: "absent" | "pulling" | "starting" | "running" | "stopped" | "error";
+  /** words for the state: pull progress, why it stopped, the error */
+  detail?: string;
+  containerId?: string;
+  /** container ports to publish on 127.0.0.1 */
+  wantPorts?: number[];
+  /** what the engine published: container port → host port on 127.0.0.1 */
+  ports?: Array<{ port: number; host: number }>;
+  proposedBy?: string;
+  startedBy?: string;
+  /** when it entered this state */
+  since?: number;
+}
+
+/** Kiri's distro shortcuts (`kiri machine create NAME --distro ubuntu`): these images become long-lived machines */
+export const MACHINE_DISTROS: ReadonlyArray<{ id: string; image: string }> = [
+  { id: "ubuntu", image: "ubuntu:24.04" },
+  { id: "debian", image: "debian:trixie" },
+  { id: "alpine", image: "alpine:3.22" },
+  { id: "fedora", image: "fedora:42" },
+  { id: "arch", image: "archlinux:latest" },
+  { id: "rocky", image: "rockylinux:9" },
+  { id: "opensuse", image: "opensuse/tumbleweed:latest" },
+];
+
+/** a machine name: letters, digits and dashes, not starting with a dash (Kiri's rule), at most 40 */
+export function machineName(s: string): string {
+  const n = s.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+  return n || "machine";
+}
+
+/**
+ * A command an agent asked to run in a machine a person started. Nothing runs
+ * until a person who can edit the board presses Run on the card (from their
+ * browser session; agents and bearer tokens can't approve). The server alone
+ * writes these, in the board's `machineAsks` map (off the card, so moving the
+ * card can't lose one), and keeps the last few per machine.
+ */
+export interface MachineAsk {
+  id: string;
+  command: string;
+  /** the agent's few words on why */
+  why?: string;
+  /** the agent that asked (a crew name, or "Ada's agent" for an outside one) */
+  by: string;
+  /** the person it works for */
+  for?: string;
+  state: "waiting" | "running" | "done" | "declined" | "timed out" | "withdrawn" | "failed";
+  at: number;
+  /** the person who pressed Run or Decline */
+  decidedBy?: string;
+  decidedAt?: number;
+  exitCode?: number;
+  /** the end of what it printed (the agent gets more) */
+  output?: string;
+  endedAt?: number;
+  /** when a waiting ask gives up, unanswered */
+  expiresAt?: number;
+}
+
+/** the commands agents asked to run in a machine, newest last */
+export function machineAsksOf(doc: Y.Doc, panelId: string): MachineAsk[] {
+  return boardMaps(doc).machineAsks.get(panelId) ?? [];
 }
 
 // ---------- huddles: video portals on the board ----------
@@ -297,6 +400,8 @@ export interface ActivityEntry {
   role: "human" | "agent" | "system";
   text: string;
   objectId?: string;
+  /** an agent's line: the person it was working for */
+  for?: string;
 }
 
 export const DEFAULT_COL_W = 1560;
@@ -318,7 +423,25 @@ export function boardMaps(doc: Y.Doc) {
     meta: doc.getMap<unknown>(BOARD.meta),
     activity: doc.getArray<ActivityEntry>(BOARD.activity),
     noteText: doc.getMap<Y.Text>(BOARD.noteText),
+    huddles: doc.getMap<HuddleState>(BOARD.huddles),
+    machineAsks: doc.getMap<MachineAsk[]>(BOARD.machineAsks),
   };
+}
+
+// ---------- huddle state (schema 6) ----------
+
+/** A huddle's live state (who's in it now, whether it records), or none before anyone met there. */
+export function huddleStateOf(doc: Y.Doc, huddleId: string): HuddleState | undefined {
+  return boardMaps(doc).huddles.get(huddleId);
+}
+
+/**
+ * Set a huddle's live state. The server alone calls this (huddles.ts); it
+ * touches only the huddle's entry in `huddles`, never the card in `objects`.
+ * Call inside a transaction.
+ */
+export function setHuddleState(doc: Y.Doc, huddleId: string, state: HuddleState) {
+  boardMaps(doc).huddles.set(huddleId, state);
 }
 
 // ---------- table cells (schema 4) ----------
@@ -374,36 +497,6 @@ export function textDiff(a: string, b: string): { at: number; remove: number; in
   return { at: start, remove: a.length - start - end, insert: b.slice(start, b.length - end) };
 }
 const isLowSurrogate = (c: number) => c >= 0xdc00 && c <= 0xdfff;
-
-/**
- * A keystroke as an edit of the shared text: `base` is what the editor showed,
- * `next` what it shows after the key, `current` what the shared text holds
- * now (someone else may have typed in between). The person's edit, moved past
- * the other change so neither loses characters; null when nothing changed.
- */
-export function rebaseEdit(base: string, next: string, current: string): { at: number; remove: number; insert: string } | null {
-  const mine = textDiff(base, next);
-  if (!mine) return null;
-  const theirs = textDiff(base, current);
-  let { at, remove } = mine;
-  if (theirs) {
-    const theirEnd = theirs.at + theirs.remove;
-    const before = at + remove <= theirs.at && !(at === theirs.at && remove === 0 && theirs.remove === 0);
-    if (before) {
-      // mine is wholly before theirs: positions hold
-    } else if (at >= theirEnd) {
-      at += theirs.insert.length - theirs.remove; // after theirs (or both typing at one spot): slide past it
-    } else {
-      // overlapping: theirs stands, mine goes in just after it, deleting only what's left of my range
-      const myEnd = at + remove;
-      at = theirs.at + theirs.insert.length;
-      remove = Math.max(0, myEnd - theirEnd);
-    }
-  }
-  at = Math.min(at, current.length);
-  remove = Math.min(remove, current.length - at);
-  return { at, remove, insert: mine.insert };
-}
 
 /** A note's text: its Y.Text, or the legacy field on a board that hasn't migrated. */
 export function noteTextOf(doc: Y.Doc, note: { id: string; text?: string }): string {
@@ -513,6 +606,10 @@ export function describeBoard(doc: Y.Doc): string {
 export type AgentEvent =
   /** first on every stream: the run it belongs to (reattach with GET /api/agent/runs/:id/events) */
   | { type: "run"; id: string }
+  /** the visible agent doing this run: its generated name, hue (0–5) and, for a helper, who called it in */
+  | { type: "crew"; id: string; name: string; hue: number; lead?: string; leadName?: string }
+  /** a helper this run called in: its own run and session, so its tab can be opened */
+  | { type: "helper"; name: string; runId: string; session: string }
   | { type: "text"; text: string }
   | { type: "tool"; name: string; input: unknown }
   | { type: "tool_result"; name: string; ok: boolean; summary: string }
@@ -525,8 +622,10 @@ export type AgentEvent =
  * - "subscription": Claude Code on this machine (`claude -p`), the T3-style
  *   session mechanism — the user's plan pays, never an API key.
  * - "api": the Anthropic API with the workspace key (credits).
+ * - "script": a fixed playbook for tests and e2e (FOUNDATION_AGENT_SCRIPT=1
+ *   only): the same tools, no model.
  */
-export type AgentRuntime = "subscription" | "api";
+export type AgentRuntime = "subscription" | "api" | "script";
 
 export interface SearchHit {
   source: "board" | "file" | "slack" | "github" | "app" | "activity" | "huddle";

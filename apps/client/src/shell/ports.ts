@@ -91,7 +91,8 @@ function cardPortPoint(panel: PanelMeta, portId: string, linkId?: string, links?
   const layout = portLayout(panel, links ?? Object.values(getState().links)).get(portId);
   if (!layout) return null;
   const offset = linkId ? (layout.slots.get(linkId) ?? 0) : 0;
-  return { x: layout.dir === "out" ? r.x + r.w : r.x, y: r.y + layout.y + offset };
+  // the pills are drawn inside the card, so they scale with its section's fit
+  return { x: layout.dir === "out" ? r.x + r.w : r.x, y: r.y + (layout.y + offset) * r.s };
 }
 
 export function describeValue(v: unknown): string {
@@ -185,6 +186,23 @@ function edgeRange(r: Rect, side: Side): [number, number] {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
+/**
+ * Landings along one edge (sorted), moved as little as possible so each is a
+ * pitch from the next and all stay between lo and hi: pushed on from the near
+ * end, then back from the far end (where they used to run off the edge). When
+ * the edge is too short for them all, they share it evenly.
+ */
+export function spreadOnEdge(ats: number[], lo: number, hi: number, pitch: number): number[] {
+  const n = ats.length;
+  if (n === 0) return [];
+  if (n > 1 && hi - lo < (n - 1) * pitch) return ats.map((_, i) => lo + ((hi - lo) * i) / (n - 1));
+  const out = ats.map((a) => clamp(a, lo, hi));
+  for (let i = 1; i < n; i++) out[i] = Math.max(out[i], out[i - 1] + pitch);
+  out[n - 1] = Math.min(out[n - 1], hi);
+  for (let i = n - 2; i >= 0; i--) out[i] = Math.min(out[i], out[i + 1] - pitch);
+  return out;
+}
+
 let landingState: unknown = null;
 const landingCache = new Map<string, Landing[]>();
 
@@ -240,10 +258,11 @@ export function landingsOf(panelId: string): Landing[] {
   for (const r of raw) groups.set(r.group, [...(groups.get(r.group) ?? []), r]);
   for (const g of groups.values()) g.sort((p, q) => p.link.localeCompare(q.link)).forEach((r, i) => (r.at += (i - (g.length - 1) / 2) * LANDING_PITCH));
 
-  // then keep every landing on an edge at least a pitch from its neighbour
+  // then keep every landing on an edge at least a pitch from its neighbour, inside both ends of the edge
   for (const side of ["left", "right", "top", "bottom"] as const) {
     const onSide = raw.filter((r) => r.side === side).sort((p, q) => p.at - q.at || p.link.localeCompare(q.link));
-    for (let i = 1; i < onSide.length; i++) onSide[i].at = Math.max(onSide[i].at, onSide[i - 1].at + LANDING_PITCH);
+    const [lo, hi] = edgeRange(me, side);
+    spreadOnEdge(onSide.map((r) => r.at), lo, hi, LANDING_PITCH).forEach((at, i) => (onSide[i].at = at));
     for (const r of onSide) {
       const x = side === "left" ? me.x : side === "right" ? me.x + me.w : r.at;
       const y = side === "top" ? me.y : side === "bottom" ? me.y + me.h : r.at;

@@ -31,6 +31,12 @@ import type { FileRow } from "./files.ts";
 
 const COL = 520;
 const ROW = 560;
+/**
+ * The first column's extra distance from the section's left wall. The wire from
+ * CAD back round to Simulate turns into that column's input from the left;
+ * with only the section's 28 px pad it had about 14 px to turn in (a tight hook).
+ */
+export const LEFT_ROOM = 28;
 export const STAGE_W = 460;
 export const STAGE_H = 440;
 
@@ -69,7 +75,7 @@ export function startPipeline(
         sectionId: sec.id,
         name: `${String(i + 1).padStart(2, "0")} · ${def.title}`,
         // a snake of 3 × 2: Brief → Concept → CAD, then Simulate → Review → Release
-        x: (i % 3) * COL,
+        x: LEFT_ROOM + (i % 3) * COL,
         y: Math.floor(i / 3) * ROW,
         float: true,
         bornAt: Date.now() + i,

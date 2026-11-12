@@ -38,6 +38,21 @@ create table if not exists sessions (
   expires_at integer not null
 );
 
+-- One-time WebSocket tickets (sockets.ts): a client that can't send its
+-- session on a socket (the desktop app on a hosted server, where the cookie is
+-- cross-site and a WebSocket can't carry a header) trades its bearer for one
+-- of these and puts it in the socket's URL. It is never the session: only its
+-- sha256 is kept, it lives 30 seconds, it opens the one socket path it was
+-- issued for, and it is deleted as it is read.
+create table if not exists ws_tickets (
+  ticket_hash text primary key,
+  session_hash text not null,
+  user_id text not null references users(id) on delete cascade,
+  path text not null,
+  created_at integer not null,
+  expires_at integer not null
+);
+
 create table if not exists boards (
   id text primary key,
   name text not null,
@@ -135,6 +150,66 @@ create table if not exists agent_runs (
   finished_at integer
 );
 
+-- Who may open a board. A board with no rows is open to every signed-in
+-- person (the company board); a board with rows is members-only (admins and
+-- the service token always pass). Roles are flowform's room roles.
+create table if not exists board_members (
+  board_id text not null,
+  user_id text not null references users(id) on delete cascade,
+  role text not null check (role in ('owner', 'editor', 'viewer')),
+  source text not null default 'foundation',
+  added_at integer not null,
+  primary key (board_id, user_id)
+);
+create index if not exists board_members_user on board_members(user_id);
+
+-- The flowform importer's ledger: what each flowform thing became here, the
+-- hash of the source it was made from, and the hash of what was written (a
+-- re-run only rewrites what nobody has changed in Foundation since).
+create table if not exists flowform_imports (
+  kind text not null,
+  flowform_id text not null,
+  foundation_id text not null,
+  source_hash text not null,
+  written_hash text,
+  imported_at integer not null,
+  primary key (kind, flowform_id)
+);
+
+-- Sign-ins in flight through flowform (flowform.ts): kept here, not in
+-- memory, so a server restart mid-sign-in doesn't make the person click
+-- again. Every secret is stored as its sha256 (only ever compared): the
+-- callback nonce, the web browser's binding cookie, the desktop poll secret.
+-- A row lives 10 minutes and is consumed once.
+create table if not exists flowform_attempts (
+  nonce_hash text primary key,
+  mode text not null check (mode in ('web', 'desktop')),
+  browser_hash text,
+  poll_hash text unique,
+  return_to text not null default '/',
+  created_at integer not null,
+  expires_at integer not null,
+  used_at integer,
+  result_user_id text,
+  result_error text
+);
+
+-- The daily digest (digest.ts): one row per board per local day. The note it
+-- wrote (null once that note was reused for a newer day), the window its
+-- activity covers, and what it saw: the board's sections and cards and every
+-- connector's reading, which the next day compares with. Only the newest
+-- row keeps its JSON; older rows are just the record of the day.
+create table if not exists digest_days (
+  board_id text not null,
+  day text not null,
+  note_id text,
+  since integer not null,
+  written_at integer not null,
+  base_json text,
+  seen_json text,
+  primary key (board_id, day)
+);
+
 create table if not exists jobs (
   id text primary key,
   kind text not null,
@@ -176,6 +251,16 @@ for (const sql of [
   "alter table agent_runs add column session_id text",
   "alter table agent_runs add column claude_session text",
   "create index if not exists agent_runs_session on agent_runs(session_id, created_at)",
+  // what a session is for: 'browser' (the sign-in cookie), 'app' (a person's app holding a bearer), 'agent' (/api/agent/token); null = before kinds
+  "alter table sessions add column kind text",
+  // files: what an import said about where it came from (kept so a re-index keeps it), and the text
+  // read out of documents, by content (filetext.ts)
+  "alter table files add column about text",
+  "create index if not exists files_sha on files(sha256)",
+  `create table if not exists file_text (
+     sha256 text primary key, v integer not null, status text not null,
+     text text not null default '', error text, at integer not null
+   )`,
 ]) {
   try {
     db.exec(sql);

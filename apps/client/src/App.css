@@ -60,51 +60,6 @@ body.resizing-v {
   height: 100%;
 }
 
-/* ============ top bar ============ */
-
-.app-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  height: 48px;
-  padding: 0 16px;
-  background: var(--paper-raised);
-  border-bottom: 1px solid var(--line);
-  z-index: 20;
-  flex-shrink: 0;
-}
-
-.logo {
-  font-size: 18px;
-  line-height: 1;
-  transform-origin: center;
-  animation: logo-in 1.2s var(--ease-spring);
-}
-
-@keyframes logo-in {
-  from {
-    transform: rotate(-180deg) scale(0);
-  }
-  to {
-    transform: rotate(0) scale(1);
-  }
-}
-
-.app-title {
-  font-weight: 600;
-  font-size: 14px;
-  letter-spacing: 0.02em;
-}
-
-.app-hint {
-  margin-left: auto;
-  font-size: 11.5px;
-  color: var(--ink-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* ============ grid viewport ============ */
 
 .grid-viewport {
@@ -431,6 +386,13 @@ body.is-connecting .section-tools,
     padding: var(--space-3);
   }
 }
+/* short and narrow (two columns of ~170): the key chip goes before the words wrap
+   to three lines ("Ctrl+L" is twice "⌘L"); the roll-over still names the key */
+@container (max-height: 560px) and (max-width: 480px) {
+  .section-empty .empty-action .f-kbd {
+    display: none;
+  }
+}
 /* very short or very narrow: just the four glyphs, named on hover */
 @container (max-height: 320px) or (max-width: 340px) {
   .section-empty .empty-title,
@@ -445,7 +407,10 @@ body.is-connecting .section-tools,
     grid-template-columns: repeat(4, auto);
     justify-content: center;
   }
+  /* the glyph alone: no empty tracks or gaps beside it, so four fit in a 260 section */
   .section-empty .empty-action {
+    grid-template-columns: 32px;
+    gap: 0;
     padding: var(--space-2);
   }
 }
@@ -538,17 +503,81 @@ body.is-connecting .section-tools,
   font: 700 11px / 1 var(--font-display);
 }
 
-.scroll-hint {
+/* A section never scrolls: it fits its cards to its body (store: sectionFlow).
+   When they'd shrink past legibility it stops, says how many don't fit, and
+   offers to open the section as its own grid. Solid paper (no blur in the world). */
+.section-content {
+  transform-origin: 0 0;
+}
+
+.section-more,
+.section-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--h-pill);
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-line);
+  background: var(--color-raise);
+  color: var(--color-frost);
+  font: 500 var(--text-12) / 1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    transform var(--dur-press) var(--ease-out-soft),
+    border-color var(--dur-quick) var(--ease-out-soft);
+}
+.section-more:hover,
+.section-back:hover {
+  border-color: var(--color-pulse);
+}
+.section-more:active,
+.section-back:active {
+  transform: scale(0.97);
+}
+.section-more span,
+.section-back span {
+  color: var(--color-pulse);
+}
+
+.section-more {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
+  right: 12px;
+  bottom: 12px;
+  z-index: 2;
+  box-shadow: var(--shadow-sheet);
+}
+
+.section-back {
+  margin-left: 4px;
+}
+
+/* Expanded: the section is its own grid. It grows from its corner over its
+   neighbours (they step back and stop taking the pointer), solid so they don't
+   show through. Esc, ⤡ or Back to the board closes it. */
+.section-card.expanded {
+  z-index: 8;
+  background: var(--color-abyss);
+  box-shadow: var(--shadow-lift);
+}
+.section-card.expanded .section-body {
+  background-color: var(--color-abyss);
+}
+/* an open section has no neighbours to add: its edges are the board's again once it closes */
+.section-card.expanded .add-btn {
+  display: none;
+}
+.world.has-expanded .section-card:not(.expanded) {
+  /* !important: the section's arrival animation leaves an inline opacity: 1 */
+  opacity: 0.12 !important;
   pointer-events: none;
-  background:
-    radial-gradient(circle at center, color-mix(in srgb, var(--color-frost) 16%, transparent) 2px, transparent 2.6px);
-  opacity: 0.7;
+}
+.section-card {
+  /* stepping back for an expanded neighbour fades; geometry keeps its own settle */
+  transition-property: left, top, width, height, opacity;
+  transition-duration: 0.5s, 0.5s, 0.5s, 0.5s, var(--dur-pane);
+  transition-timing-function: var(--ease-settle), var(--ease-settle), var(--ease-settle), var(--ease-settle), var(--ease-out-soft);
 }
 
 /* ============ track gutters — spreadsheet row/column edges ============ */
@@ -581,7 +610,6 @@ body.is-connecting .section-tools,
   transition:
     opacity 0.18s ease,
     transform 0.3s var(--ease-spring),
-    background 0.2s ease,
     border-color 0.2s ease;
   z-index: 5;
 }
@@ -643,7 +671,7 @@ body.is-connecting .section-tools,
 .gutter-line {
   border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--color-frost) 10%, transparent);
-  transition: background 0.2s ease, transform 0.25s var(--ease-spring);
+  transition: transform 0.25s var(--ease-spring);
 }
 
 .gutter-col .gutter-line {
@@ -739,7 +767,7 @@ body.is-connecting .section-tools,
   justify-content: center;
   gap: 10px;
   z-index: 0;
-  transition: border-color 0.25s ease, background 0.25s ease;
+  transition: border-color 0.25s ease;
 }
 
 .empty-cell:hover {
@@ -921,7 +949,7 @@ body.rewiring {
 
 .menu-item.danger:hover {
   background: var(--danger);
-  color: #fff;
+  color: var(--color-on-fill);
 }
 
 .menu-item.disabled {
@@ -1024,7 +1052,7 @@ body.rewiring {
 .confirm-btn.danger {
   background: var(--danger);
   border-color: var(--danger);
-  color: #fff;
+  color: var(--color-on-fill);
 }
 
 .confirm-btn.danger:hover {
@@ -1143,16 +1171,15 @@ body.is-connecting .frame-header {
   left: calc(100% - 12px);
   width: 54px;
   border-radius: var(--radius-pill);
-  border: 1px solid transparent;
-  background: transparent;
-  transition:
-    background-color var(--dur-quick) var(--ease-out-soft) 150ms,
-    border-color var(--dur-quick) var(--ease-out-soft) 150ms;
+  border: 1px solid color-mix(in srgb, var(--color-frost) 7%, transparent);
+  background: color-mix(in srgb, var(--color-frost) 4%, transparent);
+  /* fades in on opacity, never a transitioned background (it would lag the night fade) */
+  opacity: 0;
+  transition: opacity var(--dur-quick) var(--ease-out-soft) 150ms;
 }
 .frame-anchor.chrome-icons:hover .frame-icons::before,
 .frame-anchor.chrome-icons.is-hover .frame-icons::before {
-  background-color: color-mix(in srgb, var(--color-frost) 4%, transparent);
-  border-color: color-mix(in srgb, var(--color-frost) 7%, transparent);
+  opacity: 1;
   transition-delay: 0s;
 }
 .chrome-icons .frame-card {
@@ -1305,25 +1332,73 @@ body.is-connecting .frame-header {
   border-bottom: 1px solid color-mix(in srgb, var(--color-pulse) 30%, transparent);
 }
 .note-rendered a:hover { border-bottom-color: var(--select); }
+/* | tables | in a note: hairlines, a soft header, scroll sideways in a narrow note */
+.note-rendered .md-table { overflow-x: auto; margin: 6px 0; }
+.note-rendered table { border-collapse: collapse; font-size: 12px; min-width: 100%; }
+.note-rendered th, .note-rendered td {
+  border: 1px solid var(--line);
+  padding: 3px 7px;
+  text-align: left;
+  vertical-align: top;
+}
+.note-rendered th {
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--color-frost) 5%, transparent);
+  white-space: nowrap;
+}
+.note-rendered td:empty::after { content: "\00a0"; }
 
-.note-editor {
-  width: 100%;
+/* the open note: CodeMirror on the note's shared text (components/noteEditor.ts) */
+.note-cm {
   height: 100%;
-  border: none;
-  outline: none;
-  resize: none;
-  padding: 14px 18px;
+  background: var(--color-abyss);
+}
+.note-cm .cm-editor {
+  height: 100%;
+  background: var(--color-abyss);
+  color: var(--ink);
+}
+.note-cm .cm-editor.cm-focused { outline: none; }
+.note-cm .cm-editor .cm-scroller,
+.note-cm-waiting {
   font-family: var(--mono);
   font-size: 12.5px;
   line-height: 1.6;
-  color: var(--ink);
-  background: var(--color-abyss);
+  font-variant-ligatures: none; /* markdown source: |---| stays dashes, -> stays two characters */
+  scrollbar-gutter: stable;
 }
 /* while writing, the card's bar sits over the top edge: start the text below it */
-.note-editor {
-  padding-top: 42px;
-  scroll-padding-top: 42px;
+.note-cm .cm-editor .cm-content {
+  padding: 42px 0 14px;
+  caret-color: var(--ink);
 }
+.note-cm .cm-editor .cm-line { padding: 0 18px; }
+.note-cm .cm-editor .cm-content ::selection {
+  background: color-mix(in srgb, var(--color-pulse) 24%, transparent);
+}
+/* the moment before the editor's code has loaded: the same text, laid out the same */
+.note-cm-waiting {
+  height: 100%;
+  overflow: hidden;
+  padding: 42px 18px 14px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  color: var(--ink);
+}
+/* markdown while you write: weight and tone, no colour of its own */
+.note-cm .md-h { font-weight: 700; }
+.note-cm .md-strong { font-weight: 700; }
+.note-cm .md-em { font-style: italic; }
+.note-cm .md-strike { text-decoration: line-through; color: var(--ink-soft); }
+.note-cm .md-link { color: var(--select); }
+.note-cm .md-code {
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--color-frost) 6%, transparent);
+  border-radius: var(--radius-paper);
+}
+.note-cm .md-quote { color: var(--ink-soft); font-style: italic; }
+.note-cm .md-mark { color: var(--color-dim); }
 
 /* media cards */
 
@@ -1331,13 +1406,8 @@ body.is-connecting .frame-header {
 .media-body video {
   display: block;
   object-fit: cover;
-  background: #111;
-}
-
-.tb-plus {
-  font-size: 16px;
-  font-weight: 400;
-  margin-top: -1px;
+  /* the well shows only while loading or through a transparent image */
+  background: var(--color-panel);
 }
 
 /* ============ table card ============ */
@@ -1486,7 +1556,6 @@ body.is-connecting .frame-header {
   letter-spacing: 0.08em;
   color: var(--ink-faint);
   background: var(--color-panel);
-  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .colhead {
@@ -1516,7 +1585,6 @@ body.is-connecting .frame-header {
   border-bottom: 1px solid var(--line);
   background: var(--paper-raised);
   cursor: cell;
-  transition: background 0.12s ease;
   overflow: hidden;
 }
 
@@ -1628,6 +1696,15 @@ body.is-connecting .frame-header {
   border-color: var(--ink);
 }
 
+/* pressed once: the add waits out the double-click window (SectionView AddSectionButton) */
+.add-btn.is-armed {
+  opacity: 1;
+  background: var(--color-pulse);
+  border-color: var(--color-pulse);
+  color: var(--color-void);
+  box-shadow: 0 0 0 4px var(--color-pulse-dim);
+}
+
 .add-col {
   right: -13px;
   top: 50%;
@@ -1720,12 +1797,13 @@ body.is-connecting .frame-header {
   max-width: 78vw;
   max-height: 78vh;
   border-radius: var(--radius-pane);
-  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-pane);
 }
 
 .lightbox-name {
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.85);
+  /* paper on the ink scrim, navy on the frost one at night */
+  color: color-mix(in srgb, var(--color-void) 85%, transparent);
   font-weight: 500;
 }
 
@@ -1829,7 +1907,6 @@ body.is-connecting .frame-header {
   padding-bottom: 14px;
   cursor: pointer;
   background: transparent;
-  transition: background 0.25s ease;
 }
 
 .map-shield:hover {
@@ -1900,14 +1977,14 @@ body.is-connecting .frame-header {
   border-radius: 50%;
   background: var(--color-bad);
   border: 2.5px solid var(--color-raise);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-sheet);
 }
 
 .pin-pulse {
   position: absolute;
   inset: -6px;
   border-radius: 50%;
-  background: rgba(255, 85, 51, 0.4);
+  background: color-mix(in srgb, var(--color-bad) 40%, transparent);
   animation: pin-pulse 2.2s ease-out infinite;
 }
 
@@ -1945,4 +2022,80 @@ body.is-connecting .frame-header {
 .maplibregl-ctrl-attrib {
   font-size: 9px !important;
   opacity: 0.7;
+}
+
+/* other people writing in a note (live, from awareness; drawn by the editor as decorations) */
+.note-peer-sel {
+  background: color-mix(in srgb, var(--peer) 22%, transparent);
+  border-radius: var(--radius-paper);
+}
+.note-caret {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  height: 1.6em;
+  vertical-align: top;
+}
+.note-caret::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--peer);
+}
+.note-caret-name {
+  position: absolute;
+  left: -1px;
+  bottom: 100%;
+  padding: 2px 6px;
+  border-radius: var(--radius-paper) var(--radius-paper) var(--radius-paper) 0;
+  background: var(--peer);
+  color: var(--color-raise);
+  font: 600 var(--text-11) / 1.2 var(--font-sans);
+  white-space: nowrap;
+  /* named while they move; then just the bar, so the line above stays readable */
+  animation: note-caret-name-rest 1.8s var(--ease-out-soft) forwards;
+}
+@keyframes note-caret-name-rest {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.note-writers {
+  position: absolute;
+  bottom: 8px;
+  right: 24px; /* clear of the resize grip */
+  z-index: 1;
+  display: flex;
+  gap: 4px;
+  pointer-events: none;
+}
+.note-writer {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-raise);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--peer) 45%, transparent);
+  color: var(--color-frost);
+  font: 600 var(--text-11) / 1 var(--font-sans);
+}
+.note-writer::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--peer);
+  animation: note-writer-breathe 1.6s var(--ease-out-soft) infinite alternate;
+}
+@keyframes note-writer-breathe {
+  to { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .note-caret-name { animation: none; }
+  .note-writer::before { animation: none; }
 }

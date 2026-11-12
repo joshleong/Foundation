@@ -2,8 +2,8 @@
  * Today in a real browser: signing in lands on Today (not the board), the
  * Shiba's room draws, what's asked of you shows and opens its place on the
  * board, a goal added on the page sticks, the apps are in reach, and Boards
- * and back work. No agent runtime here, so asking the Shiba must say so
- * plainly rather than hang.
+ * and back work. Asked what's first, the Shiba (the script runtime here)
+ * says it and points at it on the page.
  */
 import { expect, test } from "@playwright/test";
 import { CLIENT, settle } from "./helpers";
@@ -44,11 +44,12 @@ test("Today is home: focus, goals, apps, the Shiba, and the way to the boards", 
   await settle(page);
   await page.screenshot({ path: "../../docs/evidence/2026-11-11_today-shiba/e2e-today.png" });
 
-  // the Shiba, with no runtime on this server: an honest answer, not a hang
+  // the Shiba (the script runtime here: it reads Today, points, and says what's first):
+  // its words are about the ask, and the ask's row lights up beside them
   await page.getByLabel("Ask the Shiba").fill("What's first today?");
   await page.getByLabel("Ask the Shiba").press("Enter");
-  await expect(page.locator(".today-eyebrow")).toHaveText("I couldn't answer", { timeout: 15_000 });
-  await expect(page.locator(".today-line")).toContainText("No agent runtime");
+  await expect(page.locator(".today-line")).toContainText("Upload the e2e stator STEP", { timeout: 15_000 });
+  await expect(row).toHaveAttribute("data-pointed", "true");
 
   // to the boards and back
   await page.getByRole("link", { name: /Boards/ }).click();

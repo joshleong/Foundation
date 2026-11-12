@@ -13,18 +13,24 @@
 import { CadPreview } from "../cad/CadPreview";
 import { MODEL_EXT } from "../cad/model";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { MINI_HEADER, emitPort, getState, inputValue, movePanel, removePanel, resizePanel, sectionBodyRect, updatePanel, type PanelMeta } from "../state/store";
+import { drawnScale, isHosted, MINI_HEADER, emitPort, getState, subscribe, inputValue, movePanel, removePanel, requestSnap, resizePanel, sectionBodyRect, updatePanel, usePanel, type PanelMeta } from "../state/store";
 import { ObjectFrame } from "../components/ObjectFrame";
 import { beginConnect, beginDetach, usePortLayout } from "../shell/AgentLayer";
 import { describeValue, landingsOf, toneOf } from "../shell/ports";
-import { api, serverUrl, uploadFile } from "../lib/api";
+import { api, fetchFile, uploadFile } from "../lib/api";
+import { fileLink, useFileSrc } from "../lib/fileSrc";
 import { askAgent, setUi, toast, useUi } from "../state/ui";
-import { onCamera } from "../state/camera";
+import { camera, onCamera } from "../state/camera";
 import { activeBoard } from "../sync/board";
 import { StageBody } from "./StageView";
 import { onConnectorChange } from "../lib/connectorEvents";
 import { HuddleBody } from "./HuddleView";
 import { SlackBody } from "./SlackView";
+import { MachineBody, machineAction } from "./MachineView";
+import { machinePage, type FromMachine, type MachinePage } from "./machinePage";
+import { sandboxFor } from "./frameSandbox";
+import { SERVER as FOUNDATION_SERVER } from "../lib/api";
+import { countRender } from "../state/renders";
 
 interface Props {
   panel: PanelMeta;
@@ -50,6 +56,7 @@ const GLYPH: Record<PanelMeta["panel"], string> = {
 };
 
 export const PanelView = memo(function PanelView({ panel, pos, isActive, getScale, hosted }: Props) {
+  countRender("PanelView");
   const ui = useUi();
   const layout = usePortLayout(panel);
   const ports = (
@@ -84,7 +91,9 @@ export const PanelView = memo(function PanelView({ panel, pos, isActive, getScal
   const extras = <PanelActions panel={panel} />;
 
   const body =
-    panel.panel === "app" || panel.panel === "link" || panel.panel === "machine" ? (
+    panel.panel === "machine" && panel.machine ? (
+      <MachineBody panel={panel} />
+    ) : panel.panel === "app" || panel.panel === "link" || panel.panel === "machine" ? (
       <LiveFrame panel={panel} />
     ) : panel.panel === "file" ? (
       <FilePreview panel={panel} />
@@ -222,18 +231,34 @@ export { GLYPH as PANEL_GLYPH };
 
 // ---------- live frames (apps, links, machines) ----------
 
+/**
+ * Whether a live body runs: on screen (with 200 px to spare) and drawn at
+ * minScale or more. Drawn means the camera's zoom times its section's fit
+ * (store.drawnScale): a page fitted to 40 % at zoom 0.5 is drawn at 20 %, a
+ * poster. Checked when it mounts, as the camera moves and as the fit changes.
+ */
 export function useOnScreen(ref: React.RefObject<HTMLElement | null>, minScale = 0.3) {
   const [visible, setVisible] = useState(false);
-  const [bigEnough, setBigEnough] = useState(true);
+  const [bigEnough, setBigEnough] = useState(false);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     const io = new IntersectionObserver(([e]) => setVisible(e.isIntersecting), { rootMargin: "200px" });
     io.observe(el);
-    const off = onCamera((c) => setBigEnough(c.scale >= minScale));
+    // fitted when it's in a section's flow; a hosted app fills its section at full size
+    const section = el.closest(".section-content") ? (el.closest<HTMLElement>("[data-section-id]")?.dataset.sectionId ?? null) : null;
+    let zoom = camera.scale;
+    const check = () => setBigEnough(drawnScale(zoom, section) >= minScale);
+    check();
+    const off = onCamera((c) => {
+      zoom = c.scale;
+      check();
+    });
+    const offFit = section ? subscribe(check) : () => {};
     return () => {
       io.disconnect();
       off();
+      offFit();
     };
   }, [ref, minScale]);
   return visible && bigEnough;
@@ -250,6 +275,25 @@ function LiveFrame({ panel }: { panel: PanelMeta }) {
   useEffect(() => {
     if (live) setEverLive(true);
   }, [live]);
+
+  // a page opened from a machine's port follows that machine: live while it runs, honest when it doesn't
+  const from = panel.fromMachine;
+  const card = usePanel(from?.panel);
+  const viewer = ui.role === "viewer";
+  const page = from ? machinePage(from, card, viewer) : null;
+  const url = page ? (page.kind === "live" ? page.url : undefined) : panel.url;
+  const held = page !== null && page.kind !== "live";
+  const waiting = useMachineReturn(from, url, held);
+  useMachineWatch(from, live && Boolean(card?.machine));
+  // the engine may publish the port on a new host port when the machine runs again: the page keeps the address it's at
+  const liveUrl = page?.kind === "live" ? page.url : null;
+  useEffect(() => {
+    if (liveUrl && liveUrl !== panel.url && !viewer) updatePanel(panel.id, { url: liveUrl });
+  }, [liveUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a held page drops what it showed; running again, the frame loads afresh
+  useEffect(() => {
+    if (held || waiting) setLoaded(false);
+  }, [held, waiting]);
 
   // Foundation bridge: apps talk to the grid with postMessage
   //   app → grid  { type: "foundation:output", port, value }
@@ -288,37 +332,47 @@ function LiveFrame({ panel }: { panel: PanelMeta }) {
     for (const [p, v] of inputs) if (v !== undefined) w.postMessage({ type: "foundation:input", port: p.name, value: v }, "*");
   }, [inputKey, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const shown = url ?? panel.url ?? "";
   const [domain, favicon] = useMemo(() => {
     try {
-      const u = new URL(panel.url ?? "");
+      const u = new URL(shown);
       // the site's own icon — never a third-party favicon service (internal URLs stay internal)
       return [u.host, `${u.origin}/favicon.ico`];
     } catch {
-      return [panel.url ?? "", ""];
+      return [shown, ""];
     }
-  }, [panel.url]);
+  }, [shown]);
 
-  const mount = Boolean(panel.url) && (live || (everLive && loaded));
+  const mount = Boolean(url) && !held && !waiting && (live || (everLive && loaded));
+  const hold: Exclude<MachinePage, { kind: "live" }> | null =
+    page && page.kind !== "live"
+      ? page
+      : waiting && card?.machine && from
+        ? { kind: "starting", word: "Running", tone: "ok", breathing: true, title: `${card.machine.name} is running`, reason: `Waiting for :${from.port} to answer…`, canStart: false, canShow: false }
+        : null;
   return (
     <div ref={host} className={`live-frame${engaged ? " is-engaged" : ""}`}>
       {mount && (
         <iframe
+          key={url}
           ref={frame}
-          src={panel.url}
+          src={url}
           title={panel.name}
           loading="lazy"
           onLoad={() => setLoaded(true)}
           allow="clipboard-read; clipboard-write; fullscreen; camera; microphone"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
+          // our own pages can't lift their sandbox; others keep their origin (frameSandbox.ts, #80)
+          sandbox={sandboxFor(url!, [window.location.origin, FOUNDATION_SERVER || window.location.origin])}
         />
       )}
       {(!mount || !loaded) && (
-        <div className="frame-poster">
-          {favicon && <img className="frame-favicon" alt="" src={favicon} onError={(e) => (e.currentTarget.style.visibility = "hidden")} />}
+        <div className={`frame-poster${hold ? " is-held" : ""}`}>
+          {favicon && !hold && <img className="frame-favicon" alt="" src={favicon} onError={(e) => (e.currentTarget.style.visibility = "hidden")} />}
           <div className="frame-poster-name">{panel.name}</div>
           <div className="frame-poster-domain">{domain || "no address yet"}</div>
           {panel.text && <div className="frame-poster-text">{panel.text}</div>}
           {mount && !loaded && <div className="frame-poster-loading" />}
+          {hold && from && <MachineHold page={hold} from={from} viewer={viewer} />}
         </div>
       )}
       {!engaged && mount && (
@@ -330,13 +384,112 @@ function LiveFrame({ panel }: { panel: PanelMeta }) {
   );
 }
 
+/**
+ * While a machine's page is on screen, ask the server to read the engine back
+ * (as the card does while it's on screen), so a machine stopped or removed
+ * outside Foundation reaches the page even with its card out of view.
+ */
+function useMachineWatch(from: FromMachine | undefined, on: boolean) {
+  const card = from?.panel;
+  useEffect(() => {
+    if (!card || !on) return;
+    const boardId = activeBoard()?.boardId ?? "company";
+    const read = () => api(`/api/boards/${encodeURIComponent(boardId)}/machines/${card}`).catch(() => {});
+    const t = setInterval(read, 5000);
+    return () => clearInterval(t);
+  }, [card, on]);
+}
+
+/**
+ * Running again after being held: the engine says running a moment before the
+ * server inside answers, so wait (up to 20 s) for the port to answer before
+ * the frame loads, rather than load the browser's own "refused" page.
+ */
+function useMachineReturn(from: FromMachine | undefined, url: string | undefined, held: boolean) {
+  const [waiting, setWaiting] = useState(false);
+  const wasHeld = useRef(held);
+  useEffect(() => {
+    const back = wasHeld.current && !held;
+    wasHeld.current = held;
+    if (!from || !back || !url) return;
+    let stop = false;
+    setWaiting(true);
+    const until = Date.now() + 20_000;
+    void (async () => {
+      while (!stop && Date.now() < until) {
+        // an opaque answer is enough: something is listening (a refused port rejects)
+        const ok = await fetch(url, { mode: "no-cors", cache: "no-store" }).then(
+          () => true,
+          () => false,
+        );
+        if (ok || stop) break;
+        await new Promise((r) => setTimeout(r, 600));
+      }
+      if (!stop) setWaiting(false);
+    })();
+    return () => {
+      stop = true;
+      setWaiting(false);
+    };
+  }, [held, url]); // eslint-disable-line react-hooks/exhaustive-deps
+  return waiting;
+}
+
+/** the page of a machine that isn't running: its state pill, what happened, and what a person can do */
+function MachineHold({ page, from, viewer }: { page: Exclude<MachinePage, { kind: "live" }>; from: FromMachine; viewer: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const start = async () => {
+    setBusy(true);
+    try {
+      // the card's own Start: a person's browser session on a board they can edit, checked by the server
+      await machineAction(from.panel, "start");
+    } catch (e) {
+      toast((e as Error).message, "bad");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const show = () => {
+    const card = getState().panels[from.panel];
+    if (!card) return;
+    const hosted = getState().sections[card.sectionId]?.host === card.id;
+    requestSnap(hosted ? { kind: "section", id: card.sectionId } : { kind: "object", id: card.id });
+  };
+  return (
+    <div className={`machine-hold is-${page.kind}`} role="status">
+      <span className={`machine-state is-${page.tone}`}>
+        <span className={`f-dot${page.tone === "idle" ? "" : ` is-${page.tone}`}${page.breathing ? " is-live" : ""}`} />
+        {page.word}
+      </span>
+      <div className="machine-hold-title">{page.title}</div>
+      <div className="machine-hold-reason">{page.reason}</div>
+      {(page.canStart || page.canShow) && (
+        <div className="machine-hold-actions">
+          {page.canStart && (
+            <button className="f-pill is-accent" disabled={busy} onClick={() => void start()} data-tip="Start the machine again (its disk is kept). This page reloads when it runs.">
+              {busy ? "Starting…" : "Start it"}
+            </button>
+          )}
+          {page.canShow && (
+            <button className="f-pill" onClick={show} data-tip="Go to the machine's card">
+              Show the machine
+            </button>
+          )}
+        </div>
+      )}
+      {viewer && (page.kind === "stopped" || page.kind === "error") && <div className="machine-hold-note">View only: someone who can edit this board starts it.</div>}
+    </div>
+  );
+}
+
 // ---------- files ----------
 
 const CAD = /\.(step|stp|iges|igs|stl|obj|3mf|glb|gltf|f3d|sldprt|sldasm|x_t|dxf|dwg)$/i;
 const TEXTY = /\.(txt|md|markdown|csv|tsv|json|ya?ml|toml|xml|log|js|ts|tsx|py|rs|go)$/i;
 
 function FilePreview({ panel }: { panel: PanelMeta }) {
-  const url = panel.fileId ? serverUrl(`/files/${panel.fileId}`) : panel.url;
+  // the file's own path (`/files/…`): fetched with this device's session, wherever the server is (lib/fileSrc.ts)
+  const url = panel.fileId ? `/files/${panel.fileId}` : panel.url;
   const mime = panel.mime ?? "";
   const name = panel.name;
   const [text, setText] = useState<string | null>(null);
@@ -347,6 +500,8 @@ function FilePreview({ panel }: { panel: PanelMeta }) {
   useEffect(() => {
     if (live) setSeenLive(true);
   }, [live]);
+  // what an <img>, <video> or <iframe> loads: the server URL, or (bearer) a blob once it's been on screen
+  const shown = useFileSrc(url, (live || seenLive) && (mime.startsWith("image/") || mime.startsWith("video/") || mime === "application/pdf"));
 
   useEffect(() => {
     if (!live || text !== null || !url) return;
@@ -356,7 +511,7 @@ function FilePreview({ panel }: { panel: PanelMeta }) {
           .then((r) => setText(r.result))
           .catch(() => setText(""));
       } else {
-        fetch(url, { credentials: "include", headers: { range: "bytes=0-8191" } })
+        fetchFile(url, { headers: { range: "bytes=0-8191" } })
           .then((r) => r.text())
           .then(setText)
           .catch(() => setText(""));
@@ -373,11 +528,11 @@ function FilePreview({ panel }: { panel: PanelMeta }) {
           <span>Uploading {name}…</span>
         </div>
       ) : mime.startsWith("image/") ? (
-        <img src={url} alt={name} loading="lazy" decoding="async" />
+        <img src={shown} alt={name} loading="lazy" decoding="async" />
       ) : mime.startsWith("video/") ? (
-        <video src={url} muted loop playsInline controls preload="metadata" />
+        <video src={shown} muted loop playsInline controls preload="metadata" />
       ) : mime === "application/pdf" ? (
-        live ? <iframe src={url} title={name} /> : <div className="file-card-glyph">PDF</div>
+        live && shown ? <iframe src={shown} title={name} /> : <div className="file-card-glyph">PDF</div>
       ) : CAD.test(name) ? (
         <div className="cad-card">
           {MODEL_EXT.test(name) && url && (live || seenLive) ? (
@@ -393,7 +548,7 @@ function FilePreview({ panel }: { panel: PanelMeta }) {
             </>
           )}
           <div className="cad-actions">
-            <a className="f-pill" href={url} download={name}>
+            <a className="f-pill" {...fileLink(url ?? "", name)} download={name}>
               Download
             </a>
             <button className="f-pill is-agent" onClick={() => askAgent(`Brief Vision on “${name}”: review this CAD, simulate what matters, and ask the right people to review.`)}>
@@ -450,6 +605,8 @@ function ConnectorBody({ panel }: { panel: PanelMeta }) {
   const reason = st?.summary.replace(/^offline — /, "") ?? "";
   return (
     <div ref={host} className={`connector-body${offline ? " is-offline" : ""}`}>
+      {/* a hosted connector's section header names it; as a card at rest it names itself */}
+      {!isHosted(panel) && <div className="connector-name">{panel.name}</div>}
       <div className="connector-head">
         <span className={`connector-status ${!st ? "is-checking" : st.ok ? "is-live" : "is-off"}`}>
           <span className={`f-dot ${!st ? "is-live" : st.ok ? "is-ok is-live" : "is-warn"}`} />
@@ -502,6 +659,12 @@ function ConnectorBody({ panel }: { panel: PanelMeta }) {
           ))}
           <div className="connector-summary is-small">{st.summary}</div>
         </>
+      ) : st?.ok && st.summary === "reachable" ? (
+        // a service with no read API for Foundation yet: say it's up, and where
+        <div className="connector-offline is-up">
+          <div className="connector-offline-title">Up and answering</div>
+          <div className="connector-offline-reason">{hostOf(st.url)} · nothing to read from it here yet; Open shows it</div>
+        </div>
       ) : (
         <div className="connector-summary">{st ? st.summary : "Reaching the service…"}</div>
       )}
@@ -514,10 +677,27 @@ function ConnectorBody({ panel }: { panel: PanelMeta }) {
             Open ↗
           </button>
         )}
-        {st && <span className="connector-checked">checked {Math.max(1, Math.round((Date.now() - st.checkedAt) / 1000))}s ago</span>}
+        {st && <span className="connector-checked">checked {checkedAgo(st.checkedAt)}</span>}
       </div>
     </div>
   );
+}
+
+function hostOf(url: string | undefined) {
+  try {
+    return url ? new URL(url).host : "";
+  } catch {
+    return url ?? "";
+  }
+}
+
+/** "checked 4s ago", "checked 3 min ago", "checked 2 h ago" */
+export function checkedAgo(at: number, now = Date.now()) {
+  const s = Math.max(1, Math.round((now - at) / 1000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min ago`;
+  return `${Math.round(m / 60)} h ago`;
 }
 
 // ---------- Hermes asks ----------
@@ -560,7 +740,7 @@ function AskBody({ panel }: { panel: PanelMeta }) {
       <div className="ask-prompt">{panel.text}</div>
       {done ? (
         panel.fileId ? (
-          <a className="f-pill" href={serverUrl(`/files/${panel.fileId}`)} target="_blank" rel="noreferrer">
+          <a className="f-pill" {...fileLink(`/files/${panel.fileId}`)} target="_blank" rel="noreferrer">
             Open the file
           </a>
         ) : (

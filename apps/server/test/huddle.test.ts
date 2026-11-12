@@ -22,14 +22,16 @@ process.env.FOUNDATION_CLIENT_URL = "http://localhost:1430";
 // the person the tools act for: a member (an unknown id would be a viewer, and viewers can't write)
 const { run: runSql } = await import("../src/db.ts");
 runSql("insert or ignore into users (id, email, name, color, role, created_at) values (?, ?, ?, ?, 'member', ?)", "u0", "u0@formindustries.com", "Tester", "#325bb4", Date.now());
-const { getBoard, closeBoards } = await import("../src/boards.ts");
+const { getBoard, editBoard, closeBoards } = await import("../src/boards.ts");
+const { migrateBoard, huddleStateToMap } = await import("../src/migrate.ts");
 const { attachHuddle, addLine, attachRecording, huddleArchive, huddleRoster, transcriptText } = await import("../src/huddles.ts");
 const { runTool } = await import("../src/tools.ts");
 const { searchLocal } = await import("../src/search.ts");
 const { run } = await import("../src/db.ts");
 const slack = await import("../src/slack.ts");
-const { boardMaps, appendSection } = await import("@foundation/protocol");
-import type { HuddleWire, UserInfo } from "@foundation/protocol";
+const { boardMaps, appendSection, huddleStateOf, BOARD_SCHEMA } = await import("@foundation/protocol");
+import type { HuddleWire, PanelDoc, UserInfo } from "@foundation/protocol";
+import * as Y from "yjs";
 
 const BOARD = "huddle-board";
 const ctx = { boardId: BOARD, actor: "test", userId: "u0" };
@@ -85,7 +87,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 test("a huddle: people join, signalling is relayed only to its addressee, the session opens and closes", async () => {
   const { id } = (await runTool(ctx, "open_huddle", { name: "Shroud review" })) as { id: string };
-  const panel = () => boardMaps(getBoard(BOARD).doc).objects.get(id) as { huddle?: { people: string[]; liveSince?: number; lastEndedAt?: number } };
+  // the live state is the server's, in `huddles` (schema 6); the card never carries it
+  const panel = () => ({ huddle: huddleStateOf(getBoard(BOARD).doc, id) });
+  const card = () => boardMaps(getBoard(BOARD).doc).objects.get(id) as PanelDoc;
 
   const a = enter(id, noa, true);
   const wa = await a.next("welcome");
@@ -94,6 +98,7 @@ test("a huddle: people join, signalling is relayed only to its addressee, the se
   await sleep(30);
   assert.deepEqual(panel().huddle?.people, ["Noa"]);
   assert.ok(panel().huddle?.liveSince);
+  assert.equal(card().huddle, undefined, "the card itself isn't rewritten when someone joins");
 
   // a watcher: sees the portal, doesn't count as in it
   const w = enter(id, kai, false);
@@ -133,6 +138,8 @@ test("a huddle: people join, signalling is relayed only to its addressee, the se
   assert.ok(!a.heard.some((m) => m.t === "recording"), "a watcher can't start a recording");
   a.say({ t: "recording", on: true });
   assert.equal((await b.next("recording")).on, true);
+  assert.equal(panel().huddle?.recording?.by, "Noa");
+  assert.equal(card().huddle, undefined);
 
   assert.equal(huddleRoster(BOARD, id).length, 3);
   a.ws.close();
@@ -193,6 +200,121 @@ test("typing into a huddle that never met is refused; sockets to a missing huddl
   const x = enter("pnl_missing", noa, true);
   const code = await new Promise<number>((r) => x.ws.on("close", (c) => r(c)));
   assert.equal(code, 4404);
+});
+
+// ---------- the live state can't be lost to a move (schema 6) ----------
+
+/**
+ * A person's browser: a replica of the board that sends its changes to the
+ * server only when told, so a move can be made at the same moment as a join
+ * (neither side has seen the other's write yet). Its client id sorts after
+ * the server's, so when both write one key at once the browser's write wins:
+ * the way the race was lost while the state rode on the card.
+ */
+function browser() {
+  const server = getBoard(BOARD).doc;
+  const doc = new Y.Doc();
+  doc.clientID = server.clientID + 1;
+  Y.applyUpdate(doc, Y.encodeStateAsUpdate(server), "net");
+  return {
+    doc,
+    /** a move: the whole card written again, as the grid's sync sends it */
+    move(id: string, x: number, y: number, extra: Record<string, unknown> = {}) {
+      const was = boardMaps(doc).objects.get(id) as PanelDoc;
+      boardMaps(doc).objects.set(id, { ...was, float: true, x, y, ...extra } as PanelDoc);
+    },
+    /** both ways: what the browser wrote reaches the server, and the server's writes reach the browser */
+    exchange() {
+      Y.applyUpdate(server, Y.encodeStateAsUpdate(doc, Y.encodeStateVector(server)), "browser");
+      Y.applyUpdate(doc, Y.encodeStateAsUpdate(server, Y.encodeStateVector(doc)), "net");
+    },
+  };
+}
+
+test("a card moved at the moment someone joins keeps both: the move and who's in it", async () => {
+  const { id } = (await runTool(ctx, "open_huddle", { name: "Race" })) as { id: string };
+  const server = getBoard(BOARD).doc;
+  const people = (doc: Y.Doc) => huddleStateOf(doc, id)?.people ?? [];
+
+  // Kai drags the card; before his move reaches the server, Noa joins
+  const kaiTab = browser();
+  kaiTab.move(id, 240, 120);
+  const a = enter(id, noa, true);
+  await a.next("welcome");
+  await sleep(30);
+  assert.deepEqual(people(server), ["Noa"]);
+  kaiTab.exchange();
+  for (const doc of [server, kaiTab.doc]) {
+    const c = boardMaps(doc).objects.get(id) as PanelDoc;
+    assert.deepEqual([c.x, c.y], [240, 120], "the move landed");
+    assert.deepEqual(people(doc), ["Noa"], "and Noa is still in the huddle");
+  }
+
+  // an older build sends the card with a stale `huddle` it once read off it: that lands on the card and changes nothing
+  const oldTab = browser();
+  oldTab.move(id, 480, 0, { huddle: { people: [] } });
+  const b = enter(id, kai, true);
+  await b.next("welcome");
+  await sleep(30);
+  oldTab.exchange();
+  assert.equal((boardMaps(server).objects.get(id) as PanelDoc).x, 480);
+  assert.deepEqual(people(server).sort(), ["Kai", "Noa"], "an old client can't wipe who's in it");
+  assert.deepEqual(people(oldTab.doc).sort(), ["Kai", "Noa"]);
+
+  // the next settle still reads the map, not the card
+  b.ws.close();
+  await sleep(60);
+  assert.deepEqual(people(server), ["Noa"]);
+  a.ws.close();
+  await sleep(60);
+  assert.deepEqual(people(server), []);
+  assert.ok(huddleStateOf(server, id)?.lastEndedAt);
+
+  // removing the card (on the server) takes its state with it
+  await runTool(ctx, "delete_card", { id, confirm: true });
+  assert.equal(boardMaps(server).huddles.has(id), false);
+});
+
+test("schema 6: an older board's huddle state moves off its card into `huddles`, once", () => {
+  const id = "huddle-mig";
+  const base = { kind: "panel" as const, sectionId: "sec_m", x: 10, y: 20, w: 560, h: 420, float: true, bornAt: 1, ports: [] };
+  editBoard(id, "test", (doc) => {
+    const m = boardMaps(doc);
+    m.meta.set("schema", 5);
+    m.sections.set("sec_m", { id: "sec_m", name: "M", c0: 0, r0: 0, c1: 0, r1: 0 });
+    // live when the server stopped: two people, recording
+    m.objects.set("pnl_live", { ...base, id: "pnl_live", name: "Live", panel: "huddle", channel: "C0DESIGN1", huddle: { people: ["Noa", "Kai"], liveSince: 5, recording: { by: "Noa", since: 6 } } });
+    // a state already in the map is the server's newer word: it stays
+    m.objects.set("pnl_both", { ...base, id: "pnl_both", name: "Both", panel: "huddle", huddle: { people: ["Stale"] } });
+    m.huddles.set("pnl_both", { people: [], lastEndedAt: 9 });
+    // never met, and an app: nothing to move
+    m.objects.set("pnl_quiet", { ...base, id: "pnl_quiet", name: "Quiet", panel: "huddle" });
+    m.objects.set("pnl_app", { ...base, id: "pnl_app", name: "App", panel: "app", url: "https://example.com" });
+  });
+  assert.equal(migrateBoard(id), true);
+  const doc = getBoard(id).doc;
+  const m = boardMaps(doc);
+  assert.equal(BOARD_SCHEMA, 6);
+  assert.equal(m.meta.get("schema"), BOARD_SCHEMA);
+  assert.deepEqual(huddleStateOf(doc, "pnl_live"), { people: ["Noa", "Kai"], liveSince: 5, recording: { by: "Noa", since: 6 } });
+  assert.deepEqual(huddleStateOf(doc, "pnl_both"), { people: [], lastEndedAt: 9 });
+  assert.equal(huddleStateOf(doc, "pnl_quiet"), undefined);
+  assert.deepEqual([...m.huddles.keys()].sort(), ["pnl_both", "pnl_live"]);
+  for (const k of ["pnl_live", "pnl_both", "pnl_quiet", "pnl_app"]) assert.equal((m.objects.get(k) as PanelDoc).huddle, undefined, `${k} carries no huddle`);
+  // everything else on the card is as it was
+  const live = m.objects.get("pnl_live") as PanelDoc;
+  assert.deepEqual([live.name, live.panel, live.channel, live.x, live.y, live.float], ["Live", "huddle", "C0DESIGN1", 10, 20, true]);
+
+  // twice changes nothing: the board says it's current, and the step itself writes nothing
+  assert.equal(migrateBoard(id), false);
+  const before = JSON.stringify(doc.toJSON());
+  let writes = 0;
+  const count = () => writes++;
+  doc.on("update", count);
+  editBoard(id, "test", (d) => huddleStateToMap(d));
+  doc.off("update", count);
+  assert.equal(writes, 0, "a second run writes nothing");
+  assert.equal(JSON.stringify(doc.toJSON()), before);
 });
 
 // ---------- Slack, against a stand-in API ----------
@@ -283,4 +405,22 @@ test("Slack: read a channel, post as a person, share a board place, invite to a 
   assert.deepEqual([card.panel, card.name, card.channel], ["slack", "#design", "C0DESIGN1"]);
   assert.match(String(await runTool(ctx, "slack_read", { channel: "C0DESIGN1" })), /Kai: morning/);
   await assert.rejects(runTool(ctx, "add_slack_channel", { channel: "#nope" }), /no Slack channel/);
+});
+
+test("inviting a channel to a new huddle makes the card on the server, once", async () => {
+  const { huddleForInvite } = await import("../src/huddles.ts");
+  const board = "invite-board";
+  const sec = editBoard(board, "test", (doc) => appendSection(doc, "Design"));
+  const want = { id: "pnl_inv1", sectionId: sec.id, name: "Huddle · #design", channel: "C0DESIGN1", x: 612.4, y: 40 };
+  const h = huddleForInvite(board, { name: "Noa" }, want);
+  assert.deepEqual([h.panel, h.channel, h.x, h.float, h.createdBy], ["huddle", "C0DESIGN1", 612, true, "Noa"]);
+  assert.ok(boardMaps(getBoard(board).doc).objects.get("pnl_inv1"), "the card is on the board before the invite is sent");
+  // a retried invite (same id) finds the same card
+  const again = huddleForInvite(board, { name: "Noa" }, { ...want, name: "renamed" });
+  assert.equal(again.name, "Huddle · #design");
+  assert.equal([...boardMaps(getBoard(board).doc).objects.values()].filter((o) => o.id === "pnl_inv1").length, 1);
+  const log = boardMaps(getBoard(board).doc).activity.toArray().filter((e) => /invited its channel/.test(e.text));
+  assert.equal(log.length, 1);
+  assert.throws(() => huddleForInvite(board, { name: "Noa" }, { ...want, id: "pnl_inv2", sectionId: "sec_nope" }), /no such section/);
+  assert.throws(() => huddleForInvite(board, { name: "Noa" }, { ...want, id: "x" }), /needs an id/);
 });

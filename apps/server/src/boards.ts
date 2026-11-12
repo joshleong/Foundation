@@ -16,7 +16,7 @@ import * as awarenessProtocol from "y-protocols/awareness";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import type { WebSocket } from "ws";
-import { boardMaps, describeBoard, noteTextOf, tableCellsOf, type ObjectDoc } from "@foundation/protocol";
+import { boardMaps, describeBoard, logActivity, noteTextOf, tableCellsOf, type ObjectDoc } from "@foundation/protocol";
 import { all, indexDoc, one, run, unindexDoc } from "./db.ts";
 
 const MSG_SYNC = 0;
@@ -36,6 +36,12 @@ const boardListeners = new Set<(boardId: string, doc: Y.Doc) => void>();
 
 export function onBoardChange(fn: (boardId: string, doc: Y.Doc) => void) {
   boardListeners.add(fn);
+}
+
+const openListeners = new Set<(board: Board) => void>();
+/** a board is loaded into memory (each time: closeBoards forgets them) */
+export function onBoardOpen(fn: (board: Board) => void) {
+  openListeners.add(fn);
 }
 
 export function listBoards() {
@@ -95,6 +101,8 @@ export function getBoard(id: string): Board {
   });
 
   boards.set(id, board);
+  guardServerMaps(board);
+  for (const fn of openListeners) fn(board);
   // the board's lineage: a device's offline copy only merges into the board it came from
   if (!boardMaps(doc).meta.get("epoch")) doc.transact(() => boardMaps(doc).meta.set("epoch", `ep_${randomUUID()}`), "system");
   scheduleIndex(board);
@@ -161,6 +169,12 @@ function send(ws: WebSocket, data: Uint8Array) {
 
 /** who each sync socket belongs to, so a role change can make them reconnect */
 const socketUser = new WeakMap<WebSocket, string>();
+/** and their name, for the activity log */
+
+/** the person behind a sync socket (a change's transaction origin), if it is one */
+export function socketUserId(origin: unknown): string | undefined {
+  return origin && typeof origin === "object" ? socketUser.get(origin as WebSocket) : undefined;
+}
 
 /** `readOnly`: a viewer — they get the board and send presence, but their updates are dropped */
 export function attachConnection(boardId: string, ws: WebSocket, readOnly = false, userId?: string) {
@@ -204,6 +218,38 @@ export function attachConnection(boardId: string, ws: WebSocket, readOnly = fals
     encoding.writeVarUint(aw, MSG_AWARENESS);
     encoding.writeVarUint8Array(aw, awarenessProtocol.encodeAwarenessUpdate(board.awareness, [...states.keys()]));
     send(ws, encoding.toUint8Array(aw));
+  }
+}
+
+/**
+ * Maps only the server writes (`huddles`: who's in a portal; `machineAsks`: commands agents asked
+ * to run). A person's sync socket can still send a change to them (the Yjs wire has no per-map
+ * permissions), so a change that came from a socket is put back the way the server left it, and
+ * everyone, the sender included, gets the correction. Without this, someone with edit rights could
+ * make a fake ask appear on a machine card or rewrite who is in a huddle.
+ */
+export const SERVER_MAPS = ["huddles", "machineAsks"] as const;
+function guardServerMaps(board: Board) {
+  for (const name of SERVER_MAPS) {
+    const map = board.doc.getMap<unknown>(name);
+    const kept = new Map<string, unknown>();
+    for (const [k, v] of map.entries()) kept.set(k, structuredClone(v));
+    map.observe((e) => {
+      const fromSocket = e.transaction.origin && board.conns.has(e.transaction.origin as WebSocket);
+      if (!fromSocket) {
+        for (const k of e.keysChanged) {
+          if (map.has(k)) kept.set(k, structuredClone(map.get(k)));
+          else kept.delete(k);
+        }
+        return;
+      }
+      board.doc.transact(() => {
+        for (const k of e.keysChanged) {
+          if (kept.has(k)) map.set(k, structuredClone(kept.get(k)));
+          else map.delete(k);
+        }
+      }, "server-map-guard");
+    });
   }
 }
 
