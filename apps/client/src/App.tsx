@@ -6,6 +6,7 @@ import { Login } from "./login/Login";
 import { Shell } from "./shell/Shell";
 import { DesignPage } from "./design/DesignPage";
 import { Today } from "./today/Today";
+import { Privacy } from "./privacy/Privacy";
 import { SettingsPage } from "./settings/SettingsPage";
 import { Tip } from "./shell/Tip";
 import { rememberMe, whoAmI } from "./lib/api";
@@ -39,6 +40,7 @@ function useHashRoute() {
  * Sign-in gate → the shell. #/design is the living design language page;
  * #/design/sign-in shows the sign-in page even when signed in. #/settings
  * (signed in) holds the plan board and what the server is connected to.
+ * #/privacy is open to anyone (the Chrome Web Store links to it).
  *
  * The sign-in page stays over the shell until its dissolve has run, so
  * signing in turns into the board rather than cutting to it. Back from
@@ -61,6 +63,15 @@ function App() {
     return (
       <>
         <DesignPage />
+        <Tip />
+      </>
+    );
+  }
+  // what the Chrome extension (and Foundation) does with your data: open to anyone, signed in or not
+  if (route.startsWith("#/privacy")) {
+    return (
+      <>
+        <Privacy />
         <Tip />
       </>
     );

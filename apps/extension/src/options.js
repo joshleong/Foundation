@@ -1,9 +1,15 @@
-import { clean, foundationUrl, night, setFoundationUrl } from "./store.js";
+import { clean, foundationUrl, managedUrl, night, setFoundationUrl } from "./store.js";
 
 night();
 const input = document.getElementById("url");
 const said = document.getElementById("said");
 input.value = await foundationUrl();
+// set by the company's admin for everyone: shown, not changed here
+if (await managedUrl()) {
+  input.disabled = true;
+  document.querySelector("#form button").hidden = true;
+  said.textContent = "Set by your company's administrator for everyone.";
+}
 document.getElementById("form").addEventListener("submit", async (e) => {
   e.preventDefault();
   try {

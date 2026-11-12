@@ -1,7 +1,7 @@
 {
   "about": "Foundation's plan as a kanban. GitHub issues are where the team moves cards; this file is the local copy the app shows in Settings → Plan. `npm run plan:push` writes it to GitHub, `npm run plan:pull` reads the issues back. Columns: needs-you (waits on a person: a key, an install, a decision), backlog, next, doing, review (built, waiting to merge or to be checked by a person), done.",
   "repo": "joshleong/Foundation",
-  "syncedAt": "2026-11-12T05:51:36.677Z",
+  "syncedAt": "2026-11-12T06:49:46.815Z",
   "columns": [
     {
       "id": "needs-you",
@@ -968,8 +968,8 @@
       "kind": "plan",
       "milestone": "today",
       "area": "today",
-      "status": "review",
-      "body": "`npm run build -w @foundation/extension`, then chrome://extensions → Developer mode → Load unpacked → `apps/extension/dist/unpacked`. Check the new tab opens Today and the toolbar popup reads `/api/today` with Foundation's sign-in (SameSite=Lax from the extension's origin; only checked from a plain page so far).",
+      "status": "done",
+      "body": "Checked in a real Chromium on 2026-11-11 (`apps/client/e2e/extension.spec.ts`): a new tab goes through the extension to Today, signed in; the popup reads `/api/today` from the extension's origin with Foundation's cookie; signed out it says so. Evidence: `docs/evidence/2026-11-11_chrome-extension/`. Branded Chrome with a hosted Foundation comes with the rollout (#110).",
       "issue": 109
     },
     {
@@ -979,7 +979,7 @@
       "milestone": "today",
       "area": "today",
       "status": "needs-you",
-      "body": "Build with the hosted address (`FOUNDATION_URL=https://… npm run build -w @foundation/extension`), then publish `apps/extension/dist/foundation-today.zip` on the Chrome Web Store as private to the company's domain, or force-install it from the Google Workspace admin console (SPEC §6 #14).",
+      "body": "The package, listing, images and policies are ready (`apps/extension/README.md`, `STORE.md`, `store/`, `npm run release -w @foundation/extension`). Needs a person: confirm the placeholders in `apps/extension/release.json` (hosted address, domains, support email, privacy URL), register a Chrome Web Store developer account under a company Google account (one-time fee), upload as Private to the Workspace domain, then a Workspace admin force-installs it by id with `dist/policy/admin-console-policy.json` (SPEC §6 #14).",
       "issue": 110
     },
     {
