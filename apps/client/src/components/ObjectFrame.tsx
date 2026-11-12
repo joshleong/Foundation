@@ -4,6 +4,7 @@ import { MINI_HEADER, liveObjPos, setActiveObject, setObjectFloat } from "../sta
 import { Spring2D, presets } from "../physics/spring";
 import { countRender } from "../state/renders";
 import { LIFT, MAX_LEAN, startCarry, type Carry } from "../lib/carry";
+import { FullscreenBar, FullscreenButton, useFullscreenCard } from "./Fullscreen";
 
 /**
  * Shared card frame for the lightweight primitives (notes, images, videos,
@@ -41,6 +42,8 @@ interface Props {
   icons?: ReactNode;
   /** for `icons` chrome: a press on the card that didn't become a drag */
   onTap?(): void;
+  /** full screen: an address to open in a tab from its bar */
+  openUrl?: string;
 }
 
 export function ObjectFrame({
@@ -63,8 +66,10 @@ export function ObjectFrame({
   chrome = "bar",
   icons,
   onTap,
+  openUrl,
 }: Props) {
   countRender("ObjectFrame");
+  const fullscreen = useFullscreenCard() === id;
   const rootRef = useRef<HTMLDivElement>(null);
 
   const spring = useMemo(
@@ -217,18 +222,20 @@ export function ObjectFrame({
       {chrome === "icons" && (
         <div className="frame-icons">
           {icons}
+          <FullscreenButton id={id} round />
           <button className="frame-icon is-remove" data-tip="Remove" aria-label="Remove" onClick={onRemove}>
             ✕
           </button>
         </div>
       )}
       <motion.div
-        className={"frame-card" + (isActive ? " ctx-active" : "") + (cardClass ? ` ${cardClass}` : "")}
+        className={"frame-card fs-able" + (isActive ? " ctx-active" : "") + (cardClass ? ` ${cardClass}` : "")}
         initial={{ scale: 0.94, opacity: 0, y: 8 }}
         animate={{ scale: 1, opacity: 1, y: 0 }}
         transition={{ type: "spring", stiffness: 380, damping: 30 }}
         onPointerDown={() => setActiveObject(id)}
       >
+        {fullscreen && <FullscreenBar id={id} title={title} url={openUrl} />}
         {chrome === "bar" && (
           <div className="frame-header" style={{ height: MINI_HEADER - 4 }} {...dragHandlers}>
             <div className="grip mini">
@@ -238,6 +245,7 @@ export function ObjectFrame({
             <span className="frame-title">{title}</span>
             <div className="header-actions">
               {headerExtras}
+              <FullscreenButton id={id} />
               <button
                 className={"icon-btn float-btn" + (float ? " floating" : "")}
                 data-tip={float ? "Dock into the section" : "Float freely"}

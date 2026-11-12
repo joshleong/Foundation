@@ -543,6 +543,53 @@ export function DesignPage() {
         </div>
       </Section>
 
+      <Section
+        title="Using a card"
+        note={`No card takes the wheel: over a live app, a map, a terminal or a list, the wheel pans the grid and ${IS_MAC ? "⌘" : "Ctrl"}-wheel zooms it. ${keys("mod+click")} puts a card in use (a 2 px blue ring; it alone takes the pointer and the wheel until Esc, a click elsewhere, or a pan). Holding ${IS_MAC ? "⌘" : "Ctrl"} rings the card a click would use. ${keys("mod+enter")} or ⤢ opens it full screen: the card itself, not a copy (an app doesn't reload), under a 44 px bar with its name and the way back.`}
+      >
+        <div className="adapt-row">
+          <div className="oncall-cell">
+            <div className="frame-card live-specimen" style={{ width: 360, height: 220, position: "relative" }}>
+              <div className="live-frame">
+                <div className="frame-poster">
+                  <div className="frame-poster-name">Moneyform</div>
+                  <div className="frame-poster-domain">moneyform.example</div>
+                </div>
+                <div className="frame-engage" style={{ opacity: 1 }}>
+                  <span className="f-pill frame-engage-pill">
+                    {keys("mod+click")} to use · {keys("mod+enter")} full screen
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="effect-label">At rest: the pointer on it shows how to use it; the wheel still pans</div>
+          </div>
+          <div className="oncall-cell">
+            <div className="frame-card live-specimen" style={{ width: 360, height: 220, position: "relative" }}>
+              <div className="live-frame is-engaged">
+                <div className="frame-poster">
+                  <div className="frame-poster-name">Moneyform</div>
+                  <div className="frame-poster-domain">in use</div>
+                </div>
+              </div>
+            </div>
+            <div className="effect-label">In use: the ring says the pointer and the wheel are the card's</div>
+          </div>
+          <div className="oncall-cell">
+            <div className="frame-card live-specimen" style={{ width: 420, height: 220, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div className="fs-bar">
+                <span className="fs-title">Moneyform</span>
+                <span className="fs-hint">Esc to return to the grid</span>
+                <button className="f-pill">Open in a tab ↗</button>
+                <button className="f-pill">Back to the grid</button>
+              </div>
+              <div style={{ flex: 1, background: "var(--color-abyss)" }} />
+            </div>
+            <div className="effect-label">Full screen: the card fills the window under its bar</div>
+          </div>
+        </div>
+      </Section>
+
       <Section title="Adding files" note={`Drop files or whole folders on a section, paste onto the board (${keys("mod+V")}: they land where the pointer is), or pick them (${keys("mod+U")}). A folder comes in as a group, in path order, under a note that names it. Every upload goes through one glass tray at the bottom right: how many and how much in its head, a 3 px meter (blue while sending, green when everything landed, red when something didn't), then a row per file (its folder in dim, a percentage while it goes, ✓ when it's there). Three go at a time. It folds to its head, and goes by itself a beat after the last one lands. A failure keeps it open with Retry; its card waits until Retry or Close. Documents (PDF, Word, PowerPoint, Excel, OpenDocument) are searchable by what's inside them a moment after they land, and a result shows the words that matched.`}>
         <UploadsDemo />
       </Section>

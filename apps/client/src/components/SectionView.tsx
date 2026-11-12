@@ -47,6 +47,7 @@ const MapView = lazy(() => import("./MapView").then((m) => ({ default: m.MapView
 import { NoteView } from "./NoteView";
 import { MediaView } from "./MediaView";
 import { PANEL_GLYPH, PanelActions, PanelView } from "../panels/PanelView";
+import { FullscreenButton } from "./Fullscreen";
 import { isHostable } from "@foundation/protocol";
 import { isPanel } from "../state/store";
 import { ingest, ingestDrop } from "../lib/ingest";
@@ -478,6 +479,7 @@ export const SectionView = memo(function SectionView({
           {host && (
             <div className="sec-group">
               <PanelActions panel={host} ask={false} />
+              <FullscreenButton id={host.id} />
               {tool(`Show ${host.name} as a card`, "◱", () => setSectionHost(section.id, null))}
             </div>
           )}

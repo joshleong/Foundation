@@ -1424,6 +1424,16 @@ body.is-connecting .frame-header {
 
 /* media cards */
 
+.media-host {
+  position: relative;
+  display: block;
+}
+/* the well, until a picture's first level lands (or a video comes near the screen) */
+.media-host:empty {
+  background: var(--color-panel);
+  border-radius: inherit;
+}
+
 .media-body img,
 .media-body video {
   display: block;

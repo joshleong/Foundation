@@ -10,7 +10,6 @@ import {
   liveObjPos,
   moveMap,
   removeMap,
-  requestSnap,
   resizeMap,
   setActiveObject,
   setObjectFloat,
@@ -20,6 +19,10 @@ import { parsePairs, tableOptionsSlice, useStoreSlice } from "../state/slices";
 import { Spring, Spring2D, presets } from "../physics/spring";
 import { countRender } from "../state/renders";
 import { startCarry, type Carry } from "../lib/carry";
+import { modHeld, putInUse } from "../lib/cardUse";
+import { keys } from "../lib/keys";
+import { useUi } from "../state/ui";
+import { FullscreenBar, FullscreenButton, useFullscreenCard } from "./Fullscreen";
 
 interface Props {
   map: MapMeta;
@@ -120,7 +123,6 @@ export const MapView = memo(function MapView({ map: meta, framePos, isActive, ge
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const lastFitKey = useRef("");
-  const [engaged, setEngaged] = useState(false);
   const [pointCount, setPointCount] = useState(0);
 
   // ----- drag by header (same spring physics as tables) -----
@@ -304,17 +306,17 @@ export const MapView = memo(function MapView({ map: meta, framePos, isActive, ge
     return workbook.subscribe(meta.sourceTableId, () => refreshMarkers());
   }, [meta.sourceTableId, refreshMarkers]);
 
-  // ----- engagement: interactive only when the grid zoom ≈ 1 -----
-  useEffect(() => {
-    const update = (v: number) => setEngaged(Math.abs(v - 1) < 0.1);
-    update(zoomSpring.value);
-    return zoomSpring.onChange(update);
-  }, [zoomSpring]);
+  // ----- in use: only when asked (⌘/Ctrl-click, or full screen), never by zooming close (lib/cardUse.ts) -----
+  const ui = useUi();
+  const fullscreen = useFullscreenCard() === meta.id;
+  const engaged = ui.engaged === meta.id || fullscreen;
+  void zoomSpring;
 
   const engage = useCallback(
     (e: React.PointerEvent) => {
+      if (!modHeld(e)) return; // a plain press selects the card; the grid keeps the pointer
       e.stopPropagation();
-      requestSnap({ kind: "object", id: meta.id }); // snap the viewport to this map at 1:1
+      putInUse(meta.id);
     },
     [meta.id],
   );
@@ -324,13 +326,14 @@ export const MapView = memo(function MapView({ map: meta, framePos, isActive, ge
   return (
     <div ref={rootRef} className="map-anchor" style={{ width: meta.w }}>
       <motion.div
-        className={"map-card" + (isActive ? " ctx-active" : "")}
+        className={"map-card fs-able" + (isActive ? " ctx-active" : "")}
         style={{ width: meta.w }}
         initial={{ scale: 0.55, opacity: 0, y: 60, rotate: 1.5 }}
         animate={{ scale: 1, opacity: 1, y: 0, rotate: 0 }}
         transition={{ type: "spring", stiffness: 230, damping: 19, mass: 1.05 }}
         onPointerDown={() => setActiveObject(meta.id)}
       >
+        {fullscreen && <FullscreenBar id={meta.id} title={meta.name} />}
         <div
           className="table-header map-header"
           style={{ height: HEADER_H }}
@@ -374,6 +377,7 @@ export const MapView = memo(function MapView({ map: meta, framePos, isActive, ge
             >
               {meta.float ? "✥" : "⌗"}
             </button>
+            <FullscreenButton id={meta.id} />
             <button
               className={"icon-btn map-3d" + (meta.pitched ? " on" : "")}
               data-tip="Tilt into 3D"
@@ -397,9 +401,10 @@ export const MapView = memo(function MapView({ map: meta, framePos, isActive, ge
             <div
               className="map-shield"
               onPointerDown={engage}
-              title="Click to zoom in and interact with the map"
             >
-              <span className="map-shield-hint">click to interact</span>
+              <span className="map-shield-hint">
+                {keys("mod+click")} to use · {keys("mod+enter")} full screen
+              </span>
             </div>
           )}
         </div>

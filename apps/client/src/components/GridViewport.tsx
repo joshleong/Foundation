@@ -1,3 +1,4 @@
+import { inUse, releaseCard } from "../lib/cardUse";
 import { keys } from "../lib/keys";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion } from "motion/react";
@@ -576,12 +577,11 @@ export function GridViewport({ boardName }: { boardName?: string } = {}) {
   }, []);
 
   const onWheel = useCallback(
-    (e: React.WheelEvent) => {
+    (e: WheelEvent) => {
       const container = containerRef.current;
       if (!container) return;
-      if ((e.target as HTMLElement).closest(".map-body")) return;
-      // lists inside cards (transcripts, Slack) scroll themselves; pinch still zooms
-      if (!e.ctrlKey && !e.metaKey && (e.target as HTMLElement).closest(".wheel-own")) return;
+      // panning the grid ends a card's use, so it can't catch the wheel as it slides under the pointer
+      releaseCard();
       const r = container.getBoundingClientRect();
       if (e.ctrlKey || e.metaKey) {
         const cx = e.clientX - r.left;
@@ -632,14 +632,18 @@ export function GridViewport({ boardName }: { boardName?: string } = {}) {
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    // No card takes the wheel (lib/cardUse.ts): over an app, a map, a terminal or a list it pans the grid,
+    // and ⌘/Ctrl-wheel zooms it. Only the card in use (⌘/Ctrl-click, or full screen) has its own wheel.
+    // Caught on the way down, so a card's own scroller (xterm, maplibre, a list) never sees it.
     const h = (e: WheelEvent) => {
-      if ((e.target as HTMLElement).closest(".map-body")) return;
-      if (!e.ctrlKey && !e.metaKey && (e.target as HTMLElement).closest(".wheel-own")) return;
+      if (inUse(e.target)) return;
       e.preventDefault();
+      if ((e.target as Element | null)?.closest?.(".frame-body, .panel-body, .map-body-wrap, .hosted-app")) e.stopPropagation();
+      onWheel(e);
     };
-    el.addEventListener("wheel", h, { passive: false });
-    return () => el.removeEventListener("wheel", h);
-  }, []);
+    el.addEventListener("wheel", h, { passive: false, capture: true });
+    return () => el.removeEventListener("wheel", h, { capture: true });
+  }, [onWheel]);
 
   const getScale = useCallback(() => zoom.value, [zoom]);
 
@@ -817,7 +821,6 @@ export function GridViewport({ boardName }: { boardName?: string } = {}) {
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
       onPointerLeave={onPointerLeave}
-      onWheel={onWheel}
       onDoubleClickCapture={onDoubleClickCapture}
     >
       {/* the cards live above the paper but under the floor: masked out where the floor is.

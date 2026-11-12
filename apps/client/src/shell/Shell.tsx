@@ -1,3 +1,4 @@
+import { cardOf, fullscreenCard, installCardUse, modHeld } from "../lib/cardUse";
 /**
  * The Foundation shell: the open space's canvas edge to edge (a grid, a deck
  * or a web page), and the floor drawn on its paper — the top bar (the spaces
@@ -60,6 +61,8 @@ export interface BoardRow {
 
 export function Shell({ user }: { user: UserInfo }) {
   const ui = useUi();
+  // cards take input only when asked: ⌘/Ctrl-click, ⌘↵ / Ctrl+Enter full screen (lib/cardUse.ts)
+  useEffect(() => installCardUse(), []);
   const board = useSyncExternalStore(onBoardChange, activeBoard);
   // the board list is kept on the device too, so names (and roles) show offline
   const [boards, setBoards] = useState<BoardRow[]>(() => {
@@ -220,11 +223,13 @@ export function Shell({ user }: { user: UserInfo }) {
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
 
-  // clicking anywhere on the grid releases an engaged app
+  // clicking anywhere else releases the card in use
   useEffect(() => {
     if (!ui.engaged) return;
     const off = (e: PointerEvent) => {
-      if (!(e.target as HTMLElement).closest(`[data-panel-id="${ui.engaged}"]`)) setUi({ engaged: null });
+      // a ⌘/Ctrl press on another card moves the use there (lib/cardUse.ts); full screen keeps it
+      if (modHeld(e) || fullscreenCard()) return;
+      if (cardOf(e.target) !== ui.engaged) setUi({ engaged: null });
     };
     window.addEventListener("pointerdown", off, true);
     return () => window.removeEventListener("pointerdown", off, true);

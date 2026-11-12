@@ -4072,3 +4072,114 @@ body.is-viewer .port {
 .search-row-src.flowform-again:focus-visible {
   color: var(--color-pulse);
 }
+
+/* ============ using a card (lib/cardUse.ts) ============
+   Cards never take the wheel. ⌘/Ctrl-click puts one in use; ⌘↵ / Ctrl+Enter or ⤢ opens it full screen. */
+
+.frame-engage {
+  cursor: default;
+}
+.frame-engage-pill {
+  pointer-events: none;
+  white-space: nowrap;
+}
+/* holding the modifier: the card under the pointer says a click will use it */
+.use-key-held .frame-engage {
+  cursor: pointer;
+}
+.use-key-held .frame-engage:hover,
+.use-key-held .map-shield:hover {
+  opacity: 1;
+  box-shadow: inset 0 0 0 2px var(--color-pulse);
+}
+.use-key-held .map-shield {
+  cursor: pointer;
+}
+.use-key-held .map-shield:hover .map-shield-hint {
+  opacity: 1;
+  transform: translateY(0);
+}
+.map-shield {
+  cursor: default;
+}
+
+/* full screen: the card leaves the grid (top layer) and fills the window */
+.fs-able:fullscreen {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--color-abyss);
+  rotate: none;
+  scale: none;
+}
+.fs-able:fullscreen::backdrop {
+  background: var(--color-abyss);
+}
+.fs-able:fullscreen > .frame-header,
+.fs-able:fullscreen > .map-resize,
+.fs-able:fullscreen > .port-rail,
+.fs-able:fullscreen .frame-engage,
+.fs-able:fullscreen .map-shield {
+  display: none;
+}
+.fs-able:fullscreen > .frame-body,
+.fs-able:fullscreen > .panel-body,
+.fs-able:fullscreen > .map-body-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  height: auto !important;
+  width: 100%;
+  border-radius: 0;
+}
+.fs-able:fullscreen .panel-inner,
+.fs-able:fullscreen .media-host {
+  width: 100% !important;
+  height: 100% !important;
+}
+.fs-able:fullscreen .media-host img,
+.fs-able:fullscreen .media-host video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain;
+}
+.fs-able:fullscreen .live-frame iframe {
+  pointer-events: auto;
+}
+.fs-able:fullscreen .live-frame.is-engaged {
+  box-shadow: none;
+}
+.fs-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 44px;
+  padding: 0 var(--space-3) 0 var(--space-4);
+  border-bottom: 1px solid var(--color-line);
+  background: var(--color-raise);
+  color: var(--color-mist);
+  font: 500 var(--text-13) / 1 var(--font-sans);
+}
+.fs-title {
+  font-weight: 600;
+  color: var(--color-frost);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.fs-hint {
+  margin-right: auto;
+  font-size: var(--text-12);
+  color: var(--color-dim);
+  white-space: nowrap;
+}
+.fs-able:not(:fullscreen) > .fs-bar {
+  display: none;
+}

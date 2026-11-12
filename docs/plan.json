@@ -1085,6 +1085,33 @@
       "status": "needs-you",
       "body": "System Node is 22.13.1 (no FTS5 in node:sqlite): the server can't start on it, which is why agents, Claude and data sources all failed to fetch. `winget install OpenJS.NodeJS.LTS`, then a new terminal. The launcher now says this itself.",
       "issue": 102
+    },
+    {
+      "id": "heavy-board-perf",
+      "title": "A heavy board holds 60 fps: picture levels, live pages and videos start when the camera is calm",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "perf",
+      "status": "review",
+      "body": "Josh, 2026-11-11, on a Flowform room with 27 photos (up to 4096 px, 110 MB), 4 videos and 15 live apps: \"strive for 30-60 FPS\". Pictures draw from the smallest of 256/512/1024/2048 px levels that's sharp at their drawn size, made once in a worker and kept in Cache Storage (`lib/imageLod.ts`); live pages and videos mount only once the camera is still, one at a time (`lib/calm.ts`); videos let go 5 s off screen. Measured by `e2e/heavy.spec.ts` (PERF_GPU=1) on the room's own geometry: SPEC §5."
+    },
+    {
+      "id": "cards-never-take-wheel",
+      "title": "No card takes the wheel: Ctrl-click to use one, Ctrl+Enter full screen",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "grid",
+      "status": "review",
+      "body": "Josh, 2026-11-11: \"Don't allow any of the objects to take over scroll, give them a ctrl keyboard command to interact with them, and allow them to be fullscreened\". The wheel pans the grid over apps, maps, terminals and lists; ⌘/Ctrl-click puts a card in use; ⌘↵ / Ctrl+Enter or ⤢ opens it full screen without reloading it (`lib/cardUse.ts`, `e2e/card-use.spec.ts`)."
+    },
+    {
+      "id": "server-picture-levels",
+      "title": "Make picture levels on the server, so a first visit never downloads an original",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "perf",
+      "status": "backlog",
+      "body": "Levels are made in the browser from the original, once per device (`lib/imageLod.ts`), so the first visit to a heavy board still downloads every original (110 MB on the Flowform room). The server has no image decoder; one (sharp, or a WASM decoder) would let it serve `/files/<id>?w=512` and share levels across devices."
     }
   ]
 }

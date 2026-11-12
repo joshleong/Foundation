@@ -19,7 +19,7 @@ import { beginConnect, beginDetach, usePortLayout } from "../shell/AgentLayer";
 import { describeValue, landingsOf, toneOf } from "../shell/ports";
 import { api, fetchFile, uploadFile } from "../lib/api";
 import { fileLink, useFileSrc } from "../lib/fileSrc";
-import { askAgent, setUi, toast, useUi } from "../state/ui";
+import { askAgent, toast, useUi } from "../state/ui";
 import { camera, onCamera } from "../state/camera";
 import { activeBoard } from "../sync/board";
 import { StageBody } from "./StageView";
@@ -31,6 +31,10 @@ import { machinePage, type FromMachine, type MachinePage } from "./machinePage";
 import { sandboxFor } from "./frameSandbox";
 import { SERVER as FOUNDATION_SERVER } from "../lib/api";
 import { countRender } from "../state/renders";
+import { putInUse, modHeld } from "../lib/cardUse";
+import { useCalmAdmit } from "../lib/calm";
+import { keys } from "../lib/keys";
+import { FullscreenBar, useFullscreenCard } from "../components/Fullscreen";
 
 interface Props {
   panel: PanelMeta;
@@ -59,6 +63,7 @@ export const PanelView = memo(function PanelView({ panel, pos, isActive, getScal
   countRender("PanelView");
   const ui = useUi();
   const layout = usePortLayout(panel);
+  const fullscreen = useFullscreenCard() === panel.id;
   const ports = (
     <>
       {panel.ports.map((p) => {
@@ -161,10 +166,11 @@ export const PanelView = memo(function PanelView({ panel, pos, isActive, getScal
     });
     return (
       <div
-        className={`hosted-app panel-card kind-${panel.panel}${panel.status ? ` status-${panel.status}` : ""}${ui.agentLayer ? " show-ports" : ""}`}
+        className={`hosted-app fs-able panel-card kind-${panel.panel}${panel.status ? ` status-${panel.status}` : ""}${ui.agentLayer ? " show-ports" : ""}`}
         data-panel-id={panel.id}
         data-obj-id={panel.id}
       >
+        {fullscreen && <FullscreenBar id={panel.id} title={panel.name} url={panel.url} />}
         <div className={`panel-body panel-${panel.panel}`}>
           <div className="panel-inner">{body}</div>
         </div>
@@ -189,6 +195,7 @@ export const PanelView = memo(function PanelView({ panel, pos, isActive, getScal
       bodyClass={`panel-body panel-${panel.panel}`}
       cardClass={`panel-card kind-${panel.panel}${panel.status ? ` status-${panel.status}` : ""}${ui.agentLayer ? " show-ports" : ""}`}
       data={{ "panel-id": panel.id }}
+      openUrl={panel.url}
       overlay={panel.ports.length ? <div className="port-rail">{ports}</div> : null}
     >
       <div style={{ height: panel.h }} className="panel-inner">
@@ -343,7 +350,9 @@ function LiveFrame({ panel }: { panel: PanelMeta }) {
     }
   }, [shown]);
 
-  const mount = Boolean(url) && !held && !waiting && (live || (everLive && loaded));
+  // a page starts once the camera is calm, one at a time (lib/calm.ts): never mid-pan, mid-pinch or mid-glide
+  const admitted = useCalmAdmit(live);
+  const mount = Boolean(url) && !held && !waiting && ((live && admitted) || (everLive && loaded));
   const hold: Exclude<MachinePage, { kind: "live" }> | null =
     page && page.kind !== "live"
       ? page
@@ -376,9 +385,20 @@ function LiveFrame({ panel }: { panel: PanelMeta }) {
         </div>
       )}
       {!engaged && mount && (
-        <button className="frame-engage" onClick={() => setUi({ engaged: panel.id })} title="Click to use this app (Esc to return to the grid)">
-          <span className="f-pill">Use {panel.panel === "machine" ? "machine" : "app"}</span>
-        </button>
+        // a plain click selects the card (the wheel and the pointer stay the grid's); ⌘/Ctrl-click uses the app (lib/cardUse.ts)
+        <div
+          className="frame-engage"
+          onClick={(e) => {
+            if (!modHeld(e)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            putInUse(panel.id);
+          }}
+        >
+          <span className="f-pill frame-engage-pill">
+            {keys("mod+click")} to use · {keys("mod+enter")} full screen
+          </span>
+        </div>
       )}
     </div>
   );

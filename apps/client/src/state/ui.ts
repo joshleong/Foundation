@@ -32,7 +32,7 @@ export interface UiState {
   command: boolean;
   presenting: boolean;
   view: "grid" | "company";
-  /** a card whose app frame is "engaged" (live input); others show a still */
+  /** the card in use (lib/cardUse.ts): ⌘/Ctrl-clicked or full screen, it alone takes the pointer and the wheel */
   engaged: string | null;
   toast: { text: string; tone?: "ok" | "warn" | "bad" | "agent"; at: number } | null;
   /** the left pane: open or folded away, and which of its two faces shows */
