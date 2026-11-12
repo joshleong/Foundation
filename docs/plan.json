@@ -1,7 +1,7 @@
 {
   "about": "Foundation's plan as a kanban. GitHub issues are where the team moves cards; this file is the local copy the app shows in Settings → Plan. `npm run plan:push` writes it to GitHub, `npm run plan:pull` reads the issues back. Columns: needs-you (waits on a person: a key, an install, a decision), backlog, next, doing, review (built, waiting to merge or to be checked by a person), done.",
   "repo": "joshleong/Foundation",
-  "syncedAt": "2026-11-11T21:47:27.529Z",
+  "syncedAt": "2026-11-12T03:52:53.506Z",
   "columns": [
     {
       "id": "needs-you",
@@ -1064,7 +1064,8 @@
       "milestone": "company",
       "area": "auth",
       "status": "done",
-      "body": "Josh chose to keep the Flowform session for downloads (2026-11-11) and signed in through Flowform. Against production: Form Industries' 27 images and 4 videos (158 MB) and MatterForm's images, video and STEP file came into the archive and their cards became them. Flowform's file route needs `x-flowform-client-version` ≥ 1.9.0; renditions source → playback → display."
+      "body": "Josh chose to keep the Flowform session for downloads (2026-11-11) and signed in through Flowform. Against production: Form Industries' 27 images and 4 videos (158 MB) and MatterForm's images, video and STEP file came into the archive and their cards became them. Flowform's file route needs `x-flowform-client-version` ≥ 1.9.0; renditions source → playback → display.",
+      "issue": 104
     },
     {
       "id": "desktop-starts-server",
@@ -1093,7 +1094,8 @@
       "milestone": "polish",
       "area": "perf",
       "status": "review",
-      "body": "Josh, 2026-11-11, on a Flowform room with 27 photos (up to 4096 px, 110 MB), 4 videos and 15 live apps: \"strive for 30-60 FPS\". Pictures draw from the smallest of 256/512/1024/2048 px levels that's sharp at their drawn size, made once in a worker and kept in Cache Storage (`lib/imageLod.ts`); live pages and videos mount only once the camera is still, one at a time (`lib/calm.ts`); videos let go 5 s off screen. Measured by `e2e/heavy.spec.ts` (PERF_GPU=1) on the room's own geometry: SPEC §5."
+      "body": "Josh, 2026-11-11, on a Flowform room with 27 photos (up to 4096 px, 110 MB), 4 videos and 15 live apps: \"strive for 30-60 FPS\". Pictures draw from the smallest of 256/512/1024/2048 px levels that's sharp at their drawn size, made once in a worker and kept in Cache Storage (`lib/imageLod.ts`); live pages and videos mount only once the camera is still, one at a time (`lib/calm.ts`); videos let go 5 s off screen. Measured by `e2e/heavy.spec.ts` (PERF_GPU=1) on the room's own geometry: SPEC §5.",
+      "issue": 105
     },
     {
       "id": "cards-never-take-wheel",
@@ -1102,7 +1104,8 @@
       "milestone": "polish",
       "area": "grid",
       "status": "review",
-      "body": "Josh, 2026-11-11: \"Don't allow any of the objects to take over scroll, give them a ctrl keyboard command to interact with them, and allow them to be fullscreened\". The wheel pans the grid over apps, maps, terminals and lists; ⌘/Ctrl-click puts a card in use; ⌘↵ / Ctrl+Enter or ⤢ opens it full screen without reloading it (`lib/cardUse.ts`, `e2e/card-use.spec.ts`)."
+      "body": "Josh, 2026-11-11: \"Don't allow any of the objects to take over scroll, give them a ctrl keyboard command to interact with them, and allow them to be fullscreened\". The wheel pans the grid over apps, maps, terminals and lists; ⌘/Ctrl-click puts a card in use; ⌘↵ / Ctrl+Enter or ⤢ opens it full screen without reloading it (`lib/cardUse.ts`, `e2e/card-use.spec.ts`).",
+      "issue": 106
     },
     {
       "id": "server-picture-levels",
@@ -1111,7 +1114,8 @@
       "milestone": "polish",
       "area": "perf",
       "status": "backlog",
-      "body": "Levels are made in the browser from the original, once per device (`lib/imageLod.ts`), so the first visit to a heavy board still downloads every original (110 MB on the Flowform room). The server has no image decoder; one (sharp, or a WASM decoder) would let it serve `/files/<id>?w=512` and share levels across devices."
+      "body": "Levels are made in the browser from the original, once per device (`lib/imageLod.ts`), so the first visit to a heavy board still downloads every original (110 MB on the Flowform room). The server has no image decoder; one (sharp, or a WASM decoder) would let it serve `/files/<id>?w=512` and share levels across devices.",
+      "issue": 107
     }
   ]
 }
