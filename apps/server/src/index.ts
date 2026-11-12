@@ -32,6 +32,7 @@ import { addLine, attachHuddle, attachRecording, huddleArchive, transcriptText }
 import { boardLink, channelHistory, channelInfo, inviteText, listChannels, postMessage, shareText, SlackError, slackStatus } from "./slack.ts";
 import { appendSection, boardMaps } from "@foundation/protocol";
 import { migrateAllBoards } from "./migrate.ts";
+import { saveGoal, setProfile, todayFor, type GoalInput } from "./today.ts";
 import * as flowform from "./flowform.ts";
 
 const r = new Router();
@@ -347,6 +348,23 @@ r.get("/api/agent/sessions/:id", (req) => {
   return { turns: sessionTurns(req.params.id, user.id) };
 });
 
+// ---------- Today: the person's own page ----------
+
+r.get("/api/today", (req) => todayFor(requireUser(req)));
+r.post("/api/today/goals", async (req) => {
+  const u = requireUser(req);
+  const g = await readJson<GoalInput>(req);
+  try {
+    return { goal: saveGoal(u.id, g) };
+  } catch (e) {
+    throw new HttpError(400, (e as Error).message);
+  }
+});
+r.post("/api/today/profile", async (req) => {
+  const u = requireUser(req);
+  return { profile: setProfile(u.id, await readJson(req)) };
+});
+
 // ---------- Vision Code (T3) sessions, read-only ----------
 
 r.get("/api/t3/threads", async (req) => {
@@ -362,12 +380,12 @@ r.get("/api/t3/threads/:id", async (req) => {
 
 r.post("/api/agent", async (req, res) => {
   const user = requireUser(req);
-  const body = await readJson<{ board?: string; prompt?: string; runtime?: string; session?: string }>(req);
+  const body = await readJson<{ board?: string; prompt?: string; runtime?: string; session?: string; persona?: string }>(req);
   if (!body.prompt?.trim()) throw new HttpError(400, "say something");
   const send = sse(res);
   const session = body.session && /^ses_[a-z0-9]{6,24}$/.test(body.session) ? body.session : undefined;
   // the run lives on the server: closing this stream detaches, it doesn't stop it
-  const r = startRun({ boardId: body.board || "company", user, prompt: body.prompt, runtime: body.runtime, session });
+  const r = startRun({ boardId: body.board || "company", user, prompt: body.prompt, runtime: body.runtime, session, persona: body.persona === "shiba" ? "shiba" : undefined });
   await new Promise<void>((done) => {
     const detach = followRun(r.id, user.id, send, done);
     res.on("close", () => (detach?.(), done()));
@@ -395,10 +413,11 @@ r.post("/api/agent/runs/:id/stop", (req) => {
  * Viewers don't write. Any non-GET under /api is a write except these: the
  * agent (its tools check per call, so a viewer can still ask it things),
  * stopping your own run, an MCP token (its tools check too), board tools
- * (runTool checks), and setting roles (admins only). The board is the
+ * (runTool checks), setting roles (admins only), and a person's own Today
+ * (their goals and profile are theirs, not a board's). The board is the
  * route's :id, or ?board=, else the person's account role decides.
  */
-const READ_POSTS = [/^\/api\/agent$/, /^\/api\/agent\/runs\/[^/]+\/stop$/, /^\/api\/agent\/token$/, /^\/api\/boards\/[^/]+\/tools\//, /^\/api\/boards\/[^/]+\/people$/, /^\/api\/apps\/probe$/];
+const READ_POSTS = [/^\/api\/agent$/, /^\/api\/agent\/runs\/[^/]+\/stop$/, /^\/api\/agent\/token$/, /^\/api\/boards\/[^/]+\/tools\//, /^\/api\/boards\/[^/]+\/people$/, /^\/api\/apps\/probe$/, /^\/api\/today\//];
 function gateWrites(req: Req, path: string) {
   if (req.method === "GET" || req.method === "OPTIONS" || !path.startsWith("/api/")) return;
   if (READ_POSTS.some((p) => p.test(path))) return;

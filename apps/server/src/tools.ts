@@ -44,6 +44,16 @@ import { attachToStage, chooseArtifact, completeStage, describePipeline, setChec
 import { stageDef } from "@foundation/protocol";
 import { huddleArchive, transcriptText } from "./huddles.ts";
 import { channelHistory, channelInfo, listChannels } from "./slack.ts";
+import { saveGoal, setProfile, todayFor } from "./today.ts";
+import { one } from "./db.ts";
+import type { UserInfo } from "@foundation/protocol";
+
+/** the person a tool acts for (Today's tools are theirs, not the board's) */
+function personOf(ctx: ToolCtx): UserInfo {
+  const u = one<UserInfo>("select id, email, name, color, role from users where id = ?", ctx.userId);
+  if (!u) throw new Error("Today is a person's page; this caller isn't a person");
+  return u;
+}
 
 export interface ToolCtx {
   boardId: string;
@@ -190,6 +200,48 @@ export const TOOLS: BoardTool[] = [
       steps: z.array(z.object({ text: z.string(), status: z.enum(["pending", "active", "done"]) })).max(12),
     }),
     run: (_ctx, { steps }) => `plan set: ${steps.filter((x) => x.status === "done").length}/${steps.length} done`,
+  }),
+  // ---- Today: the person's own page (goals, what wants them, their apps). Personal, never a board write ----
+  def({
+    name: "today",
+    description:
+      "Read the person's Today page: their goals (with ids and progress), what wants their attention (asks assigned to them, notes that tag them, stages they own, files and changes on their boards, work matching their job), their profile and the company apps. Read this before answering anything about their day, goals, priorities or what to do next.",
+    schema: z.object({}),
+    run: (ctx) => todayFor(personOf(ctx)),
+  }),
+  def({
+    name: "set_goal",
+    description:
+      "Add one of the person's goals (title, optional detail, due date, a board card it's about), or change one by id: progress 0–1, status active / done / dropped, a better title. Only the person's own goals; only when they ask, or agree when you suggest it.",
+    schema: z.object({
+      id: z.string().optional().describe("the goal to change; omit to add one"),
+      title: z.string().max(200).optional(),
+      detail: z.string().max(2000).optional(),
+      progress: z.number().min(0).max(1).optional(),
+      status: z.enum(["active", "done", "dropped"]).optional(),
+      due: z.string().optional().describe("a date, YYYY-MM-DD"),
+      board: z.string().optional(),
+      object_id: z.string().optional().describe("a card on that board the goal is about"),
+      request_id: z.string().optional(),
+    }),
+    run: (ctx, i) => {
+      // a date alone means that day where the person is (midday, so no timezone moves it a day)
+      const dueAt = i.due ? Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(i.due) ? `${i.due}T12:00:00` : i.due) : undefined;
+      return { goal: saveGoal(ctx.userId, { id: i.id, title: i.title, detail: i.detail, progress: i.progress, status: i.status, dueAt: Number.isFinite(dueAt) ? dueAt : undefined, board: i.board, objectId: i.object_id }) };
+    },
+  }),
+  def({
+    name: "set_profile",
+    description: "Save what the person does — their title, team, and the words that describe their work (\"motors, rim drive, certification\"). Today uses the words to find work related to their job. Only when they tell you.",
+    schema: z.object({ title: z.string().max(120).optional(), team: z.string().max(120).optional(), focus: z.string().max(400).optional() }),
+    run: (ctx, p) => ({ profile: setProfile(ctx.userId, p) }),
+  }),
+  def({
+    name: "point_at",
+    description:
+      "On the person's Today page, point at what you're talking about: a focus item or goal by its id (e.g. 'ask:…', 'goal_…') or an app id. The page lights it up beside your words. Use it whenever your answer is about one or more specific items.",
+    schema: z.object({ ids: z.array(z.string()).min(1).max(6) }),
+    run: (_ctx, { ids }) => ({ pointed: ids }),
   }),
   def({
     name: "find_images",

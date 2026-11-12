@@ -36,7 +36,7 @@ Never write a hex or `rgba()` in a component; mix tokens (`color-mix(in srgb, va
 ## 3. Type
 
 - **Sans:** Hanken Grotesk Variable (OFL, bundled via `@fontsource-variable`). **Display:** Lufga where licensed, else Hanken. **Code:** Cascadia Code / SF Mono.
-- **Scale:** 11 · 12 · **13 (default)** · 14 · 16 · 20 · 24 · 32. No half sizes.
+- **Scale:** 11 · 12 · **13 (default)** · 14 · 16 · 20 · 24 · 32. No half sizes. One exception: **40** (`--text-40`), for the Shiba's words on Today, in display 300 — a voice set in type (it steps down to 24 on narrow screens).
 - **Eyebrow:** 11 px, 600, uppercase, `.22em`, moss. **Brand:** display 14 px, 700, uppercase, `.08em`.
 - Titles ≥ 24 px tighten to `-0.02em`. Numbers in metrics use tabular figures.
 
@@ -81,6 +81,11 @@ Never write a hex or `rgba()` in a component; mix tokens (`color-mix(in srgb, va
 | **Huddle portal** | A card (560×420) that lands where you right-clicked. Its head at rest has a status pill: **Live · n** (ok, breathing dot) or **Quiet** (dim). Beside it **REC** (bad red, 1.6 s breathing dot) while recording, the one place red means something other than broken, because everyone reads it. Then a **Slack** chip if it was opened for a channel. The room is a tile grid (1 → 2 → 3 columns by count; one fewer under 400 px), paper-radius tiles on `--color-panel`, video `cover`, your own tile mirrored. Each tile has a name pill bottom-left with a red mic-off mark. Live captions are ink on paper, centred over the tiles. Nobody in it: a dashed, hatched well that says so. Controls and the Room · Notes · Archive tabs sit along the **bottom**, because the hover bar covers the top: round 28 px mic / camera / record controls (red when off), a note, Leave (red text), tabs. Not joined: **Join** is the one blue action. Notes: turns by speaker (600 name, tabular time, `note` for typed), system lines centred and dim. Archive: sessions as rows, opened to recordings (16:9 tiles), transcript, ✦ Summarize (violet) and Post notes to Slack |
 | **Call chip** | While you're in a huddle: a glass pill at the bottom right, 48 tall. It shows a face (the first person with video), the huddle's name and who's in it, REC, mute and Leave. It carries the call's sound, so the call goes with you round the board. A tap on the face frames the portal. Hidden while presenting |
 | **Slack card** | 420×520. The head has a **Slack** live pill and the topic. Messages are oldest first and scroll on their own (`.wheel-own`). A run from one person within 5 min drops the repeated name. Our posts ("Name via Foundation") get a 2 px blue rule. Links are blue, and replies show as a count. The composer: 2-row field (Enter sends, ⇧Enter new line), then ↗ Link a place · ◐ Invite to a huddle · **Send** (blue). Link a place lies over the messages as a raised sheet: the board, then each section with its cards indented. No token: the dashed *Slack isn't connected* well, with the reason and a violet "How do I connect it?" |
+| **Today** | Home before the boards. The **Shiba's room** fills the window edge to edge: Vision's ethereal shiba (`@foundation/ui/shiba`, vendored from `@pacific/ui`), warm paper at rest, lilac listening, frosted blue thinking, dusk speaking, glowing with the arrival of its words. At night a veil mixes `--color-void` over it (58 %), and a gradient from the bottom keeps paper under the words. **Top bar** (56): a Today eyebrow, the company apps as glass chips (glyph disc · name · live dot; dashed and mist when not linked, the role on roll-over), New conversation (ghost), **Boards** (ink, B), the night orb, me. **The words**, bottom left, up to 780 wide: the earlier talk faint above (14, mist, fading by age), an eyebrow (date at rest; Listening/Thinking in violet), the line in display 300 at 40 (24–40 by width, pre-line, balanced; rises 14 px on arrival), a 14 px sub-line (what it's doing, or how to talk), then the composer: a raised pill, 48 tall, the mic disc on the left (violet and breathing while listening), Ask (violet) / Stop on the right. **The day** on glass at the right (340–420): Focus today and Goals. Under 900 px the room is the top 78 vh and the day follows it in one scroll |
+| **Focus row** | 28 px glyph tile by kind (? asked of you · ◆ your stage · @ tagged · ⇪ new file · ↻ changed · ∿ your work), the title (13/600, two lines), why it's here (12, mist, one line), the board as a pill. Tone on the tile: overdue red (its why in red too), owned amber, agent violet. The whole row is the link to its place on the board |
+| **Goal row** | A round check (fills green when done), the title (13/600; struck and dim when done), date in bold + detail (12), a 4 px blue progress bar (green when done), the percentage in tabular figures. "Add a goal…" is a dashed field that turns solid blue when focused |
+| **Pointed** | What the Shiba is talking about wears the agent ring: violet 2 px + 7 px dim, breathing 2.4 s, on rows, goals and chips alike |
+| **Chrome popup** | 360 wide, on the same tokens and font, following the OS's light/dark. Date eyebrow, "Name, n things want you." (display 20), ◌ Ask the Shiba (violet) and ▦ Boards, then Focus (24 px glyph tiles, one-line title and why), Goals (title · 64 px bar · %), Apps as pills (dashed when not linked), and the address at the foot (opens options). The new tab is a paper page that hands straight to Today; if Foundation doesn't answer, after 2.5 s it says so and offers to change the address |
 | **Wires** | See §5.1 |
 
 ### 5.1 Wires — the flow-diagram rules (shared with Vision)
@@ -139,7 +144,9 @@ Durations: press 80 · quick 160 · pane 280 · lift 350 · rise 800 (ms). Conti
 
 ## 8. Layers (z-order)
 
-grid paper (WebGL) → grid chrome → sections (hosted apps) → cards → formula wires → **app wires + agent rings** → peer cursors → *(the floor mask)* → search pill → call chip → the floor (session, side pane, search, top bar) → repo drawer → presentation → ⌘K → toast.
+Today (its own page): the Shiba (WebGL) → the veil → top bar, words and the day's glass.
+
+The board: grid paper (WebGL) → grid chrome → sections (hosted apps) → cards → formula wires → **app wires + agent rings** → peer cursors → *(the floor mask)* → search pill → call chip → the floor (session, side pane, search, top bar) → repo drawer → presentation → ⌘K → toast.
 
 ## 9. Checklist for any new UI
 

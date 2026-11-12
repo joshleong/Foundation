@@ -29,6 +29,29 @@ import { runTool, TOOLS, type ToolCtx } from "./tools.ts";
 import { canWrite } from "./roles.ts";
 import { createSession, revokeSession } from "./auth.ts";
 import { logActivity } from "@foundation/protocol";
+import { todayDigest, todayFor } from "./today.ts";
+
+/**
+ * The Shiba: the same agent, wearing the face people meet first (Today). It
+ * speaks to one person about their day, so its words are set in large type
+ * on the page; it keeps the page in step with what it says (point_at, set_goal).
+ */
+const SHIBA = `
+
+You are speaking as the Shiba — the guide people meet on Foundation's Today page before the boards. The page shows the person's goals, what wants their attention today (with ids) and the company's apps; your answer is set in large type beside them, so:
+- Answer in plain spoken sentences: one to three short ones, never more than about 60 words. No markdown, no lists, no headings, no ids or URLs in what you say.
+- What they need is usually already in <today>. Call the today tool only to refresh after a change.
+- Whenever your answer is about particular items, call point_at with their ids so the page lights them up while you talk.
+- When they ask to add, finish, drop or update a goal, do it with set_goal, then say what changed. When they tell you about their role or work, save it with set_profile.
+- You can still use every board tool when they ask for something on a board; say where it is.
+- Warm, calm, direct. You're a companion, not a cheerleader.`;
+
+/** what the agent is told about where it is: the board, or (the Shiba) the person's Today */
+function contextBlock(opts: { boardId: string; user: UserInfo; persona?: "shiba" }) {
+  const access = canWrite(opts.user.id, opts.boardId) ? "" : ' access="view only — read and answer; do not try to change the board"';
+  if (opts.persona === "shiba") return `<today person="${opts.user.name}"${access}>\n${todayDigest(todayFor(opts.user))}\n</today>`;
+  return `<board name="${opts.boardId}" person="${opts.user.name}"${access}>\n${boardDigest(opts.boardId)}\n</board>`;
+}
 
 const SYSTEM = `You are the Foundation agent — the company brain of Form Industries, living inside Foundation, a shared grid where the team keeps its projects, files, designs, running apps and agents together.
 
@@ -83,6 +106,8 @@ export async function runAgent(opts: {
   runtime?: string;
   /** the session tab this turn belongs to: its own conversation (default: the person's one per board) */
   session?: string;
+  /** "shiba": the Today page's guide (its own voice and context) */
+  persona?: "shiba";
   runId?: string;
   emit: (e: AgentEvent) => void;
   signal: AbortSignal;
@@ -101,7 +126,7 @@ export async function runAgent(opts: {
     runId, opts.boardId, runtime, opts.prompt, opts.user.id, Date.now(), opts.session ?? null,
   );
   // a viewer's question isn't a change to the board, so it doesn't go in its activity
-  if (canWrite(opts.user.id, opts.boardId)) editBoard(opts.boardId, "agent", (doc) => logActivity(doc, { who: opts.user.name, role: "human", text: `asked the agent: ${opts.prompt.slice(0, 140)}` }));
+  if (canWrite(opts.user.id, opts.boardId) && opts.persona !== "shiba") editBoard(opts.boardId, "agent", (doc) => logActivity(doc, { who: opts.user.name, role: "human", text: `asked the agent: ${opts.prompt.slice(0, 140)}` }));
   const transcript: AgentEvent[] = [];
   // the transcript is saved as the turn runs, so a reload mid-turn replays it
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -212,7 +237,7 @@ async function runApi(opts: Parameters<typeof runAgent>[0], emit: (e: AgentEvent
   const history = histories.get(key) ?? [];
   history.push({
     role: "user",
-    content: `${opts.prompt}\n\n<board name="${opts.boardId}" person="${opts.user.name}"${canWrite(opts.user.id, opts.boardId) ? "" : ' access="view only — read and answer; do not try to change the board"'}>\n${boardDigest(opts.boardId)}\n</board>`,
+    content: `${opts.prompt}\n\n${contextBlock(opts)}`,
   });
   const ctx: ToolCtx = { boardId: opts.boardId, actor: "Foundation Agent", userId: opts.user.id };
   const tools = apiTools();
@@ -225,7 +250,7 @@ async function runApi(opts: Parameters<typeof runAgent>[0], emit: (e: AgentEvent
       {
         model: config.anthropic.model,
         max_tokens: 16000,
-        system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
+        system: [{ type: "text", text: SYSTEM + (opts.persona === "shiba" ? SHIBA : ""), cache_control: { type: "ephemeral" } }],
         thinking: { type: "adaptive" },
         output_config: { effort: "medium" },
         tools,
@@ -286,7 +311,7 @@ async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: A
     }),
     { mode: 0o600 },
   );
-  const prompt = `${opts.prompt}\n\n<board name="${opts.boardId}" person="${opts.user.name}"${canWrite(opts.user.id, opts.boardId) ? "" : ' access="view only — read and answer; do not try to change the board"'}>\n${boardDigest(opts.boardId)}\n</board>`;
+  const prompt = `${opts.prompt}\n\n${contextBlock(opts)}`;
   const argv = [
     "-p",
     prompt,
@@ -296,7 +321,7 @@ async function runSubscription(opts: Parameters<typeof runAgent>[0], emit: (e: A
     "--mcp-config",
     mcpFile,
     "--append-system-prompt",
-    SYSTEM + "\nYour board tools are the mcp__foundation__* tools.",
+    SYSTEM + (opts.persona === "shiba" ? SHIBA : "") + "\nYour board tools are the mcp__foundation__* tools.",
     "--allowedTools",
     "mcp__foundation__*",
   ];
@@ -390,7 +415,7 @@ export function listSessions(boardId: string, userId: string, limit = 30): Sessi
     `select session_id, board_id, count(*) as runs, max(created_at) as updated,
             (select prompt from agent_runs b where b.session_id = a.session_id order by created_at asc limit 1) as first
        from agent_runs a
-      where board_id = ? and created_by = ? and session_id is not null
+      where board_id = ? and created_by = ? and session_id is not null and session_id not like 'ses_shiba%'
       group by session_id order by updated desc limit ?`,
     boardId, userId, limit,
   );

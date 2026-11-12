@@ -546,3 +546,4 @@ export interface UserInfo {
   /** account-wide; a board can set its own (viewer: may read, not change) */
   role: "admin" | "member" | "viewer";
 }
+export * from "./apps.ts";

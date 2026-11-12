@@ -2,6 +2,7 @@
 
 The company brain of Form Industries. It is one shared grid where people, the apps we build, and the agents that work with us meet.
 
+- **Today:** home, before the boards. The Shiba (the agent's face) answers questions about your day, while beside it sit what wants you (asks, notes that tag you, stages you own, new files on your boards, work matching your job), your goals, and every company app. In Chrome, the extension makes it every new tab.
 - **The grid:** sections hold tables, maps, notes and media, plus live panels: running apps (with their GitHub repo, MCP tools and input/output ports), web pages, machines, uploaded files and CAD, live company systems, agent jobs, and asks to teammates.
 - **The agent layer:** sits above the grid and shows how apps are wired, where agents are working, and what everyone just did.
 - **The agent:** runs the whole interface. It runs on your Claude Code subscription or on API credits. It can organize the board, open and wire apps, find repos, read BomForm and FactoryForm, brief Vision, chase people for CAD (Hermes), and queue reverse-engineering (REA).
@@ -46,7 +47,8 @@ On the grid itself:
 
 ```
 apps/client       React 19 + Vite grid and shell (Tauri desktop in src-tauri)
-apps/server       Node 22 + TypeScript: SQLite, Yjs sync, auth, files, search, MCP, agent, connectors
+apps/server       Node 22 + TypeScript: SQLite, Yjs sync, auth, files, search, MCP, agent, connectors, Today
+apps/extension    Foundation for Chrome: every new tab opens Today (npm run build -w @foundation/extension)
 packages/protocol the board schema every side shares
 packages/ui       design tokens, springs and the night engine
 ```

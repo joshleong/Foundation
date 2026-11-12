@@ -5,6 +5,7 @@ import "@foundation/ui/tokens.css";
 import { Login } from "./login/Login";
 import { Shell } from "./shell/Shell";
 import { DesignPage } from "./design/DesignPage";
+import { Today } from "./today/Today";
 import { Tip } from "./shell/Tip";
 import { rememberMe, whoAmI } from "./lib/api";
 import "./App.css";
@@ -24,6 +25,10 @@ function useHashRoute() {
 }
 
 /**
+ * Today is home: signed in, a person meets the Shiba and their day first
+ * (`/` or `#/today`); the boards are `#/board`, and any link into a board
+ * (`?board=…`, `?focus=…`) goes straight there.
+ *
  * Sign-in gate → the shell. #/design is the living design language page;
  * #/design/sign-in shows the sign-in page even when signed in.
  *
@@ -53,9 +58,11 @@ function App() {
     );
   }
   if (user === undefined && !preview) return <div className="boot" />;
+  const q = new URLSearchParams(window.location.search);
+  const home = !q.has("board") && !q.has("focus") && (route === "" || route === "#" || route === "#/" || route.startsWith("#/today"));
   return (
     <>
-      {user && <Shell user={user} />}
+      {user && (home ? <Today user={user} /> : <Shell user={user} />)}
       {(preview || !user || veil) && (
         <Login
           arriving={veil && arrive && !!user}

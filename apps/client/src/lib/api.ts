@@ -138,7 +138,7 @@ function guessMime(name: string) {
 
 /** Start an agent turn and follow it (SSE over a POST). The first event names the run. */
 export function streamAgent(
-  body: { board: string; prompt: string; runtime?: string; session?: string },
+  body: { board: string; prompt: string; runtime?: string; session?: string; persona?: "shiba" },
   onEvent: (e: AgentEvent) => void,
   signal: AbortSignal,
 ) {

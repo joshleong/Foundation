@@ -7,7 +7,8 @@
   "types": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./tokens.css": "./src/tokens.css"
+    "./tokens.css": "./src/tokens.css",
+    "./shiba": "./src/shiba/index.ts"
   },
   "dependencies": {
     "@fontsource-variable/hanken-grotesk": "^5.2.5"

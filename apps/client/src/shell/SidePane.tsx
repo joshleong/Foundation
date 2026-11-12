@@ -78,6 +78,7 @@ export function SidePane({ user, boards, current, onSwitch, onNew, onUpload }: P
 
             <section className="pane-group">
               <div className="pane-eyebrow">Tools</div>
+              <PaneRow glyph="◌" label="Today and the Shiba" onClick={() => window.location.assign("/#/today")} />
               <PaneRow glyph="⇪" label="Upload files" kbd="⌘U" onClick={onUpload} />
               <PaneRow glyph="▥" label="New section" onClick={() => appendSectionLocal("New section")} />
               <PaneRow glyph="⊡" label="Fit the board" kbd="0" onClick={() => requestSnap({ kind: "all" })} />

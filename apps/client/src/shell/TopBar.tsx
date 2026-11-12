@@ -21,6 +21,9 @@ export function TopBar({ boardName }: { boardName: string }) {
       <button className={`top-btn pane-fold${ui.pane ? " is-on" : ""}`} onClick={() => setUi({ pane: !ui.pane })} data-tip={ui.pane ? "Fold the side pane (⌘\\)" : "Sessions, boards and settings (⌘\\)"}>
         <PaneGlyph />
       </button>
+      <button className="top-btn is-agent" onClick={() => window.location.assign("/#/today")} data-tip="Today and the Shiba">
+        ◌
+      </button>
 
       <nav className="tabs" aria-label="Tabs">
         <button className={`tab is-board${ui.tab === null ? " is-current" : ""}`} onClick={() => setUi({ tab: null })} title="The board (⌘1)">

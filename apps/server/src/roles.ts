@@ -34,6 +34,11 @@ export const READ_TOOLS = new Set([
   "slack_read",
   "set_plan", // shows the session's plan; writes nothing to the board
   "find_images",
+  // Today: the person's own page. Goals and a profile are theirs, not a board's, so a viewer keeps them too
+  "today",
+  "set_goal",
+  "set_profile",
+  "point_at",
 ]);
 
 function accountRole(userId: string): BoardRole {

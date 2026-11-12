@@ -82,6 +82,8 @@
   --text-20: 20px;
   --text-24: 24px;
   --text-32: 32px;
+  /* the Shiba's words on Today: the one size above 32, for a voice set in type */
+  --text-40: 40px;
   --track-caps: 0.08em;
   --track-eyebrow: 0.22em;
 

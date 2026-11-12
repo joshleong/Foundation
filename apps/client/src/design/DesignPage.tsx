@@ -12,6 +12,72 @@ import { Mark } from "../login/Login";
 import { NightOrb } from "../shell/NightOrb";
 import { pipeCrossings, polyline, route, routeSides, sideToward, type Side } from "../shell/wireGeometry";
 import { tunnelGeometry } from "../shell/wireGeometry";
+import { AppChip, FocusRow, GoalRow, ShibaRoom } from "../today/Today";
+import type { CompanyApp, FocusItem, Goal, Mood } from "../today/model";
+
+const NOW = Date.now();
+const SAMPLE_FOCUS: FocusItem[] = [
+  { id: "ask:a", kind: "ask", title: "Upload the latest stator STEP", why: "Kai asked you for CAD · 1 d overdue", board: "rim-drive", boardName: "Rim drive", href: "#", at: NOW, tone: "bad" },
+  { id: "stage:s", kind: "stage", title: "03 · CAD", why: "You own this stage · 2 to tick", board: "company", boardName: "Form Industries", href: "#", at: NOW, tone: "warn" },
+  { id: "mention:m", kind: "mention", title: "@Ada can you sign off the bearing loads before Friday?", why: "You're tagged in a note on Rim drive", board: "rim-drive", boardName: "Rim drive", href: "#", at: NOW },
+  { id: "changes:c", kind: "changes", title: "6 changes on Form Industries", why: "Foundation Agent, Kai · latest: laid out 4 images", board: "company", boardName: "Form Industries", href: "#", at: NOW, tone: "agent" },
+  { id: "related:r", kind: "related", title: "Winding thermal model", why: "Matches “thermal”, from your work", board: "motors", boardName: "Motors", href: "#", at: 0 },
+];
+const SAMPLE_GOALS: Goal[] = [
+  { id: "g1", title: "Freeze the rim-drive CAD for the PTHP build", detail: "Stator and bearings signed off", status: "active", progress: 0.6, dueAt: NOW + 8 * 864e5, board: null, objectId: null, source: "foundation" },
+  { id: "g2", title: "Onboard Kai to FactoryForm work orders", detail: "", status: "done", progress: 1, dueAt: null, board: null, objectId: null, source: "foundation" },
+];
+const SAMPLE_APPS: CompanyApp[] = [
+  { id: "factoryform", name: "FactoryForm", role: "Inventory, stations, work orders", url: "#", glyph: "⚙" },
+  { id: "bomform", name: "BomForm", role: "BOMs, certification", url: "#", glyph: "▤" },
+  { id: "hyperform", name: "HyperForm", role: "HyperForm programme", url: null, glyph: "◈" },
+];
+
+function TodayDemo() {
+  const [mood, setMood] = useState<Mood>("idle");
+  return (
+    <div className="design-today">
+      <div className="design-today-room">
+        <ShibaRoom mood={mood} maxFps={24} />
+        <div className="today-veil" aria-hidden />
+        <div className="design-today-words">
+          <p className="today-eyebrow" data-mood={mood}>
+            {mood === "idle" ? "Wednesday, November 11" : mood}
+          </p>
+          <p className="today-line">Good afternoon, Ada.{"\n"}3 things want you today.</p>
+        </div>
+      </div>
+      <div className="design-today-moods">
+        {(["idle", "listening", "thinking", "speaking"] as Mood[]).map((m) => (
+          <button key={m} className={`f-pill${m === mood ? " is-agent" : ""}`} onClick={() => setMood(m)}>
+            {m}
+          </button>
+        ))}
+      </div>
+      <div className="design-today-state today-state">
+        <section className="today-group">
+          <h2 className="f-eyebrow">
+            Focus today <span className="today-count">5</span>
+          </h2>
+          {SAMPLE_FOCUS.map((f, i) => (
+            <FocusRow key={f.id} item={f} pointed={i === 2} />
+          ))}
+        </section>
+        <section className="today-group">
+          <h2 className="f-eyebrow">Goals</h2>
+          {SAMPLE_GOALS.map((g, i) => (
+            <GoalRow key={g.id} goal={g} pointed={i === 0} />
+          ))}
+        </section>
+      </div>
+      <nav className="today-chips design-today-chips">
+        {SAMPLE_APPS.map((a, i) => (
+          <AppChip key={a.id} app={a} status={i === 0 ? "ok" : i === 1 ? "warn" : undefined} />
+        ))}
+      </nav>
+    </div>
+  );
+}
 
 const SURFACES = ["void", "abyss", "panel", "raise"];
 const INKS = ["frost", "mist", "dim"];
@@ -518,6 +584,13 @@ export function DesignPage() {
             </div>
           </div>
         </div>
+      </Section>
+
+      <Section
+        title="Today and the Shiba"
+        note="Home, before the boards. Vision's ethereal shiba fills the room and is the agent's face: warm paper at rest, lilac while it listens, frosted blue while it thinks, dusk while it speaks. Its words are set at 40 (the one size above 32). The day sits beside it on glass: focus rows by kind (overdue red, owned amber, agent violet), goals with a blue bar, and the company apps as chips in the top bar (dashed when not linked). What the Shiba talks about wears the violet ring."
+      >
+        <TodayDemo />
       </Section>
 
       <Section title="Panels that adapt" note="Design for the narrowest width first; container queries, never the window. Check 260, 400 and 560 px.">
