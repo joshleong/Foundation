@@ -1218,6 +1218,15 @@
       "issue": 125
     },
     {
+      "id": "rune-renderer",
+      "title": "A second renderer: Rune draws the board beside the web renderer",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "grid",
+      "status": "review",
+      "body": "Josh, 2026-11-12: a GPU-rendered interface (github.com/anomalyco/rune) side by side with the web UI, a toggle in Settings, boards marked as rendered by Rune, the web renderer untouched. Built as a first slice: `apps/rune` (Rust → wasm, WebGPU), `apps/client/src/rune` (the scene, the host, Settings → Renderer and its parity ledger, the mark in the bottom bar), `npm run rune:build`. Off by default. One camera and one store for both engines. Rune draws sections, notes (with its own text field for writing) and images; the rest is a named placeholder. Checked headed on the GPU in Edge (`e2e/rune.spec.ts`, 6) and in `test/rune-scene.test.ts` (8); evidence in `docs/evidence/2026-11-12_rune/`. To check by hand: Settings → Renderer → Rune, then the company board; and `npm run desktop` with Rune on, which is unrun."
+    },
+    {
       "id": "t3-more-agents",
       "title": "More agents through T3: Codex (OpenAI), Kimi, DeepSeek",
       "kind": "plan",
@@ -1236,6 +1245,33 @@
       "status": "backlog",
       "body": "Today the pane lists T3's agents and threads; nothing starts one. A person picks an agent (and model) for an ask in a section; Foundation dispatches `thread.turn.start` to its own T3 (supervised), with a project per board or per section's repo, and the thread's agent joins that section's group with a face, its state from the shell stream. Approvals answered from the card (`thread.approval.respond`). Then the crew's own Claude runs can move onto T3 too, so there is one list. Ties to posted-agents and agent-machines.",
       "issue": 127
+    },
+    {
+      "id": "rune-web-islands",
+      "title": "Rune: live cards as web islands over its canvas, and tables drawn by Rune",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "grid",
+      "status": "backlog",
+      "body": "The biggest gap in the parity ledger (Settings → Renderer). Apps, pages, machines, huddles, Slack, maps and video are web content: keep their React components and place them over Rune's canvas at the rect the scene gives (the one camera already moves both). Tables are Rune's to draw: cells from the workbook, with Rune's text field for a cell."
+    },
+    {
+      "id": "rune-sections-parity",
+      "title": "Rune: section tools, menu, drag, rename and Open; a card's hover bar, resize and carry",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "sections",
+      "status": "backlog",
+      "body": "The interaction rows of the parity ledger that are Not yet: the ghost toolbar, the right-click menu, dragging a section to a cell or past an edge, rename in place, opening a section as its own grid and a grid section's miniature, the gutters; a card's hover bar, resize corner, and carrying it to another section or tab (lib/carry.ts's rules, with the lean)."
+    },
+    {
+      "id": "rune-type-paper-desktop",
+      "title": "Rune: Hanken Grotesk, the paper's dots and grain, markdown, frame times, and the desktop build",
+      "kind": "plan",
+      "milestone": "ship",
+      "area": "design",
+      "status": "backlog",
+      "body": "Hand Rune the app's own face (convert the bundled WOFF2 to TrueType at build; `App::font_url`), draw the paper's dot grid, grain and pointer light in Rune (its compositor hook) or get a see-through web canvas from Rune, render a note's markdown, measure frame times against the web renderer on the heavy board (`e2e/frames.spec.ts`), and have `build:desktop` run `rune:build` so an installed app carries it; check it in the Windows app, on macOS and on Linux (which has no WebGPU and must fall back)."
     }
   ]
 }

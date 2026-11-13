@@ -1,0 +1,65 @@
+# apps/rune — Foundation's board, drawn by Rune
+
+A second renderer for the board, beside the web renderer and never instead of it.
+[Rune](https://github.com/anomalyco/rune) is a Rust GPU UI framework with its own layout, text,
+springs and renderer. This crate draws Foundation's grid with it, builds to wasm, and runs on a
+canvas through WebGPU in the browser and in the desktop app's webview.
+
+It is off by default. **Settings → Renderer** turns it on for this device and lists, row by row,
+what Rune draws the same as the web renderer, what differs, and what isn't there yet
+(`apps/client/src/rune/parity.ts`). SPEC §3 and §7 say where it stands.
+
+## Build
+
+```sh
+npm run rune:build            # release -> apps/client/public/rune/ (not checked in)
+npm run rune:build -- --dev   # quicker to build, about twice the size
+```
+
+Needs rustup (`rust-toolchain.toml` pins the toolchain Rune pins, with the wasm target) and the
+wasm-bindgen CLI at the version in `Cargo.toml`:
+
+```sh
+cargo install wasm-bindgen-cli --version 0.2.129 --locked
+```
+
+The first build compiles Rune and wgpu (about three minutes here); after that an edit rebuilds
+in about twenty seconds. Without a build the app says so and stays on the web renderer.
+
+## How it fits
+
+```
+store.ts (the board, its geometry) ──▶ rune/scene.ts ──JSON──▶ scene.rs ──▶ view.rs ──▶ WebGPU canvas
+        ▲                                                                      │
+        └──────────── rune/host.ts ◀──JSON── bridge.rs (press, move, text) ◀───┘
+camera.ts (one camera, both engines) ──▶ setCamera ──▶ two Live values (no view re-run)
+```
+
+- **The store is the one writer.** Rune never changes the board: it reports what the person
+  did (`bridge.rs`) and `apps/client/src/rune/host.ts` calls the store's own actions. Sync,
+  viewers, undo and the server's invariants don't know Rune exists.
+- **The store is the one source of geometry.** `scene.ts` hands over sections and cards already
+  laid out by the functions the web renderer, the wires and the cursors read, and colours
+  already resolved from `packages/ui/src/tokens.css`. If the two engines disagree about where
+  something is, one of them has a bug. `SCENE_VERSION` (both sides) guards the shape.
+- **One camera.** The grid's springs, wheel, pinch, throw, framing and keys are the same code
+  for both engines (`GridViewport.tsx`); it asks `hitWorld` what's under the pointer where the
+  web renderer asks the DOM.
+- **Web layers stay web.** Wires, cursors and the chrome draw over the canvas. Live apps, pages
+  and terminals are web content and will be placed over it too.
+
+## Adding a part
+
+1. Put what it needs in the scene (`scene.ts` and `scene.rs`, and bump `SCENE_VERSION` in both).
+2. Draw it in `view.rs` with the web renderer's own values (name where each comes from).
+3. Report any new interaction through `bridge.rs` and handle it in `host.ts` with a store action.
+4. Check it beside the web renderer (`e2e/rune.spec.ts` takes both engines' pictures of one
+   board), then move its row in `parity.ts`. A row turns to *Same* only after that.
+
+## Rune itself
+
+Pre-release: `Cargo.toml` pins a rev of Rune's `dev` branch, and the same rev for the four
+crates Rune patches (bump all five together). Rune's docs are `crates/rune/README.md` and
+`WEB.md` in its repo. Found here, 2026-11-12: a web canvas asked to be transparent came out
+opaque (so Rune paints the paper), and the web host sets no cursors. Rune takes issues, not
+pull requests.

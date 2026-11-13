@@ -1,5 +1,5 @@
 /**
- * Settings (#/settings). Four tabs:
+ * Settings (#/settings). Five tabs (Renderer is its own file: rune/RendererTab.tsx, which engine draws the board):
  *
  *  - **Plan** — Foundation's own kanban (docs/plan.json): the local copy of the
  *    issues on GitHub, as columns from Needs you to Done. Filters by kind and
@@ -27,13 +27,15 @@ import { UpdatesSection } from "../update/UpdateCard";
 import { renderMarkdown } from "../utils/markdown";
 import clientPackage from "../../package.json";
 import { longDate, releasesFrom, type ReleasePost } from "./releases";
+import { RendererTab } from "../rune/RendererTab";
 import { ago, boardColumns, counts, issueUrl, PLAN, syncSentence, waitingWords, type CardKind, type Plan, type PlanCard, type PlanFilter } from "./plan";
 
-type Tab = "plan" | "services" | "places" | "releases";
+type Tab = "plan" | "services" | "places" | "renderer" | "releases";
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "plan", label: "Plan" },
   { id: "services", label: "Services" },
   { id: "places", label: "Places" },
+  { id: "renderer", label: "Renderer" },
   { id: "releases", label: "Releases" },
 ];
 
@@ -41,7 +43,7 @@ const TABS: Array<{ id: Tab; label: string }> = [
 const POSTS = releasesFrom(import.meta.glob("../../../../docs/blog/*.md", { query: "?raw", import: "default", eager: true }) as Record<string, string>);
 
 export function SettingsPage({ route }: { route: string }) {
-  const tab: Tab = route.startsWith("#/settings/services") ? "services" : route.startsWith("#/settings/places") ? "places" : route.startsWith("#/settings/releases") ? "releases" : "plan";
+  const tab: Tab = route.startsWith("#/settings/services") ? "services" : route.startsWith("#/settings/places") ? "places" : route.startsWith("#/settings/releases") ? "releases" : route.startsWith("#/settings/renderer") ? "renderer" : "plan";
   return (
     <div className="settings-page">
       <header className="design-head settings-head">
@@ -68,6 +70,8 @@ export function SettingsPage({ route }: { route: string }) {
         <ReleasesTab posts={POSTS} route={route} />
       ) : tab === "places" ? (
         <PlacesTab />
+      ) : tab === "renderer" ? (
+        <RendererTab />
       ) : (
         <>
           <ServicesTab />

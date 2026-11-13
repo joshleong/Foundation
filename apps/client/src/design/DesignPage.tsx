@@ -38,6 +38,7 @@ import { glyphOf } from "../lib/hits";
 import { fan } from "../lib/pickupMath";
 import type { UploadItem } from "../lib/uploads";
 import { snippetHtml } from "../lib/snippet";
+import { RuneDesign } from "../rune/RendererTab";
 
 const SURFACES = ["void", "abyss", "panel", "raise"];
 const INKS = ["frost", "mist", "dim"];
@@ -943,6 +944,10 @@ export function DesignPage() {
         <div className="design-releases">
           <ReleasesTab posts={DEMO_POSTS} route="" />
         </div>
+      </Section>
+
+      <Section title="Rune renderer" note="A second engine beside the web renderer (Settings → Renderer; it's this device's choice, and the web renderer is the default). While Rune draws the board, a quiet glass pill in the bottom bar says so, beside the zoom: a green dot when it's drawing, a breathing blue one while it starts, amber and Rune off when it was asked for and couldn't run (the label says why, and a toast says it once). A press opens the list of where Rune stands. In Settings the two engines are raised cards, the chosen one ringed blue; under them, whether WebGPU and the build are here, then the ledger: each part of the board with one of four words. Never violet: which engine draws is a person's choice.">
+        <RuneDesign />
       </Section>
 
       <Section title="Panels that adapt" note="Design for the narrowest width first; container queries, never the window. Check 260, 400 and 560 px.">
