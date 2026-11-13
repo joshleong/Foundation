@@ -27,7 +27,7 @@ import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const REPO = process.env.FOUNDATION_RELEASE_REPO ?? "joshleong/Foundation";
+const REPO = process.env.FOUNDATION_RELEASE_REPO ?? "Normal-AI-Vibe-Code/Foundation";
 const TAURI = join(root, "apps/client/src-tauri");
 const BUNDLE = join(TAURI, "target/release/bundle");
 const OUT = join(root, "dist/release");

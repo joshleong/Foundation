@@ -249,12 +249,12 @@
     },
     {
       "id": "publish-first-release",
-      "title": "Publish the first desktop release, and decide where the update feed lives",
+      "title": "Publish the first desktop release to the org repo",
       "kind": "hookup",
       "milestone": "ship",
       "area": "desktop",
       "status": "needs-you",
-      "body": "Found 2026-11-12: the update feed (`releases/latest/download/latest.json`) is a 404 on both `joshleong/Foundation` and `Normal-AI-Vibe-Code/Foundation`. No release was ever published, so an installed 0.3.0 has nothing to update to. Before handing an installer to anyone: (1) decide which repository (or bucket) the feed lives on for good: the address is baked into every build, and the fork going private or away strands every copy; (2) `npm run release -- bump <v>`, `build`, push the tag, `publish`; (3) install from that release on a second computer and watch it take the next one; (4) back up `~/.tauri/foundation-updater.key` and `.password` somewhere that isn't this PC. Also unrun: macOS, Linux, the MSI path; the Windows installer isn't code-signed.",
+      "body": "The update feed is a 404: no release was ever published, so an installed copy has nothing to update to. Decided 2026-11-12 (Josh): the feed lives on `Normal-AI-Vibe-Code/Foundation`; builds from here on ask it and `npm run release -- publish` targets it. What's left, and needs a person: (1) write access to that repo for whoever publishes (the `gh` account on Josh's PC has read only), and the release tag pushed there; (2) `npm run release -- bump <v>`, `build`, push the tag, `publish`; (3) install from that release on a second computer and watch it take the next one; (4) installed 0.3.0 copies still ask the fork: reinstall them once, or publish the first release to the fork too; (5) back up `~/.tauri/foundation-updater.key` and `.password` somewhere that isn't this PC. Also unrun: macOS, Linux, the MSI path; the Windows installer isn't code-signed.",
       "issue": 116
     },
     {

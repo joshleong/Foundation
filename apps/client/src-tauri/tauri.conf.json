@@ -30,7 +30,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIxOTNEQTg0QjlDMDM1QzUKUldURk5jQzVoTnFUc1JaZHV1SzVmdFN3bzZKTEg2NGpSWlZSZXY1VTJIR1ZCK3A1eVdJczNJSEYK",
       "endpoints": [
-        "https://github.com/joshleong/Foundation/releases/latest/download/latest.json"
+        "https://github.com/Normal-AI-Vibe-Code/Foundation/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"
