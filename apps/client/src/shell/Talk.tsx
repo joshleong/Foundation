@@ -19,7 +19,7 @@ import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react"
 import { AnimatePresence, motion } from "motion/react";
 import { listen, voiceAvailable, type Listening } from "../lib/voice";
 import { askCrew, crewAsk, sayToAgent, stopSession, titleOf, useRecentCrewAsks, useSession } from "../state/sessions";
-import { getUi, openTab, toast } from "../state/ui";
+import { getUi, openSession, toast } from "../state/ui";
 import { crewPeers, followCrew, followingCrew, type CrewPeer } from "./Crew";
 import { stopAllOnBoard } from "./CommandBar";
 import { useBoardTick } from "./Presence";
@@ -84,7 +84,7 @@ function send(text: string) {
   const t = text.trim();
   if (!t) return;
   const ui = getUi();
-  if (ui.tabs.some((x) => x.id === ui.tab && x.kind === "agent")) sayToAgent(t);
+  if (ui.sessions.some((x) => x.id === ui.session && x.kind === "agent")) sayToAgent(t);
   else askCrew(t);
 }
 
@@ -329,7 +329,7 @@ export function TalkButton() {
                       <span className="crew-row-for"> · {titleOf(a.prompt)}</span>
                     </span>
                     <span className="crew-row-actions">
-                      <button className="crew-row-btn" onClick={() => openTab({ id: a.session, kind: "agent", title: titleOf(a.prompt) })} data-tip="Open its session: what it did, step by step">
+                      <button className="crew-row-btn" onClick={() => openSession({ id: a.session, kind: "agent", title: titleOf(a.prompt) })} data-tip="Open its session: what it did, step by step">
                         Open
                       </button>
                     </span>
@@ -381,7 +381,7 @@ function TalkInput({ mode: m, words }: { mode: Mode; words: string }) {
   useEffect(() => {
     if (m !== "typing") early = "";
   }, [m]);
-  const onSession = getUi().tabs.some((x) => x.id === getUi().tab && x.kind === "agent");
+  const onSession = getUi().sessions.some((x) => x.id === getUi().session && x.kind === "agent");
   return (
     <div className="talk-input">
       <span className={`talk-level${m === "listening" ? " is-on" : ""}`} aria-hidden>
@@ -438,7 +438,7 @@ function RosterRow({ peer, mine }: { peer: CrewPeer; mine: boolean }) {
       </span>
       {mine && ask && (
         <span className="crew-row-actions">
-          <button className="crew-row-btn" onClick={() => openTab({ id: ask.session, kind: "agent", title: titleOf(ask.prompt) })} data-tip="Open its session">
+          <button className="crew-row-btn" onClick={() => openSession({ id: ask.session, kind: "agent", title: titleOf(ask.prompt) })} data-tip="Open its session">
             Open
           </button>
           {busy && (

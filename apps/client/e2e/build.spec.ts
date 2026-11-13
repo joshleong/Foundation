@@ -59,7 +59,7 @@ test("saying it (V) sends it to the crew", async () => {
   await page.screenshot({ path: `${CREW}/08_v-listening.png` });
   // when the speaker stops, an agent of the crew takes it, by name, without a tab opening (2026-11-07)
   await expect(page.locator(".crew-row.is-mine").first()).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator(".tab.is-agent")).toHaveCount(0);
+  await expect(page.locator(".session.floor-pane")).toHaveCount(0);
   await expect(page.locator(".tab.is-board.is-current")).toHaveCount(1);
   await page.screenshot({ path: `${CREW}/09_v-sent-to-the-crew.png` });
   // let it finish (it brings the view to what it made) before the layouts below are framed

@@ -7,7 +7,7 @@ export function NightOrb({ onToggle }: { onToggle(): void }) {
   const [night, set] = useState(isNight());
   useEffect(() => onNight(set), []);
   return (
-    <button className={`night-orb${night ? " is-night" : ""}`} onClick={onToggle} title={night ? "Day" : "Night"} aria-label="Toggle night">
+    <button className={`night-orb${night ? " is-night" : ""}`} onClick={onToggle} data-tip={night ? "Switch to day" : "Switch to night"} aria-label={night ? "Switch to day" : "Switch to night"}>
       <span className="orb-sun" />
       <span className="orb-moon" />
     </button>

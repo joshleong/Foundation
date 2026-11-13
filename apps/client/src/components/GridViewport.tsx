@@ -1,3 +1,4 @@
+import { inUse, releaseCard } from "../lib/cardUse";
 import { keys } from "../lib/keys";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion } from "motion/react";
@@ -25,16 +26,18 @@ import {
   setActiveSection,
   setFocusGrid,
   trackOffsets,
-  expandSection,
+  isGridSection,
+  levelUp,
 } from "../state/store";
 import { SectionView } from "./SectionView";
 import { WireLayer } from "./WireLayer";
 import { camera, publishCamera, publishPointer } from "../state/camera";
 import { isNight, onNight } from "@foundation/ui";
-import { floorInsets, getUi, setUi, useUi } from "../state/ui";
+import { floorInsets, getUi, setUi, toggleSession, useUi } from "../state/ui";
 import { TalkButton } from "../shell/Talk";
 import { PeerCursors } from "../shell/Presence";
 import { CrewCursors, CrewFollow, CrewGuide } from "../shell/Crew";
+import { LevelBar } from "../shell/LevelBar";
 import { PortWires } from "../shell/AgentLayer";
 import { openContextMenu } from "./ContextMenu";
 import { countRender } from "../state/renders";
@@ -68,7 +71,9 @@ export const FLOOR_FADE = 56;
 function sectionFocusRect(grid: Parameters<typeof sectionCardRect>[0], s: Parameters<typeof sectionCardRect>[1]): Rect {
   const card = sectionCardRect(grid, s);
   // an open section is framed by its width from the top; the wheel reads on down
-  if (getState().expandedSection === s.id) return { ...card, h: Math.min(card.h, card.w * 0.7) };
+  if (getState().expandedSection === s.id || s.virtual) return { ...card, h: Math.min(card.h, card.w * 0.7) };
+  // a section that is a grid of sections: all of it, the way its miniature shows it
+  if (isGridSection(s.id)) return card;
   const objs = objectsInSection(s.id)
     .map((o) => objectWorldRect(o))
     .filter((r): r is NonNullable<typeof r> => Boolean(r));
@@ -133,7 +138,7 @@ interface Candidate {
   target: SnapTarget;
 }
 
-export function GridViewport() {
+export function GridViewport({ boardName }: { boardName?: string } = {}) {
   countRender("GridViewport");
   // the grid's own slice: a press, a drag frame or a keystroke in a card doesn't render the board
   const state = useStoreSlice(gridViewSlice);
@@ -380,10 +385,10 @@ export function GridViewport() {
         return;
       if (e.key === "Escape") {
         el?.blur(); // release e.g. a table sheet so section arrows take over
-        // an open section closes first (unless a card in it has the keys)
+        // an open section closes first (unless a card in it has the keys): up one level
         const st0 = getState();
-        if (st0.expandedSection && st0.focusLevel !== "object") {
-          expandSection(null);
+        if (st0.level && st0.focusLevel !== "object") {
+          levelUp();
           return;
         }
         focusUp();
@@ -457,7 +462,9 @@ export function GridViewport() {
 
   // ----- pan / zoom gestures: the camera rests wherever the person leaves it -----
 
-  const panDrag = useRef({ active: false, lastX: 0, lastY: 0, vx: 0, vy: 0, lastT: 0 });
+  const panDrag = useRef({ active: false, button: 0, pointerId: 0, moved: false, downX: 0, downY: 0, lastX: 0, lastY: 0, vx: 0, vy: 0, lastT: 0 });
+  /** a right-drag just panned: the menu its release would open stays shut */
+  const menuEaten = useRef(0);
 
   // hold Space to pan from anywhere — over cards, frames and sections too
   const spaceHeld = useRef(false);
@@ -487,16 +494,25 @@ export function GridViewport() {
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     const target = e.target as HTMLElement;
-    if (!spaceHeld.current && target.closest(".section-card, button, input, select, .viewport-toolbar, .gutter")) return;
-    if (e.button !== 0 && e.button !== 1) return;
-    setFocusGrid(); // clicking the void addresses the grid level
+    // the middle and right buttons pan from anywhere, like Space; the left only from the paper
+    const held = e.button === 1 || e.button === 2;
+    if (!spaceHeld.current && !held && target.closest(".section-card, button, input, select, .viewport-toolbar, .gutter")) return;
+    if (e.button !== 0 && !held) return;
+    if (!held) setFocusGrid(); // clicking the void addresses the grid level
     const d = panDrag.current;
     d.active = true;
+    d.button = e.button;
+    d.pointerId = e.pointerId;
+    d.downX = e.clientX;
+    d.downY = e.clientY;
     d.lastX = e.clientX;
     d.lastY = e.clientY;
     d.vx = 0;
     d.vy = 0;
     d.lastT = performance.now();
+    // a right press may still be a right-click (the menu): it becomes a pan once it has moved
+    d.moved = e.button !== 2;
+    if (!d.moved) return;
     containerRef.current?.classList.add("panning");
     try {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -516,6 +532,18 @@ export function GridViewport() {
       }
       const d = panDrag.current;
       if (!d.active) return;
+      if (!d.moved) {
+        if (Math.hypot(e.clientX - d.downX, e.clientY - d.downY) < 4) return;
+        d.moved = true;
+        d.lastX = e.clientX;
+        d.lastY = e.clientY;
+        d.lastT = performance.now();
+        container?.classList.add("panning");
+        try {
+          container?.setPointerCapture(d.pointerId);
+        } catch { /* synthetic */ }
+        return;
+      }
       const now = performance.now();
       const dt = Math.max(now - d.lastT, 1);
       const dx = e.clientX - d.lastX;
@@ -534,6 +562,8 @@ export function GridViewport() {
     const d = panDrag.current;
     if (!d.active) return;
     d.active = false;
+    if (!d.moved) return; // a right-click that never moved: the menu's
+    if (d.button === 2) menuEaten.current = performance.now();
     containerRef.current?.classList.remove("panning");
     // a throw glides on to where it was heading and rests there — no snapping
     camera.to(camera.x.value + d.vx / 8, camera.y.value + d.vy / 8);
@@ -547,12 +577,11 @@ export function GridViewport() {
   }, []);
 
   const onWheel = useCallback(
-    (e: React.WheelEvent) => {
+    (e: WheelEvent) => {
       const container = containerRef.current;
       if (!container) return;
-      if ((e.target as HTMLElement).closest(".map-body")) return;
-      // lists inside cards (transcripts, Slack) scroll themselves; pinch still zooms
-      if (!e.ctrlKey && !e.metaKey && (e.target as HTMLElement).closest(".wheel-own")) return;
+      // panning the grid ends a card's use, so it can't catch the wheel as it slides under the pointer
+      releaseCard();
       const r = container.getBoundingClientRect();
       if (e.ctrlKey || e.metaKey) {
         const cx = e.clientX - r.left;
@@ -579,17 +608,42 @@ export function GridViewport() {
     [camera, zoom],
   );
 
+  // a right-drag is a pan, not a menu; and the middle button never starts the browser's auto-scroll
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const h = (e: WheelEvent) => {
-      if ((e.target as HTMLElement).closest(".map-body")) return;
-      if (!e.ctrlKey && !e.metaKey && (e.target as HTMLElement).closest(".wheel-own")) return;
+    const menu = (e: MouseEvent) => {
+      if (performance.now() - menuEaten.current > 400) return;
+      menuEaten.current = 0;
       e.preventDefault();
+      e.stopPropagation();
     };
-    el.addEventListener("wheel", h, { passive: false });
-    return () => el.removeEventListener("wheel", h);
+    const middle = (e: MouseEvent) => {
+      if (e.button === 1) e.preventDefault();
+    };
+    el.addEventListener("contextmenu", menu, true);
+    el.addEventListener("mousedown", middle);
+    return () => {
+      el.removeEventListener("contextmenu", menu, true);
+      el.removeEventListener("mousedown", middle);
+    };
   }, []);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    // No card takes the wheel (lib/cardUse.ts): over an app, a map, a terminal or a list it pans the grid,
+    // and ⌘/Ctrl-wheel zooms it. Only the card in use (⌘/Ctrl-click, or full screen) has its own wheel.
+    // Caught on the way down, so a card's own scroller (xterm, maplibre, a list) never sees it.
+    const h = (e: WheelEvent) => {
+      if (inUse(e.target)) return;
+      e.preventDefault();
+      if ((e.target as Element | null)?.closest?.(".frame-body, .panel-body, .map-body-wrap, .hosted-app")) e.stopPropagation();
+      onWheel(e);
+    };
+    el.addEventListener("wheel", h, { passive: false, capture: true });
+    return () => el.removeEventListener("wheel", h, { capture: true });
+  }, [onWheel]);
 
   const getScale = useCallback(() => zoom.value, [zoom]);
 
@@ -757,8 +811,8 @@ export function GridViewport() {
       className={`grid-viewport ctx-${state.focusLevel}`}
       onPointerDown={onPointerDown}
       onPointerDownCapture={(e) => {
-        // Space held: the grid takes the pointer before any card can
-        if (spaceHeld.current) {
+        // Space held, or the middle or right button: the grid takes the pointer before any card can
+        if (spaceHeld.current || e.button === 1 || e.button === 2) {
           e.stopPropagation();
           onPointerDown(e);
         }
@@ -767,7 +821,6 @@ export function GridViewport() {
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
       onPointerLeave={onPointerLeave}
-      onWheel={onWheel}
       onDoubleClickCapture={onDoubleClickCapture}
     >
       {/* the cards live above the paper but under the floor: masked out where the floor is.
@@ -853,7 +906,7 @@ export function GridViewport() {
               : { x: 0, y: size.h + 12, w: size.w, h: band };
             return (
               <div className="cell-drop-highlight is-edge" style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}>
-                <span>Append along the {e} of the board</span>
+                <span>{state.sectionDragTarget.label ?? `Append along the ${e} of the board`}</span>
               </div>
             );
           })()}
@@ -865,7 +918,9 @@ export function GridViewport() {
               <div
                 className="cell-drop-highlight"
                 style={{ left: rect.x + 6, top: rect.y + 6, width: rect.w - 12, height: rect.h - 12 }}
-              />
+              >
+                {state.sectionDragTarget.label && <span>{state.sectionDragTarget.label}</span>}
+              </div>
             );
           })()}
 
@@ -926,6 +981,7 @@ export function GridViewport() {
 
       {/* an agent brought you somewhere (or asks to): Back / Go */}
       <div className="crew-guide-slot" style={{ left: insets.left, right: insets.right, top: insets.top }}>
+        <LevelBar boardName={boardName} />
         <CrewGuide />
         <CrewFollow />
       </div>
@@ -945,6 +1001,10 @@ export function GridViewport() {
             <span className="f-kbd">{keys("mod+F")}</span>
           </button>
         )}
+        <button className={`hud-ask f-glass${ui.session ? " is-on" : ""}`} onClick={toggleSession} aria-pressed={!!ui.session} data-tip={ui.session ? "Put the conversation away" : "Ask the agent: a conversation beside the canvas"} data-kbd={keys("mod+J")}>
+          <span className="hud-glyph">✦</span>
+          <span className="hud-label">Ask</span>
+        </button>
         <TalkButton />
         <button
           className="hud-zoom f-glass"

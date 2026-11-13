@@ -502,3 +502,74 @@
   }
 }
 
+
+/* ---------- where you are: a section open as its own grid (shell/LevelBar.tsx) ---------- */
+.level-bar {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 36px;
+  max-width: calc(100% - 32px);
+  padding: 0 var(--space-4) 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  color: var(--color-mist);
+  font: 500 var(--text-13) / 1 var(--font-sans);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.level-back {
+  width: 26px;
+  height: 26px;
+  margin-right: var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-frost);
+  font-size: var(--text-14);
+  cursor: pointer;
+}
+.level-back:hover,
+.level-step:hover {
+  background: var(--color-pulse-dim);
+  color: var(--color-frost);
+}
+.level-step {
+  height: 26px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+.level-crumb {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+.level-sep {
+  color: var(--color-dim);
+  padding: 0 var(--space-1);
+}
+.level-here {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  color: var(--color-frost);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.level-glyph {
+  color: var(--color-dim);
+  font-weight: 400;
+}

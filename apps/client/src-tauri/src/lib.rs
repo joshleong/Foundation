@@ -87,14 +87,22 @@ pub fn run() {
             } else {
                 WebviewUrl::External(port_taken_page().parse().expect("data url"))
             };
-            WebviewWindowBuilder::new(app, "main", url)
+            let win = WebviewWindowBuilder::new(app, "main", url)
                 .title("Foundation")
                 .inner_size(1440.0, 900.0)
                 .min_inner_size(960.0, 600.0)
                 .center()
                 // files dropped on the window go to the page (uploads), not to Tauri
-                .disable_drag_drop_handler()
-                .build()?;
+                .disable_drag_drop_handler();
+            // The page's top bar is the title bar: the fold, the tabs and the tools share one line
+            // with minimize, maximize and close, which the page draws (shell/WindowControls.tsx).
+            // The port-taken page has no bar of its own, so it keeps the system's frame.
+            #[cfg(not(target_os = "macos"))]
+            let win = win.decorations(!port_free);
+            // a Mac keeps its own lights, laid over the bar's left end
+            #[cfg(target_os = "macos")]
+            let win = if port_free { win.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true) } else { win };
+            win.build()?;
             Ok(())
         })
         .run(tauri::generate_context!())

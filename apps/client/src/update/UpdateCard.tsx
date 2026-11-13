@@ -13,8 +13,10 @@
  */
 import { AnimatePresence, motion } from "motion/react";
 import { springs } from "@foundation/ui";
+import { MARK_VIEWBOX, MarkPanels } from "../brand/Mark";
 import { noteLines, progressLabel, shortDate } from "./policy";
-import { checkForUpdate, closeCard, installUpdate, later, skipVersion, useUpdate, type UpdatePhase } from "./updater";
+import { checkForUpdate, closeCard, inDesktop, installUpdate, later, skipVersion, useUpdate, type UpdatePhase } from "./updater";
+import { useUi } from "../state/ui";
 import "./update.css";
 
 export interface UpdateCardProps {
@@ -31,6 +33,9 @@ export interface UpdateCardProps {
   total?: number | null;
   /** what went wrong (failed), or why updates are off (off) */
   message?: string | null;
+  /** the oldest client the server still works with, when this one is older: the card says so and offers no way round */
+  required?: string | null;
+  onReload?: () => void;
   layout?: "floating" | "inline";
   onUpdate?: () => void;
   onLater?: () => void;
@@ -39,15 +44,11 @@ export interface UpdateCardProps {
   onClose?: () => void;
 }
 
-/** the app's own mark, small: the masonry F (apps/client/assets/foundation-icon.svg) */
+/** the app's own mark, small: the four panels, in the tile's phase colour */
 function Mark() {
   return (
-    <svg viewBox="200 128 624 768" aria-hidden>
-      <rect x="200" y="128" width="392" height="176" rx="12" />
-      <rect x="636" y="128" width="188" height="176" rx="12" />
-      <rect x="200" y="348" width="248" height="240" rx="12" />
-      <rect x="492" y="436" width="232" height="152" rx="12" />
-      <rect x="200" y="632" width="248" height="264" rx="12" />
+    <svg viewBox={MARK_VIEWBOX} aria-hidden>
+      <MarkPanels />
     </svg>
   );
 }
@@ -63,8 +64,10 @@ export function UpdateCard(p: UpdateCardProps) {
   let meta: string | null = null;
   switch (phase) {
     case "available":
-      title = `Foundation ${p.version} is ready`;
-      meta = [p.current ? `You have ${p.current}` : null, when].filter(Boolean).join(" · ") || null;
+      title = p.required ? `Foundation ${p.version} is needed` : `Foundation ${p.version} is ready`;
+      meta = p.required
+        ? `This server no longer works with ${p.current ?? "this version"}: boards won't sync until you update.`
+        : [p.current ? `You have ${p.current}` : null, when].filter(Boolean).join(" · ") || null;
       break;
     case "downloading":
       title = `Downloading Foundation ${p.version}…`;
@@ -87,13 +90,20 @@ export function UpdateCard(p: UpdateCardProps) {
       break;
     case "current":
       title = p.version ? `Foundation ${p.version} is up to date` : "Foundation is up to date";
+      // the server needs a newer one than the feed has: only whoever publishes can fix that, so say so
+      if (p.required) {
+        title = `This server needs Foundation ${p.required} or newer`;
+        meta = `You have ${p.current ?? p.version}, and no newer version has been published yet. Boards won't sync until one is: tell whoever runs this server.`;
+      }
       break;
     case "unreachable":
-      title = "Couldn’t reach the update feed";
-      meta = p.message ?? "Foundation works offline as usual and checks again next time it opens.";
+      title = p.required ? `This server needs Foundation ${p.required} or newer` : "Couldn’t reach the update feed";
+      meta = p.required
+        ? `You have ${p.current ?? "an older version"}. ${p.message ?? "The update feed couldn't be reached."} Boards won't sync until you update.`
+        : (p.message ?? "Foundation works offline as usual and checks again next time it opens.");
       break;
     case "off":
-      title = "Updates come with the desktop app";
+      title = p.required ? `This server needs Foundation ${p.required} or newer` : "Updates come with the desktop app";
       meta = p.message ?? null;
       break;
   }
@@ -103,6 +113,7 @@ export function UpdateCard(p: UpdateCardProps) {
       className={`update-card${layout === "floating" ? " f-glass" : ""}`}
       data-phase={phase}
       data-layout={layout}
+      data-required={p.required ? "" : undefined}
       role={layout === "floating" ? "status" : undefined}
       aria-live="polite"
       aria-busy={busy || undefined}
@@ -179,6 +190,13 @@ export function UpdateCard(p: UpdateCardProps) {
           </button>
         </div>
       )}
+      {phase === "off" && p.required && p.onReload && (
+        <div className="update-card-actions">
+          <button className="f-pill is-accent" onClick={p.onReload}>
+            Reload
+          </button>
+        </div>
+      )}
       {phase === "updated" && layout === "floating" && p.onClose && (
         <div className="update-card-actions">
           <button className="f-pill" onClick={p.onClose}>
@@ -196,12 +214,16 @@ export function UpdateCard(p: UpdateCardProps) {
  */
 export function UpdateShelf({ day = false }: { day?: boolean }) {
   const u = useUpdate();
+  const ui = useUi();
   const show = u.shown && u.phase !== "idle";
+  // beside the search pane when it's open, not over its field (a card that has to stay up would sit on it)
+  const clear = !day && ui.search && !ui.presenting ? { right: ui.searchW + 16 } : undefined;
   return (
     <AnimatePresence>
       {show && (
         <motion.div
           className={`update-shelf${day ? " f-day" : ""}`}
+          style={clear}
           initial={{ opacity: 0, y: -12, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -8, scale: 0.98, transition: { duration: 0.16 } }}
@@ -216,10 +238,14 @@ export function UpdateShelf({ day = false }: { day?: boolean }) {
             received={u.received}
             total={u.total}
             message={u.message}
+            required={u.required}
             onUpdate={() => void installUpdate()}
-            onLater={later}
-            onSkip={skipVersion}
-            onClose={closeCard}
+            // an update the server needs isn't one to put off: no Later, no Skip, no close
+            onLater={u.required ? undefined : later}
+            onSkip={u.required ? undefined : skipVersion}
+            onClose={u.required ? undefined : closeCard}
+            onCheck={u.required ? () => void checkForUpdate(true) : undefined}
+            onReload={u.required && !inDesktop ? () => window.location.reload() : undefined}
           />
         </motion.div>
       )}
@@ -256,6 +282,7 @@ export function UpdatesSection() {
           received={u.received}
           total={u.total}
           message={u.message}
+          required={u.required}
           onUpdate={() => void installUpdate()}
           onCheck={() => void checkForUpdate(true)}
           onClose={closeCard}

@@ -28,6 +28,8 @@ export const config = {
   publicUrl: env("FOUNDATION_PUBLIC_URL", `http://localhost:${port}`),
   clientUrl: env("FOUNDATION_CLIENT_URL", "http://localhost:1430"),
   /** more page origins that may call this server with credentials (comma-separated), beyond the client, localhost and the desktop app */
+  /** the oldest client this server still works with (x.y.z; unset: any). Older ones get no board socket and are told to update (clientversion.ts) */
+  minClient: env("FOUNDATION_MIN_CLIENT").trim(),
   corsOrigins: env("FOUNDATION_CORS_ORIGINS")
     .split(",")
     .map((s) => s.trim().replace(/\/$/, ""))
@@ -46,6 +48,8 @@ export const config = {
   devLogin: env("FOUNDATION_DEV_LOGIN", "1") !== "0",
   /** flowform-server: Foundation signs in with flowform's Google login (same server, same client) */
   flowformUrl: env("FLOWFORM_URL", "https://server.formresearch.ai"),
+  /** the Flowform client version Foundation's file downloads declare: Flowform's file routes refuse older clients (426, "1.9.0 or newer", 2026-11-11) */
+  flowformClientVersion: env("FLOWFORM_CLIENT_VERSION", "1.9.0"),
   /** admit flowform "viewer" accounts too (default: users and admins only) */
   flowformAdmitViewers: env("FLOWFORM_ADMIT_VIEWERS", "0") === "1",
   google: {

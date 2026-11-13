@@ -1,82 +1,215 @@
 /**
- * The side pane, drawn on the floor (the paper and its dots run underneath;
- * the cards fade out at its edge). Folded by the top bar's first button or
+ * The spaces pane, drawn on the floor (the paper and its dots run underneath;
+ * the cards stop at its hairline). Folded by the top bar's first button or
  * ⌘\, resized by its right edge.
  *
- * Top to bottom: Sessions — this board's agent sessions and Vision Code's
- * threads, each opening a tab — then Boards, Activity, Release & plan (the
- * app's floorplan and the plan board in Settings), Tools, and you.
+ * It is where every space is found, whatever its canvas: **Recent** lists them
+ * by when this device last opened each, **Folders** files them in project
+ * folders (a folder is a path a space carries, "Fans/Rim drive", so a folder
+ * exists while something is in it; one made here waits on this device until
+ * then). A press opens the space in a tab. Below: the app's own things
+ * (release & plan, tools) and you.
+ *
+ * What belongs to the open space (its people, its activity) is the other pane
+ * (SpaceInfo.tsx), opened from the space's tab. Sessions with the agent open
+ * from the bottom bar.
  */
 
 import { keys } from "../lib/keys";
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import type { UserInfo } from "@foundation/protocol";
-import { isNight, setNight } from "@foundation/ui";
 import { appendSectionLocal, requestSnap } from "../state/store";
-import { WIDTHS, newSession, openTab, setUi, useUi } from "../state/ui";
-import { refreshLists, useLists } from "../state/sessions";
-import { api, logout } from "../lib/api";
-import { NightOrb } from "./NightOrb";
-import { initials, useBoardTick } from "./Presence";
+import { WIDTHS, setUi, spaceOpenedAt, useUi } from "../state/ui";
+import { logout } from "../lib/api";
+import { initials } from "./Presence";
 import { copyMcpCommand } from "./CommandBar";
 import { FloorEdge } from "./FloorEdge";
-import type { BoardRow } from "./Shell";
+import { KIND_GLYPH, KIND_NAME, type BoardRow, type SpaceKind } from "./Shell";
 
 interface Props {
   user: UserInfo;
   boards: BoardRow[];
   current: string;
   onSwitch(id: string): void;
-  onNew(): void;
+  onNew(kind?: SpaceKind, folder?: string | null): void;
+  onUpdate(id: string, patch: { name?: string; folder?: string | null }): void;
   onUpload(): void;
 }
 
-const paneSpring = { type: "spring", stiffness: 340, damping: 34 } as const;
+export const paneSpring = { type: "spring", stiffness: 340, damping: 34 } as const;
 
-export function SidePane({ user, boards, current, onSwitch, onNew, onUpload }: Props) {
+const EMPTY_FOLDERS = "foundation-folders";
+/** folders made on this device that nothing is in yet */
+function emptyFolders(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(EMPTY_FOLDERS) ?? "[]");
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** every folder path there is, parents included, sorted: from the spaces and from the ones waiting on this device */
+export function folderPaths(boards: BoardRow[], extra: string[] = []): string[] {
+  const all = new Set<string>();
+  for (const f of [...boards.map((b) => b.folder), ...extra]) {
+    if (!f) continue;
+    const parts = f.split("/");
+    for (let i = 1; i <= parts.length; i++) all.add(parts.slice(0, i).join("/"));
+  }
+  return [...all].sort((a, b) => a.localeCompare(b));
+}
+
+export function SidePane({ user, boards, current, onSwitch, onNew, onUpdate, onUpload }: Props) {
   const ui = useUi();
+  const viewer = user.role === "viewer";
+  const [extra, setExtra] = useState(emptyFolders);
+  const [shut, setShut] = useState<Set<string>>(() => new Set());
+  const [moving, setMoving] = useState<string | null>(null);
 
-  // the lists refresh while the pane is open
-  useEffect(() => {
-    if (!ui.pane) return;
-    void refreshLists();
-    const t = setInterval(() => void refreshLists(), 12_000);
-    return () => clearInterval(t);
-  }, [ui.pane, current]);
+  const recent = useMemo(() => {
+    const at = spaceOpenedAt();
+    return [...boards].sort((a, b) => (at[b.id] ?? b.updated_at ?? 0) - (at[a.id] ?? a.updated_at ?? 0));
+    // re-sorted when the open space changes (it just became the most recent)
+  }, [boards, current]); // eslint-disable-line react-hooks/exhaustive-deps
+  const folders = folderPaths(boards, extra);
+  const loose = boards.filter((b) => !b.folder).sort((a, b) => a.name.localeCompare(b.name));
+
+  const addFolder = (parent: string | null) => {
+    const name = window.prompt(parent ? `A folder inside ${parent.split("/").pop()}` : "Name the project folder")?.replace(/\//g, " ").trim();
+    if (!name) return;
+    const next = [...new Set([...extra, parent ? `${parent}/${name}` : name])];
+    setExtra(next);
+    try {
+      localStorage.setItem(EMPTY_FOLDERS, JSON.stringify(next));
+    } catch { /* private window */ }
+    setUi({ spacesView: "folders" });
+  };
+
+  const row = (b: BoardRow, depth = 0) => (
+    <div key={b.id} className={`space-row${b.id === current ? " is-current" : ""}`} style={{ paddingLeft: depth * 14 }} data-space-drop={b.id} data-space-name={b.name} data-space-kind={b.kind ?? "grid"}>
+      <button className="pane-row space-open" onClick={() => onSwitch(b.id)} data-tip={`${KIND_NAME[b.kind ?? "grid"]}${b.folder ? ` · ${b.folder.replace(/\//g, " › ")}` : ""}`}>
+        <span className="pane-glyph">{b.id === "company" ? "◉" : KIND_GLYPH[b.kind ?? "grid"]}</span>
+        <span className="pane-label">{b.name}</span>
+        {ui.spacesView === "recent" && b.folder && <span className="pane-when">{b.folder.split("/").pop()}</span>}
+      </button>
+      {!viewer && b.role !== "viewer" && (
+        <button className={`space-move${moving === b.id ? " is-on" : ""}`} onClick={() => setMoving(moving === b.id ? null : b.id)} aria-label={`Move ${b.name} to a folder`} data-tip="Move to a folder">
+          ▱
+        </button>
+      )}
+      {moving === b.id && (
+        <select
+          className="space-move-pick"
+          autoFocus
+          defaultValue={b.folder ?? ""}
+          aria-label={`Folder for ${b.name}`}
+          onBlur={() => setMoving(null)}
+          onChange={(e) => {
+            onUpdate(b.id, { folder: e.target.value || null });
+            setMoving(null);
+            setUi({ spacesView: "folders" });
+          }}
+        >
+          <option value="">No folder</option>
+          {folders.map((f) => (
+            <option key={f} value={f}>
+              {f.replace(/\//g, " › ")}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+
+  // the tree: a folder row, then (unless shut) its spaces and its folders, one step in
+  const tree = (path: string, depth: number): React.ReactNode => {
+    const open = !shut.has(path);
+    const kids = folders.filter((f) => f.startsWith(path + "/") && f.split("/").length === path.split("/").length + 1);
+    const here = boards.filter((b) => b.folder === path).sort((a, b) => a.name.localeCompare(b.name));
+    return (
+      <div key={path} className="folder">
+        <div className="space-row is-folder" style={{ paddingLeft: depth * 14 }}>
+          <button
+            className="pane-row space-open"
+            aria-expanded={open}
+            onClick={() =>
+              setShut((s) => {
+                const n = new Set(s);
+                if (n.has(path)) n.delete(path);
+                else n.add(path);
+                return n;
+              })
+            }
+          >
+            <span className={`pane-glyph folder-caret${open ? " is-open" : ""}`}>›</span>
+            <span className="pane-label">{path.split("/").pop()}</span>
+            <span className="pane-when">{boards.filter((b) => b.folder === path || b.folder?.startsWith(path + "/")).length || ""}</span>
+          </button>
+          {!viewer && (
+            <>
+              <button className="space-move" onClick={() => addFolder(path)} aria-label={`New folder in ${path}`} data-tip="New folder inside">
+                ▱
+              </button>
+              <button className="space-move" onClick={() => onNew("grid", path)} aria-label={`New grid space in ${path}`} data-tip="New grid space here">
+                ＋
+              </button>
+            </>
+          )}
+        </div>
+        {open && (
+          <>
+            {kids.map((k) => tree(k, depth + 1))}
+            {here.map((b) => row(b, depth + 1))}
+            {kids.length === 0 && here.length === 0 && (
+              <div className="pane-empty" style={{ paddingLeft: (depth + 1) * 14 + 8 }}>
+                Empty. Move a space here, or ＋ a new one.
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
 
   return (
     <AnimatePresence initial={false}>
       {ui.pane && (
-        <motion.aside
-          key="pane"
-          className="side-pane floor-pane"
-          style={{ width: ui.paneW }}
-          initial={{ opacity: 0, x: -16 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -16 }}
-          transition={paneSpring}
-        >
+        <motion.aside key="pane" className="side-pane floor-pane" style={{ width: ui.paneW }} initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} transition={paneSpring}>
           <div className="pane-scroll">
-            <Sessions />
-
             <section className="pane-group">
-              <div className="pane-eyebrow">Boards</div>
-              {boards.map((b) => (
-                <button key={b.id} className={`pane-row${b.id === current ? " is-current" : ""}`} onClick={() => onSwitch(b.id)}>
-                  <span className="pane-glyph">{b.id === "company" ? "◉" : "▦"}</span>
-                  <span className="pane-label">{b.name}</span>
-                </button>
-              ))}
-              <button className="pane-row is-new" onClick={onNew}>
-                <span className="pane-glyph">＋</span>
-                <span className="pane-label">New board</span>
-              </button>
+              <div className="pane-eyebrow">
+                Spaces
+                {!viewer && (
+                  <span className="pane-eyebrow-acts">
+                    <button className="pane-eyebrow-act" onClick={() => addFolder(null)} aria-label="New project folder" data-tip="New project folder">
+                      ▱
+                    </button>
+                    <button className="pane-eyebrow-act" onClick={() => onNew("grid")} aria-label="New grid space" data-tip="New grid space">
+                      ＋
+                    </button>
+                  </span>
+                )}
+              </div>
+              <div className="pane-seg" role="tablist" aria-label="How spaces are listed">
+                {(["recent", "folders"] as const).map((v) => (
+                  <button key={v} role="tab" aria-selected={ui.spacesView === v} className={`pane-seg-btn${ui.spacesView === v ? " is-on" : ""}`} onClick={() => setUi({ spacesView: v })}>
+                    {v === "recent" ? "Recent" : "Folders"}
+                  </button>
+                ))}
+              </div>
+              {ui.spacesView === "recent" ? (
+                recent.map((b) => row(b))
+              ) : (
+                <>
+                  {folders.filter((f) => !f.includes("/")).map((f) => tree(f, 0))}
+                  {folders.length > 0 && loose.length > 0 && <div className="pane-sub">Not in a folder</div>}
+                  {loose.map((b) => row(b))}
+                  {folders.length === 0 && <div className="pane-empty">No project folders yet. ▱ above makes one; ▱ on a space files it.</div>}
+                </>
+              )}
             </section>
-
-            {user.role === "admin" && current && <People board={current} me={user.id} />}
-
-            <Activity />
 
             <section className="pane-group">
               <div className="pane-eyebrow">Release & plan</div>
@@ -113,126 +246,12 @@ export function SidePane({ user, boards, current, onSwitch, onNew, onUpload }: P
                 Sign out
               </button>
             </span>
-            <NightOrb onToggle={() => setNight(!isNight())} />
           </footer>
 
-          <FloorEdge side="right" value={ui.paneW} {...WIDTHS.pane} onChange={(w) => setUi({ paneW: w })} label="Side pane" />
+          <FloorEdge side="right" value={ui.paneW} {...WIDTHS.pane} onChange={(w) => setUi({ paneW: w })} label="Spaces pane" />
         </motion.aside>
       )}
     </AnimatePresence>
-  );
-}
-
-function Sessions() {
-  const ui = useUi();
-  const lists = useLists();
-  const [allT3, setAllT3] = useState(false);
-  const t3 = allT3 ? lists.t3 : lists.t3.slice(0, 6);
-  return (
-    <>
-      <section className="pane-group">
-        <div className="pane-eyebrow is-agent">
-          Sessions
-          <button className="pane-eyebrow-act" onClick={() => newSession()} title={`New agent session (${keys("mod+J")})`}>
-            ＋
-          </button>
-        </div>
-        {lists.sessions.length === 0 && <div className="pane-empty">Agent sessions on this board show up here. Each one is a tab: its goal, its steps, and what it changed on the grid.</div>}
-        {lists.sessions.slice(0, 8).map((s) => (
-          <button
-            key={s.id}
-            className={`pane-row is-session${ui.tab === s.id ? " is-current" : ""}`}
-            onClick={() => openTab({ id: s.id, kind: "agent", title: s.title })}
-          >
-            <span className={`f-dot ${s.status === "running" ? "is-agent is-pulse" : s.status === "error" ? "is-bad" : "is-agent-dim"}`} />
-            <span className="pane-label">{s.title}</span>
-            <span className="pane-when">{ago(s.updatedAt)}</span>
-          </button>
-        ))}
-      </section>
-
-      <section className="pane-group">
-        <div className="pane-eyebrow">Vision Code</div>
-        {lists.t3Available === false && (
-          <div className="pane-empty is-paths">{lists.t3Missing ?? "Vision Code isn't on this computer (or its store moved). Set T3CODE_HOME on the server to point at it."}</div>
-        )}
-        {t3.map((t) => (
-          <button
-            key={t.id}
-            className={`pane-row is-session${ui.tab === `t3:${t.id}` ? " is-current" : ""}`}
-            onClick={() => openTab({ id: `t3:${t.id}`, kind: "t3", title: t.title })}
-            title={`${t.project} · ${t.title}`}
-          >
-            <span className={`f-dot ${t.status === "running" ? "is-live is-pulse" : t.status === "waiting" ? "is-warn" : t.status === "error" ? "is-bad" : ""}`} />
-            <span className="pane-label">{t.title}</span>
-            <span className="pane-when">{t.pending > 0 ? `${t.pending} ask` : ago(t.updatedAt)}</span>
-          </button>
-        ))}
-        {lists.t3.length > 6 && (
-          <button className="pane-row is-more" onClick={() => setAllT3((v) => !v)}>
-            <span className="pane-glyph">{allT3 ? "−" : "…"}</span>
-            <span className="pane-label">{allT3 ? "Fewer" : `${lists.t3.length - 6} more`}</span>
-          </button>
-        )}
-      </section>
-    </>
-  );
-}
-
-interface Person {
-  id: string;
-  name: string;
-  email: string;
-  color: string;
-  role: "admin" | "member" | "viewer";
-  account: "admin" | "member" | "viewer";
-  onBoard: boolean;
-}
-
-/** admins: who may change this board. A role set here beats the person's account role; admins always can. */
-function People({ board, me }: { board: string; me: string }) {
-  const [people, setPeople] = useState<Person[]>([]);
-  const [err, setErr] = useState<string | null>(null);
-  useEffect(() => {
-    api<{ people: Person[] }>(`/api/boards/${encodeURIComponent(board)}/people`).then((r) => setPeople(r.people)).catch(() => {});
-  }, [board]);
-  const set = async (userId: string, role: "member" | "viewer" | null) => {
-    try {
-      const r = await api<{ people: Person[] }>(`/api/boards/${encodeURIComponent(board)}/people`, { method: "POST", json: { userId, role } });
-      setPeople(r.people);
-      setErr(null);
-    } catch (e) {
-      setErr((e as Error).message);
-    }
-  };
-  return (
-    <section className="pane-group">
-      <div className="pane-eyebrow">People on this board</div>
-      {people.map((p) => (
-        <div key={p.id} className="pane-row is-person" title={p.email}>
-          <span className="person-dot" style={{ background: p.color }}>
-            {initials(p.name)}
-          </span>
-          <span className="pane-label">{p.name}</span>
-          {p.account === "admin" ? (
-            <span className="person-role">Admin</span>
-          ) : (
-            <select
-              className={`person-role-pick${p.role === "viewer" ? " is-viewer" : ""}`}
-              value={p.onBoard ? p.role : "default"}
-              disabled={p.id === me}
-              aria-label={`${p.name} on this board`}
-              onChange={(e) => void set(p.id, e.target.value === "default" ? null : (e.target.value as "member" | "viewer"))}
-            >
-              <option value="default">{p.account === "viewer" ? "Viewer (account)" : "Member (account)"}</option>
-              <option value="member">Can edit</option>
-              <option value="viewer">View only</option>
-            </select>
-          )}
-        </div>
-      ))}
-      {err && <div className="pane-empty is-bad">{err}</div>}
-    </section>
   );
 }
 
@@ -255,29 +274,6 @@ function PaneRow({ glyph, label, kbd, onClick }: { glyph: string; label: string;
       <span className="pane-label">{label}</span>
       {kbd && <span className="f-kbd">{kbd}</span>}
     </button>
-  );
-}
-
-function Activity() {
-  const board = useBoardTick();
-  const items = (board?.activity() ?? []).slice(-6).reverse();
-  return (
-    <section className="pane-group">
-      <div className="pane-eyebrow">Activity</div>
-      {items.length === 0 && <div className="pane-empty">Quiet so far. Agents and people show up here as they work.</div>}
-      {items.map((a, i) => (
-        <button key={a.at + ":" + i} className={`activity-row role-${a.role}`} onClick={() => a.objectId && requestSnap({ kind: "object", id: a.objectId })}>
-          <span className={`f-dot ${a.role === "agent" ? "is-agent" : a.role === "human" ? "is-ok" : ""}`} />
-          {/* an agent's line says whom it worked for; a person's is just theirs */}
-          <span className="activity-who" data-tip={a.role === "agent" && a.for ? `${a.who}: an agent working for ${a.for}` : undefined}>
-            {a.role === "agent" ? "✦ " : ""}
-            {a.who}
-          </span>
-          <span className="activity-text">{a.text}</span>
-          <span className="activity-when">{ago(a.at)}</span>
-        </button>
-      ))}
-    </section>
   );
 }
 

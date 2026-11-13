@@ -44,14 +44,71 @@ export function onBoardOpen(fn: (board: Board) => void) {
   openListeners.add(fn);
 }
 
-export function listBoards() {
-  return all<{ id: string; name: string; updated_at: number }>("select id, name, updated_at from boards order by updated_at desc");
+/** what a space's canvas is: the grid, a deck of slides (a grid whose sections are the slides), or a web page */
+export type SpaceKind = "grid" | "deck" | "page";
+export const SPACE_KINDS: SpaceKind[] = ["grid", "deck", "page"];
+
+export interface BoardRow {
+  id: string;
+  name: string;
+  updated_at: number;
+  kind: SpaceKind;
+  /** its project folder, "/"-separated ("Fans/Rim drive"); null when loose */
+  folder: string | null;
+  /** a page space's address */
+  url: string | null;
+}
+
+export function listBoards(): BoardRow[] {
+  return all<Omit<BoardRow, "kind"> & { kind: string | null }>("select id, name, updated_at, kind, folder, url from boards order by updated_at desc").map((b) => ({
+    ...b,
+    kind: SPACE_KINDS.includes(b.kind as SpaceKind) ? (b.kind as SpaceKind) : "grid",
+  }));
 }
 
 export function ensureBoardRow(id: string, name: string) {
   if (!one("select id from boards where id = ?", id)) {
     run("insert into boards (id, name, created_at, updated_at) values (?, ?, ?, ?)", id, name, Date.now(), Date.now());
   }
+}
+
+/** a folder path as stored: trimmed parts joined by "/", at most four deep; null for none */
+export function cleanFolder(folder: unknown): string | null {
+  if (typeof folder !== "string") return null;
+  const parts = folder
+    .split("/")
+    .map((p) => p.trim().slice(0, 60))
+    .filter(Boolean)
+    .slice(0, 4);
+  return parts.length ? parts.join("/") : null;
+}
+
+/** a page space's address: http(s) only */
+export function cleanPageUrl(url: unknown): string | null {
+  if (typeof url !== "string" || !url.trim()) return null;
+  try {
+    const u = new URL(/^[a-z]+:\/\//i.test(url.trim()) ? url.trim() : `https://${url.trim()}`);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** make a space's row; the id comes from its name and never lands on one that exists */
+export function createBoardRow(name: string, opts: { kind?: SpaceKind; folder?: string | null; url?: string | null } = {}): string {
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "space";
+  let id = base;
+  for (let n = 2; one("select id from boards where id = ?", id); n++) id = `${base}-${n}`;
+  const now = Date.now();
+  run("insert into boards (id, name, created_at, updated_at, kind, folder, url) values (?, ?, ?, ?, ?, ?, ?)", id, name, now, now, opts.kind ?? "grid", opts.folder ?? null, opts.url ?? null);
+  return id;
+}
+
+/** rename a space, move it to a folder (null: out of any), or point a page space somewhere else */
+export function updateBoardRow(id: string, patch: { name?: string; folder?: string | null; url?: string }) {
+  if (patch.name !== undefined) run("update boards set name = ? where id = ?", patch.name, id);
+  if (patch.folder !== undefined) run("update boards set folder = ? where id = ?", patch.folder, id);
+  if (patch.url !== undefined) run("update boards set url = ? where id = ?", patch.url, id);
 }
 
 export function getBoard(id: string): Board {

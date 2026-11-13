@@ -40,6 +40,7 @@ import {
   tryInsertRef,
 } from "../state/editing";
 import { Spring2D, presets } from "../physics/spring";
+import { startCarry, type Carry } from "../lib/carry";
 import { openContextMenu } from "./ContextMenu";
 
 interface Props {
@@ -116,7 +117,7 @@ export const TableView = memo(function TableView({ table, framePos, isActive, ge
     if (!dragRef.current.active) pos.to(framePos.x, framePos.y);
   }, [framePos.x, framePos.y, pos]);
 
-  const dragRef = useRef({ active: false, startX: 0, startY: 0, origX: 0, origY: 0 });
+  const dragRef = useRef({ active: false, moved: false, startX: 0, startY: 0, origX: 0, origY: 0, carry: null as Carry | null });
 
   const onHeaderPointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -126,6 +127,7 @@ export const TableView = memo(function TableView({ table, framePos, isActive, ge
       if (!table.float) setObjectFloat(table.id, true); // grabbing undocks it
       const d = dragRef.current;
       d.active = true;
+      d.moved = false;
       d.startX = e.clientX;
       d.startY = e.clientY;
       d.origX = pos.x.goal;
@@ -142,17 +144,31 @@ export const TableView = memo(function TableView({ table, framePos, isActive, ge
     (e: React.PointerEvent) => {
       const d = dragRef.current;
       if (!d.active) return;
+      if (!d.moved && Math.hypot(e.clientX - d.startX, e.clientY - d.startY) >= 4) {
+        d.moved = true;
+        // out of its section, it lifts out and can land in another (lib/carry.ts)
+        const anchor = rootRef.current;
+        const card = anchor?.querySelector<HTMLElement>(".table-card");
+        if (anchor && card) d.carry = startCarry(table.id, anchor, card, e.clientX, e.clientY);
+      }
+      if (d.carry?.move(e.clientX, e.clientY)) return;
       const s = getScale();
       pos.to(d.origX + (e.clientX - d.startX) / s, d.origY + (e.clientY - d.startY) / s);
     },
     [pos, getScale],
   );
 
-  const onHeaderPointerUp = useCallback(() => {
+  const onHeaderPointerUp = useCallback((e: React.PointerEvent) => {
     const d = dragRef.current;
     if (!d.active) return;
     d.active = false;
     rootRef.current?.classList.remove("dragging");
+    const carry = d.carry;
+    d.carry = null;
+    if (carry && (e.type === "pointercancel" ? (carry.cancel(), false) : carry.end(e.clientX, e.clientY))) {
+      pos.set(d.origX, d.origY);
+      return;
+    }
     moveTable(table.id, pos.x.goal, pos.y.goal);
   }, [pos, table.id]);
 

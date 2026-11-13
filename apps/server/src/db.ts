@@ -238,7 +238,16 @@ const FTS_SQL = `create virtual table search_fts using fts5(
     console.log("search index: rebuilt without stemming (boards re-index on load; files re-index below)");
   }
   if (!existing || existing.sql.includes("porter")) {
-    db.exec(FTS_SQL);
+    try {
+      db.exec(FTS_SQL);
+    } catch (e) {
+      // Node before 22.16 ships a SQLite without FTS5: say that, not "SQL logic error" (scripts/node-check.mjs)
+      if (/fts5/i.test((e as Error).message))
+        throw new Error(
+          `Foundation's server needs Node 22.16 or newer (this is ${process.versions.node}): its SQLite has no full-text search (FTS5). Install a newer Node and start again.`,
+        );
+      throw e;
+    }
     needsFileReindex = Boolean(existing);
   }
 }
@@ -246,6 +255,11 @@ const FTS_SQL = `create virtual table search_fts using fts5(
 // additive migrations — each is idempotent
 for (const sql of [
   "alter table asks add column stage_panel_id text",
+  // spaces (2026-11-10): a board is a space; its canvas is a grid, a deck of slides or a web page (url),
+  // and it may sit in a project folder ("Fans/Rim drive"); null kind = grid, null folder = loose
+  "alter table boards add column kind text",
+  "alter table boards add column folder text",
+  "alter table boards add column url text",
   "alter table users add column flowform_user_id text",
   // agent sessions: each tab is its own conversation, resumable after a restart
   "alter table agent_runs add column session_id text",

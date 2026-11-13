@@ -17,10 +17,13 @@ import {
   explainError,
   mayCheckOnLaunch,
   readPrefs,
+  minimumOver,
   settleOnLaunch,
   shouldOffer,
   writePrefs,
 } from "./policy";
+import { authConfig } from "../lib/api";
+import { CLIENT_VERSION } from "../lib/version";
 
 export type UpdatePhase = "available" | "downloading" | "installing" | "failed" | "updated" | "checking" | "current" | "unreachable" | "off";
 
@@ -30,6 +33,8 @@ export interface UpdateState {
   shown: boolean;
   /** the version running now (null in a browser) */
   current: string | null;
+  /** the oldest client the server still works with, when this one is older: the update isn't one to put off */
+  required: string | null;
   /** the version on offer, or the version just installed (updated) */
   version: string | null;
   notes: string | null;
@@ -43,6 +48,7 @@ let state: UpdateState = {
   phase: "idle",
   shown: false,
   current: null,
+  required: null,
   version: null,
   notes: null,
   date: null,
@@ -75,10 +81,47 @@ let offered: Update | null = null;
 let laterThisLaunch = false;
 let started = false;
 
+/**
+ * Ask the server which clients it still works with. If this one is older, the card goes up and stays:
+ * in the desktop app it checks the feed at once and offers the update without Later or Skip; in a
+ * browser (or `tauri dev`) it says how this copy is brought up to date. Quiet when the server can't be
+ * reached, names no minimum, or this client meets it (a minimum that was lifted takes the card's hold off).
+ */
+export async function learnMinimum() {
+  let cfg: Awaited<ReturnType<typeof authConfig>>;
+  try {
+    cfg = await authConfig();
+  } catch {
+    return;
+  }
+  const mine = state.current ?? CLIENT_VERSION;
+  const required = minimumOver(mine, cfg.minClient);
+  if (!required) {
+    if (state.required) set({ required: null, shown: false, phase: state.phase === "off" ? "idle" : state.phase });
+    return;
+  }
+  if (state.required === required && state.shown) return;
+  set({ required, current: mine, shown: true });
+  if (inDesktop && !DEV) return void checkForUpdate(true);
+  set({
+    phase: "off",
+    message: inDesktop
+      ? `This is a development build (${mine}): pull main to bring it up to date.`
+      : `This page is Foundation ${mine}${cfg.version ? `, and its server is ${cfg.version}` : ""}. Reload to get the server's own page.`,
+  });
+}
+
 /** Called once at boot: says what changed if this is a new version's first run, then checks after a pause. */
 export function startUpdates() {
-  if (started || !inDesktop) return;
+  if (started || typeof window === "undefined") return;
   started = true;
+  // the server may refuse this client as too old at any time (a socket closed 4426, a ticket's 426): ask it what it needs
+  window.addEventListener("foundation:client-too-old", () => void learnMinimum());
+  if (!inDesktop) {
+    void learnMinimum();
+    setInterval(() => navigator.onLine && void learnMinimum(), RECHECK_MS);
+    return;
+  }
   void (async () => {
     const { getVersion } = await import("@tauri-apps/api/app");
     const current = await getVersion().catch(() => null);
@@ -93,6 +136,9 @@ export function startUpdates() {
         void getCurrentWindow().setFocus().catch(() => {});
       }
     }
+    // before the quiet check: an update the server needs shouldn't wait eight seconds behind a board that won't sync
+    await learnMinimum();
+    setInterval(() => navigator.onLine && void learnMinimum(), RECHECK_MS);
     if (!mayCheckOnLaunch({ desktop: true, dev: DEV, online: navigator.onLine })) return;
     setTimeout(() => void checkForUpdate(false), LAUNCH_DELAY_MS);
     setInterval(() => {
@@ -112,6 +158,8 @@ export async function checkForUpdate(manual: boolean) {
     return;
   }
   if (state.phase === "downloading" || state.phase === "installing" || state.phase === "checking") return;
+  // an update the server needs is asked for as if by hand: every outcome shows
+  manual ||= Boolean(state.required);
   // the "what changed" card stays until it is closed; a quiet check never replaces it
   if (!manual && state.phase === "updated" && state.shown) return;
   // a card already up for a version stays as it is on a quiet re-check
@@ -123,15 +171,15 @@ export async function checkForUpdate(manual: boolean) {
     if (offered && offered !== update) void offered.close().catch(() => {});
     offered = update;
     if (!update) {
-      // a quiet check that finds nothing changes nothing
-      if (manual) set({ phase: "current", version: state.current, shown: false });
+      // a quiet check that finds nothing changes nothing; one the server needs says the feed doesn't have it yet
+      if (manual) set({ phase: "current", version: state.current, shown: Boolean(state.required) });
       return;
     }
-    if (!shouldOffer(update.version, readPrefs(), { manual, laterThisLaunch })) return;
+    if (!shouldOffer(update.version, readPrefs(), { manual, laterThisLaunch, required: Boolean(state.required) })) return;
     set({
       phase: "available",
-      // a quiet check puts the card up; a manual one answers in Settings, where it was asked
-      shown: manual ? state.shown && state.phase !== "updated" : true,
+      // a quiet check puts the card up; a manual one answers in Settings, where it was asked; a needed one is always up
+      shown: state.required ? true : manual ? state.shown && state.phase !== "updated" : true,
       version: update.version,
       notes: update.body ?? null,
       date: update.date ?? null,
@@ -139,7 +187,7 @@ export async function checkForUpdate(manual: boolean) {
     });
   } catch (e) {
     // a quiet check that fails stays silent: Foundation works offline
-    if (manual) set({ phase: "unreachable", message: explainError(e, "check") });
+    if (manual) set({ phase: "unreachable", message: explainError(e, "check"), shown: state.shown || Boolean(state.required) });
   }
 }
 
@@ -191,12 +239,15 @@ export async function installUpdate() {
 
 /** Hide the card until the next launch. */
 export function later() {
+  // not offered for an update the server needs
+  if (state.required) return;
   laterThisLaunch = true;
   set({ shown: false, phase: state.phase === "failed" ? "available" : state.phase });
 }
 
 /** Hide this version until a newer one is published. */
 export function skipVersion() {
+  if (state.required) return;
   if (state.version) writePrefs({ ...readPrefs(), skipped: state.version });
   laterThisLaunch = true;
   set({ shown: false });
@@ -204,5 +255,6 @@ export function skipVersion() {
 
 /** Close the "what changed" card (or an unreachable notice). */
 export function closeCard() {
+  if (state.required) return;
   set({ shown: false, phase: state.phase === "updated" ? "idle" : state.phase });
 }

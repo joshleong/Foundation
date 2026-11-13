@@ -3,7 +3,7 @@
  * at rest; the pointer finds a hairline and a grab knob. Double-click resets.
  */
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 interface Props {
   /** which edge of its pane the handle sits on */
@@ -18,17 +18,24 @@ interface Props {
 
 export function FloorEdge({ side, value, min, max, initial, onChange, label }: Props) {
   const drag = useRef<{ x: number; w: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const end = () => {
+    drag.current = null;
+    setDragging(false);
+    document.body.classList.remove("is-resizing-floor");
+  };
   return (
     <div
-      className={`floor-edge is-${side}`}
+      className={`floor-edge is-${side}${dragging ? " is-dragging" : ""}`}
       role="separator"
       aria-orientation="vertical"
       aria-label={label}
-      title={`${label} — drag to resize, double-click to reset`}
+      data-tip={`Drag to resize · double-click resets`}
       onPointerDown={(e) => {
         e.stopPropagation();
         drag.current = { x: e.clientX, w: value };
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        setDragging(true);
         document.body.classList.add("is-resizing-floor");
       }}
       onPointerMove={(e) => {
@@ -37,14 +44,8 @@ export function FloorEdge({ side, value, min, max, initial, onChange, label }: P
         const dx = (e.clientX - d.x) * (side === "right" ? 1 : -1);
         onChange(Math.round(Math.max(min, Math.min(max, d.w + dx))));
       }}
-      onPointerUp={() => {
-        drag.current = null;
-        document.body.classList.remove("is-resizing-floor");
-      }}
-      onPointerCancel={() => {
-        drag.current = null;
-        document.body.classList.remove("is-resizing-floor");
-      }}
+      onPointerUp={end}
+      onPointerCancel={end}
       onDoubleClick={() => onChange(initial)}
     >
       <span className="floor-edge-line" />

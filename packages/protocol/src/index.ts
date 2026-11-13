@@ -44,6 +44,16 @@ export interface SectionDoc {
    * edges, so data flows section to section.
    */
   host?: string;
+  /**
+   * Sections are grids within themselves (2026-11-11): a section with a
+   * parent sits in that section's own grid, its spans counted in the parent's
+   * `grid` tracks (a section without one sits on the board). A section that
+   * holds sections holds no cards of its own; cards added to it go to its
+   * first section.
+   */
+  parent?: string;
+  /** this section's own grid's tracks, once it has one */
+  grid?: GridTracks;
 }
 
 /**
@@ -110,6 +120,11 @@ export interface MediaDoc extends ObjectBaseDoc {
   media: "image" | "video";
   autoplay: boolean;
   muted: boolean;
+  /**
+   * Images only: shown inverted on a dark ground (night), for a dark drawing
+   * or logo on a clear background that would vanish there. Day shows it as it is.
+   */
+  invert?: boolean;
 }
 
 /**
@@ -533,11 +548,12 @@ export function readTracks(doc: Y.Doc): GridTracks {
   );
 }
 
-/** Add a section as a new column on the right edge of the grid (agents use this). */
+/** Add a section as a new column on the right edge of the board's grid (agents use this). */
 export function appendSection(doc: Y.Doc, name: string): SectionDoc {
   const m = boardMaps(doc);
   const tracks = readTracks(doc);
-  const sections = [...m.sections.values()];
+  // the board's own grid: sections inside a section count in that section's tracks, not these
+  const sections = [...m.sections.values()].filter((s) => !s.parent);
   let sec: SectionDoc;
   if (sections.length === 0) {
     sec = { id: uid("sec"), name, c0: 0, r0: 0, c1: 0, r1: tracks.rows.length - 1 };
@@ -549,6 +565,34 @@ export function appendSection(doc: Y.Doc, name: string): SectionDoc {
   }
   m.sections.set(sec.id, sec);
   return sec;
+}
+
+/**
+ * Where a card for this section really goes (2026-11-11: sections are grids
+ * within themselves): the section itself, or, when it holds sections, its
+ * first one (top-left first), as deep as it goes.
+ */
+export function leafSectionOf(doc: Y.Doc, sec: SectionDoc): SectionDoc {
+  const all = [...boardMaps(doc).sections.values()];
+  let at = sec;
+  for (let guard = 0; guard < 16; guard++) {
+    const kids = all.filter((s) => s.parent === at.id).sort((a, b) => a.r0 - b.r0 || a.c0 - b.c0);
+    if (!kids.length) return at;
+    at = kids[0];
+  }
+  return at;
+}
+
+/** "Design › Sketches": a section's place, from the board down */
+export function sectionPath(doc: Y.Doc, sec: SectionDoc): string {
+  const m = boardMaps(doc);
+  const names = [sec.name];
+  let at = sec.parent ? m.sections.get(sec.parent) : undefined;
+  for (let guard = 0; at && guard < 16; guard++) {
+    names.unshift(at.name);
+    at = at.parent ? m.sections.get(at.parent) : undefined;
+  }
+  return names.join(" › ");
 }
 
 export function findSection(doc: Y.Doc, nameOrId: string): SectionDoc | undefined {
@@ -570,9 +614,13 @@ export function logActivity(doc: Y.Doc, entry: Omit<ActivityEntry, "at">) {
 export function describeBoard(doc: Y.Doc): string {
   const m = boardMaps(doc);
   const lines: string[] = [];
-  for (const s of m.sections.values()) {
+  const all = [...m.sections.values()];
+  for (const s of all) {
     const host = s.host ? m.objects.get(s.host) : undefined;
-    lines.push(`## Section "${s.name}" (${s.id})${host ? ` — hosts the app "${host.name}" (${host.id}); its ports are the section's` : ""}`);
+    const kids = all.filter((k) => k.parent === s.id).length;
+    const where = s.parent ? ` — inside "${sectionPath(doc, s).split(" › ").slice(0, -1).join(" › ")}"` : "";
+    const grid = kids ? ` — a grid of ${kids} section${kids === 1 ? "" : "s"} (cards added to it go to its first)` : "";
+    lines.push(`## Section "${s.name}" (${s.id})${where}${grid}${host ? ` — hosts the app "${host.name}" (${host.id}); its ports are the section's` : ""}`);
     for (const o of m.objects.values()) {
       if (o.sectionId !== s.id) continue;
       if (o.kind === "panel") {
@@ -628,13 +676,29 @@ export type AgentEvent =
 export type AgentRuntime = "subscription" | "api" | "script";
 
 export interface SearchHit {
-  source: "board" | "file" | "slack" | "github" | "app" | "activity" | "huddle";
+  source: "board" | "file" | "slack" | "github" | "app" | "activity" | "huddle" | "flowform";
   id: string;
   title: string;
   snippet: string;
   url?: string;
   objectId?: string;
   score: number;
+  /** a small picture of it (a server path under `/files/`), when there is one */
+  thumb?: string;
+  /** a file Flowform can see for this person (source "flowform"): what's needed to bring its bytes in */
+  flowform?: FlowformFileRef;
+}
+
+/** one of a person's Flowform files, as Foundation's search and its Flowform browser hand it to the page */
+export interface FlowformFileRef {
+  fileId: string;
+  /** the revision whose bytes can be brought in (absent: Flowform names none, so it lands by name or as a link) */
+  revisionId?: string;
+  /** Flowform's own word for it: image, video, pdf, doc, model, … */
+  kind: string;
+  bytes?: number;
+  /** where Flowform found it: flowform (an upload or a board's media), slack, figma */
+  origin?: string;
 }
 
 export interface UserInfo {
@@ -646,3 +710,5 @@ export interface UserInfo {
   role: "admin" | "member" | "viewer";
 }
 export * from "./apps.ts";
+
+export { belowMinimum, compareVersions, isVersion } from "./version.ts";

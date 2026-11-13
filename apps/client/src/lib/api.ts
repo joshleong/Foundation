@@ -20,6 +20,7 @@
  */
 
 import type { AgentEvent, SearchHit, UserInfo } from "@foundation/protocol";
+import { CLIENT_VERSION } from "./version";
 
 const SERVER_KEY = "foundation-server";
 /** the server this build was made for (empty: the page's own origin) */
@@ -96,9 +97,10 @@ export function wsUrl(path: string) {
  * could be had (offline, signed out): callers treat it like a dropped socket.
  */
 export async function openSocket(path: string, query = ""): Promise<WebSocket> {
-  const q = query ? `?${query}` : "";
+  // every socket says which client opens it: a server may refuse one older than it still works with (4426, or 426 for the ticket)
+  const q = `?${query ? `${query}&` : ""}client=${encodeURIComponent(CLIENT_VERSION)}`;
   if (!authHeaders().authorization) return new WebSocket(wsUrl(path + q));
-  const { ticket } = await api<{ ticket: string }>("/api/ws-ticket", { method: "POST", json: { path } });
+  const { ticket } = await api<{ ticket: string }>("/api/ws-ticket", { method: "POST", json: { path, client: CLIENT_VERSION } });
   return new WebSocket(wsUrl(`${path}${q ? `${q}&` : "?"}ticket=${encodeURIComponent(ticket)}`));
 }
 
@@ -111,22 +113,48 @@ export class ApiError extends Error {
   }
 }
 
+/** where the server is, as a person would say it */
+export const SERVER_NAME = serverOrigin.replace(/^https?:\/\//, "");
+
+/**
+ * fetch, but a server that can't be reached says so. The browser's own error
+ * is "Failed to fetch" whatever went wrong; nearly always it means the
+ * Foundation server isn't running (or this device points at the wrong one),
+ * and that's what the person needs to read. Status 0, as an upload's does.
+ */
+export async function reach(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (e) {
+    if ((e as Error).name === "AbortError") throw e;
+    throw new ApiError(0, `Can't reach the Foundation server (${SERVER_NAME}). It isn't running, or this device points at the wrong one.`);
+  }
+}
+
 export async function api<T = unknown>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
   const { json, ...rest } = init;
-  const res = await fetch(serverUrl(path), {
+  const res = await reach(serverUrl(path), {
     credentials: "include",
     ...rest,
     headers: { ...authHeaders(), ...(json !== undefined ? { "content-type": "application/json" } : {}), ...(rest.headers ?? {}) },
     body: json !== undefined ? JSON.stringify(json) : rest.body,
   });
   const text = await res.text();
-  const body = text ? JSON.parse(text) : {};
+  let body: { error?: string } = {};
+  try {
+    body = text ? JSON.parse(text) : {};
+  } catch {
+    // not JSON: a proxy answering for a server that's down (Vite's 500/502), or a page from the wrong server
+    throw new ApiError(res.ok ? 502 : res.status, res.ok ? `${SERVER_NAME} didn't answer as a Foundation server.` : `Can't reach the Foundation server (${SERVER_NAME}): it answered ${res.status}. It may not be running.`);
+  }
+  // 426: this client is older than the server still works with. The update card takes it from here (update/updater.ts)
+  if (res.status === 426 && typeof window !== "undefined") window.dispatchEvent(new CustomEvent("foundation:client-too-old", { detail: body.error }));
   if (!res.ok) throw new ApiError(res.status, body.error ?? res.statusText);
   return body as T;
 }
 
 export const me = () => api<{ user: UserInfo | null }>("/api/me");
-export const authConfig = () => api<{ google: boolean; devLogin: boolean; flowform?: { url: string } }>("/auth/config");
+export const authConfig = () => api<{ google: boolean; devLogin: boolean; flowform?: { url: string }; version?: string; minClient?: string | null }>("/auth/config");
 /** desktop: Google through flowform in the system browser; the window polls with a secret only it holds */
 export const flowformBegin = () => api<{ url: string; poll: string; expiresIn: number }>("/auth/flowform/begin", { method: "POST" });
 export async function flowformPoll(poll: string) {
@@ -180,7 +208,8 @@ export async function whoAmI(): Promise<{ user: UserInfo | null; offline: boolea
     rememberMe(user);
     return { user, offline: false };
   } catch (e) {
-    if (e instanceof ApiError && e.status < 500) return { user: null, offline: false };
+    // status 0 is a server that couldn't be reached (`reach`): that's offline, not signed out
+    if (e instanceof ApiError && e.status > 0 && e.status < 500) return { user: null, offline: false };
     try {
       const kept = localStorage.getItem(ME_KEY);
       return { user: kept ? (JSON.parse(kept) as UserInfo) : null, offline: true };
@@ -244,7 +273,7 @@ export function streamAgent(
   signal: AbortSignal,
 ) {
   return readEvents(
-    fetch(serverUrl("/api/agent"), {
+    reach(serverUrl("/api/agent"), {
       method: "POST",
       credentials: "include",
       headers: { ...authHeaders(), "content-type": "application/json" },
@@ -257,7 +286,7 @@ export function streamAgent(
 
 /** Follow a run that's already going (a reloaded tab): everything so far, then live. */
 export function followRun(id: string, onEvent: (e: AgentEvent) => void, signal: AbortSignal) {
-  return readEvents(fetch(serverUrl(`/api/agent/runs/${encodeURIComponent(id)}/events`), { credentials: "include", headers: authHeaders(), signal }), onEvent);
+  return readEvents(reach(serverUrl(`/api/agent/runs/${encodeURIComponent(id)}/events`), { credentials: "include", headers: authHeaders(), signal }), onEvent);
 }
 
 /** fetch a file of this server's (`/files/…`) with this device's session, wherever the server is */
@@ -319,7 +348,11 @@ async function readEvents(req: Promise<Response>, onEvent: (e: AgentEvent) => vo
   const res = await req;
   if (!res.ok || !res.body) {
     const t = await res.text();
-    throw new ApiError(res.status, (t && JSON.parse(t).error) || "agent unavailable");
+    let why = "";
+    try {
+      why = (t && JSON.parse(t).error) || "";
+    } catch { /* a proxy's page, not the server's JSON */ }
+    throw new ApiError(res.status, why || (res.status >= 500 ? `Can't reach the Foundation server (${SERVER_NAME}): it answered ${res.status}. It may not be running.` : "agent unavailable"));
   }
   await readStream(res.body, (data) => onEvent(JSON.parse(data) as AgentEvent));
 }

@@ -21,20 +21,21 @@ export const paper = {
   agent: "#6b5bd6",
 } as const;
 
+/** night is greys and white, with yellow (attention) and orange (broken) the only pops; agents stay violet */
 export const night = {
-  void: "#0a111f",
-  abyss: "#111a2c",
-  panel: "#0d1526",
-  raise: "#172239",
-  frost: "#e6ecf7",
-  mist: "#94a2b9",
-  dim: "#5f6e85",
-  pulse: "#54b8ee",
-  volt: "#2492cc",
-  moss: "#2fc98f",
-  ok: "#2fc98f",
-  warn: "#e89b2c",
-  bad: "#e4574e",
+  void: "#0f0f10",
+  abyss: "#171718",
+  panel: "#131314",
+  raise: "#1f1f21",
+  frost: "#ededed",
+  mist: "#a3a3a3",
+  dim: "#6f6f6f",
+  pulse: "#f2f2f2",
+  volt: "#c4c4c4",
+  moss: "#8c8c8c",
+  ok: "#d9d9d9",
+  warn: "#f5c542",
+  bad: "#f27a3a",
   agent: "#8f76ee",
 } as const;
 

@@ -11,8 +11,11 @@ import type { SearchHit } from "@foundation/protocol";
 import { config } from "./config.ts";
 import { all } from "./db.ts";
 import { searchRepos } from "./github.ts";
+import { searchFlowformFiles } from "./flowform-live.ts";
 
 const REMOTE_TIMEOUT = 2500;
+/** Flowform searches Slack and Figma as well as its own files, through a fresh MCP session: it gets longer */
+const FLOWFORM_TIMEOUT = 6000;
 
 function ftsQuery(q: string): string {
   const terms = q
@@ -57,8 +60,8 @@ export function markSnippet(snip: string): string {
     .trim();
 }
 
-async function withTimeout<T>(p: Promise<T>, fallback: T): Promise<T> {
-  return Promise.race([p.catch(() => fallback), new Promise<T>((r) => setTimeout(() => r(fallback), REMOTE_TIMEOUT))]);
+async function withTimeout<T>(p: Promise<T>, fallback: T, ms = REMOTE_TIMEOUT): Promise<T> {
+  return Promise.race([p.catch(() => fallback), new Promise<T>((r) => setTimeout(() => r(fallback), ms))]);
 }
 
 export async function searchSlack(q: string, limit = 8): Promise<SearchHit[]> {
@@ -104,11 +107,23 @@ export function searchApps(q: string): SearchHit[] {
   ).map((a) => ({ source: "app" as const, id: `app:${a.id}`, title: a.name, snippet: a.description ?? a.url ?? "", url: a.url, score: 2 }));
 }
 
-export async function searchAll(q: string, opts: { boardId?: string; remote?: boolean; hidden?: Set<string> } = {}): Promise<{ hits: SearchHit[]; sources: Record<string, number> }> {
+/**
+ * `userId` is whose search it is: with it, the files that person's Flowform link can see (its uploads, board
+ * media, Slack and Figma) are searched too, as them. Without a link there is nothing to ask.
+ */
+export async function searchAll(q: string, opts: { boardId?: string; remote?: boolean; hidden?: Set<string>; userId?: string } = {}): Promise<{ hits: SearchHit[]; sources: Record<string, number> }> {
   const local = searchLocal(q, opts.boardId, 30, opts.hidden);
   const apps = searchApps(q);
-  const [slack, github] = opts.remote === false ? [[], []] : await Promise.all([withTimeout(searchSlack(q), []), withTimeout(searchGithub(q), [])]);
-  const hits = [...apps, ...local, ...slack, ...github];
+  const none: SearchHit[] = [];
+  const [slack, github, flowform] =
+    opts.remote === false
+      ? [none, none, none]
+      : await Promise.all([
+          withTimeout(searchSlack(q), none),
+          withTimeout(searchGithub(q), none),
+          opts.userId ? withTimeout(searchFlowformFiles(opts.userId, q), none, FLOWFORM_TIMEOUT) : none,
+        ]);
+  const hits = [...apps, ...local, ...flowform, ...slack, ...github];
   const sources: Record<string, number> = {};
   for (const h of hits) sources[h.source] = (sources[h.source] ?? 0) + 1;
   return { hits, sources };

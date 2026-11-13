@@ -12,6 +12,8 @@ import { Mark } from "../brand/Mark";
 import { UpdateCard } from "../update/UpdateCard";
 import type { UpdatePhase } from "../update/updater";
 import { NightOrb } from "../shell/NightOrb";
+import { InfoGlyph } from "../shell/TopBar";
+import { WindowControls } from "../shell/WindowControls";
 import { pipeCrossings, polyline, route, routeSides, sideToward, type Side } from "../shell/wireGeometry";
 import { tunnelGeometry } from "../shell/wireGeometry";
 import { AppChip, FocusRow, GoalRow, ShibaRoom } from "../today/Today";
@@ -92,6 +94,11 @@ import * as Y from "yjs";
 import { loadNoteEditor } from "../components/NoteView";
 import { renderMarkdown } from "../utils/markdown";
 import { TrayView } from "../shell/UploadTray";
+import type { SearchHit } from "@foundation/protocol";
+import { Draggable } from "../shell/SearchPane";
+import { Clipboard, HitPicture } from "../shell/Clipboard";
+import { glyphOf } from "../lib/hits";
+import { fan } from "../lib/pickupMath";
 import type { UploadItem } from "../lib/uploads";
 import { snippetHtml } from "../lib/snippet";
 
@@ -134,7 +141,22 @@ export function DesignPage() {
         Agents wear violet. Everything floats on glass over a living grid. This page renders the real tokens; <code>DESIGN.md</code> is the contract.
       </p>
 
-      <Section title="Surfaces" note="Paper by day, navy by night. The orb mixes every token — try it.">
+      <Section title="The mark" note="Four panels on a grid: two full rows over a row split in two. Blue on paper and glass; the white original on a solid fill or dark ground.">
+        <div className="mark-specimens">
+          {[64, 32, 20, 16].map((n) => (
+            <span key={n} className="mark-specimen">
+              <Mark size={n} />
+            </span>
+          ))}
+          {[64, 32, 20, 16].map((n) => (
+            <span key={`f${n}`} className="mark-specimen" data-ground="fill">
+              <Mark size={n} tone="on-fill" />
+            </span>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="Surfaces" note="Paper by day, graphite by night: greys and white, with yellow and orange only where something needs you. The orb mixes every token — try it.">
         <div className="swatches">
           {SURFACES.map((s) => (
             <Swatch key={s} name={s} />
@@ -305,7 +327,7 @@ export function DesignPage() {
         </div>
       </Section>
 
-      <Section title="The floor" note="The top bar, the side pane, an open session and search are drawn on the grid's own paper — no glass, no card. The dots run underneath; the cards fade out at the floor's edge, and the view slides over to stay in the middle of what's left. Every pane's inner edge drags to resize.">
+      <Section title="The floor" note="A tab is a space (a grid ▦, a presentation ▶, a web page ◳); ＋ makes a grid space. The left pane files spaces by recent or by project folder; the ⓘ on a space's tab opens that space's own people and activity in its place; a session with the agent opens from Ask in the bottom bar. The top bar, the panes, an open session and search are drawn on the grid's own paper — no glass, no card. The dots run underneath; the cards stop at a pane's edge, cut clean behind a hairline (no fade), like an editor's panels, and the view slides over to stay in the middle of what's left. That hairline is the edge you drag: it turns blue under the pointer, and a double-click resets the width.">
         <div className="floor-demo">
           <header className="top-bar">
             <span className="top-btn is-on">
@@ -315,56 +337,93 @@ export function DesignPage() {
               </svg>
             </span>
             <nav className="tabs">
-              <span className="tab is-board">
+              <span className="tab is-space is-current is-board">
                 <span className="tab-main">
-                  <span className="tab-glyph">▦</span>
+                  <span className="tab-glyph">◉</span>
                   <span className="tab-title">Form Industries</span>
                   <span className="f-dot is-ok" />
                 </span>
-              </span>
-              <span className="tab is-agent is-current">
-                <span className="tab-main">
-                  <span className="tab-glyph is-running">✦</span>
-                  <span className="tab-title">Organize the fan work</span>
+                <span className="tab-info">
+                  <InfoGlyph />
                 </span>
                 <span className="tab-close">✕</span>
               </span>
-              <span className="tab is-t3">
+              <span className="tab is-space">
                 <span className="tab-main">
-                  <span className="tab-glyph">⌥</span>
-                  <span className="tab-title">Heat exchanger viewer</span>
+                  <span className="tab-glyph">▦</span>
+                  <span className="tab-title">Rim-drive fan</span>
                 </span>
               </span>
-              <span className="top-btn tab-new">＋</span>
+              <span className="tab is-space">
+                <span className="tab-main">
+                  <span className="tab-glyph">▶</span>
+                  <span className="tab-title">Design review</span>
+                </span>
+              </span>
+              <span className="tab is-space">
+                <span className="tab-main">
+                  <span className="tab-glyph">◳</span>
+                  <span className="tab-title">FactoryForm</span>
+                </span>
+              </span>
             </nav>
+            <span className="tab-new-wrap">
+              <span className="top-btn tab-new">＋</span>
+              <span className="top-btn tab-new-more">
+                <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden>
+                  <path d="M1 2.5l3 3 3-3" />
+                </svg>
+              </span>
+            </span>
             <div className="top-tools">
               <span className="top-btn is-on">⌕</span>
               <span className="top-btn">{COMMANDS_GLYPH}</span>
               <span className="top-btn">◇</span>
               <span className="top-btn">▶</span>
+              <NightOrb onToggle={() => setNight(!isNight())} />
             </div>
+            <WindowControls demo />
           </header>
           <aside className="side-pane floor-pane" style={{ width: 200 }}>
             <div className="pane-scroll">
               <section className="pane-group">
-                <div className="pane-eyebrow is-agent">Sessions</div>
-                <span className="pane-row is-session is-current">
-                  <span className="f-dot is-agent is-pulse" />
-                  <span className="pane-label">Organize the fan work</span>
-                </span>
-              </section>
-              <section className="pane-group">
-                <div className="pane-eyebrow">Vision Code</div>
-                <span className="pane-row is-session">
-                  <span className="f-dot is-warn" />
-                  <span className="pane-label">Heat exchanger viewer</span>
-                  <span className="pane-when">1 ask</span>
-                </span>
-                <span className="pane-row is-session">
-                  <span className="f-dot" />
-                  <span className="pane-label">Valve gear redesign</span>
-                  <span className="pane-when">3d</span>
-                </span>
+                <div className="pane-eyebrow">
+                  Spaces
+                  <span className="pane-eyebrow-acts">
+                    <span className="pane-eyebrow-act">▱</span>
+                    <span className="pane-eyebrow-act">＋</span>
+                  </span>
+                </div>
+                <div className="pane-seg">
+                  <span className="pane-seg-btn">Recent</span>
+                  <span className="pane-seg-btn is-on">Folders</span>
+                </div>
+                <div className="space-row is-folder">
+                  <span className="pane-row space-open">
+                    <span className="pane-glyph folder-caret is-open">›</span>
+                    <span className="pane-label">Fans</span>
+                    <span className="pane-when">2</span>
+                  </span>
+                </div>
+                <div className="space-row" style={{ paddingLeft: 14 }}>
+                  <span className="pane-row space-open">
+                    <span className="pane-glyph">▦</span>
+                    <span className="pane-label">Rim-drive fan</span>
+                  </span>
+                </div>
+                <div className="space-row" style={{ paddingLeft: 14 }}>
+                  <span className="pane-row space-open">
+                    <span className="pane-glyph">▶</span>
+                    <span className="pane-label">Design review</span>
+                  </span>
+                </div>
+                <div className="pane-sub">Not in a folder</div>
+                <div className="space-row is-current">
+                  <span className="pane-row space-open">
+                    <span className="pane-glyph">◉</span>
+                    <span className="pane-label">Form Industries</span>
+                  </span>
+                </div>
               </section>
             </div>
           </aside>
@@ -426,6 +485,10 @@ export function DesignPage() {
                 <span className="hud-glyph">⌕</span>
                 <span className="hud-label">Search</span>
                 <span className="f-kbd">{keys("mod+F")}</span>
+              </button>
+              <button className="hud-ask f-glass">
+                <span className="hud-glyph">✦</span>
+                <span className="hud-label">Ask</span>
               </button>
               <button className="hud-talk f-glass">
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
@@ -547,6 +610,53 @@ export function DesignPage() {
               </div>
             </div>
             <div className="effect-label">Expanded: the section opens as its own grid, at full size and its own width, as long as it needs; neighbours step back to 12%, the wheel pans down through it, Esc or ⤡ closes it</div>
+          </div>
+        </div>
+      </Section>
+
+      <Section
+        title="Using a card"
+        note={`No card takes the wheel: over a live app, a map, a terminal or a list, the wheel pans the grid and ${IS_MAC ? "⌘" : "Ctrl"}-wheel zooms it. ${keys("mod+click")} puts a card in use (a 2 px blue ring; it alone takes the pointer and the wheel until Esc, a click elsewhere, or a pan). Holding ${IS_MAC ? "⌘" : "Ctrl"} rings the card a click would use. ${keys("mod+enter")} or ⤢ opens it full screen: the card itself, not a copy (an app doesn't reload), under a 44 px bar with its name and the way back.`}
+      >
+        <div className="adapt-row">
+          <div className="oncall-cell">
+            <div className="frame-card live-specimen" style={{ width: 360, height: 220, position: "relative" }}>
+              <div className="live-frame">
+                <div className="frame-poster">
+                  <div className="frame-poster-name">Moneyform</div>
+                  <div className="frame-poster-domain">moneyform.example</div>
+                </div>
+                <div className="frame-engage" style={{ opacity: 1 }}>
+                  <span className="f-pill frame-engage-pill">
+                    {keys("mod+click")} to use · {keys("mod+enter")} full screen
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="effect-label">At rest: the pointer on it shows how to use it; the wheel still pans</div>
+          </div>
+          <div className="oncall-cell">
+            <div className="frame-card live-specimen" style={{ width: 360, height: 220, position: "relative" }}>
+              <div className="live-frame is-engaged">
+                <div className="frame-poster">
+                  <div className="frame-poster-name">Moneyform</div>
+                  <div className="frame-poster-domain">in use</div>
+                </div>
+              </div>
+            </div>
+            <div className="effect-label">In use: the ring says the pointer and the wheel are the card's</div>
+          </div>
+          <div className="oncall-cell">
+            <div className="frame-card live-specimen" style={{ width: 420, height: 220, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div className="fs-bar">
+                <span className="fs-title">Moneyform</span>
+                <span className="fs-hint">Esc to return to the grid</span>
+                <button className="f-pill">Open in a tab ↗</button>
+                <button className="f-pill">Back to the grid</button>
+              </div>
+              <div style={{ flex: 1, background: "var(--color-abyss)" }} />
+            </div>
+            <div className="effect-label">Full screen: the card fills the window under its bar</div>
           </div>
         </div>
       </Section>
@@ -883,7 +993,11 @@ export function DesignPage() {
         <PlanBoardDemo />
       </Section>
 
-      <Section title="Desktop updates" note="The desktop app checks its signed feed a few seconds after it opens and puts this card up under the top bar, on glass, when a new version is ready: Update and restart is the one blue action, Later hides it until the next launch, Skip this version until a newer one. Nothing downloads until a person presses Update. The bar fills on the compositor; the mark's courses settle while it works. After the restart it says what changed, once. Settings → Updates shows the same card inline on paper, with Check for updates. Shown at 260, 400 and 560 px.">
+      <Section title="Out of search, into the hand" note={`A search result is something you pick up. Pull it past 5 px and it comes out of the list as a card: a picture as the picture, anything else as a slip of paper with its mark and name. It follows on the drag spring, lifted 2.5 % on the lift shadow and leaning at most 2.5° about the point it was pressed; its row stays behind, dimmed and dashed. It's a little faint until it's over somewhere it can land; the section under it rings. Let go over the grid and it settles flat as the card arrives under it; anywhere else (or Esc) it flies back into its row. A file that has to be fetched first (from Flowform, from an approved folder) waits where it was put, flat, with a bar moving along its foot. ＋ on a result (or ${keys("mod+click")}) keeps it on the clipboard at the foot of the pane: small cards a little askew on a paper well. Pull one off to carry it; pull the stack's handle to carry them all, fanned, each card under the top one on a looser spring so the stack trails the hand, and they're dealt out one step apart. What lands leaves the clipboard. Try it here: clip a few, pull the stack.`}>
+        <PickupDemo />
+      </Section>
+
+      <Section title="Desktop updates" note="The desktop app checks its signed feed a few seconds after it opens and puts this card up under the top bar, on glass, when a new version is ready: Update and restart is the one blue action, Later hides it until the next launch, Skip this version until a newer one. Nothing downloads until a person presses Update. The bar fills on the compositor; the mark's panels settle while it works. After the restart it says what changed, once. Settings → Updates shows the same card inline on paper, with Check for updates. Shown at 260, 400 and 560 px.">
         <UpdateDemo />
       </Section>
 
@@ -1402,7 +1516,7 @@ function HeldPageDemo(p: { width: number; word: string; tone: "ok" | "warn" | "b
   );
 }
 
-const UPDATE_NOTES = ["## Foundation 0.3.0", "- Desktop updates: this card", "- A new icon: an F laid in masonry", "- Signed installers, checked before they run"].join("\n");
+const UPDATE_NOTES = ["## Foundation 0.3.0", "- Desktop updates: this card", "- A new icon: four panels on a grid", "- Signed installers, checked before they run"].join("\n");
 const UPDATE_PHASES: Array<{ phase: UpdatePhase; width: number; layout?: "floating" | "inline"; extra?: Record<string, unknown> }> = [
   { phase: "available", width: 400 },
   { phase: "available", width: 260 },
@@ -1415,6 +1529,10 @@ const UPDATE_PHASES: Array<{ phase: UpdatePhase; width: number; layout?: "floati
   { phase: "current", width: 400, layout: "inline" },
   { phase: "unreachable", width: 400, layout: "inline" },
   { phase: "off", width: 400, layout: "inline", extra: { message: "This is a development build (tauri dev): pull main to update it." } },
+  // an update the server needs (FOUNDATION_MIN_CLIENT): no Later, no Skip, no close
+  { phase: "available", width: 400, extra: { required: "0.3.0", onLater: undefined, onSkip: undefined } },
+  { phase: "current", width: 400, extra: { required: "0.3.0", version: "0.2.0" } },
+  { phase: "off", width: 400, extra: { required: "0.3.0", message: "This page is Foundation 0.2.0, and its server is 0.3.0. Reload to get the server's own page.", onReload: () => {} } },
 ];
 
 function UpdateDemo() {
@@ -1505,6 +1623,96 @@ function UploadsDemo() {
           </div>
         </div>
         <div className="effect-label">What matched, inside the document: the search pane ({keys("mod+F")}) and {keys("mod+K")}, the match in blue and brought forward on its line</div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- out of search, into the hand ----------
+
+const DEMO_HITS: SearchHit[] = [
+  { source: "file", id: "demo:mark", title: "foundation-mark.svg", snippet: "image/svg+xml", thumb: "/foundation.svg", score: 1 },
+  { source: "file", id: "demo:bracket", title: "bracket-rev-c.step", snippet: "STEP · «bracket», 6061-T6", score: 1 },
+  { source: "flowform", id: "demo:ff", title: "Kapaa factory walk.mp4", snippet: "Form Industries · 48.2 MB", flowform: { fileId: "demo", kind: "video", origin: "flowform" }, score: 1 },
+  { source: "slack", id: "demo:slack", title: "#shop · Kai", snippet: "the «bracket» drawings are in the thread", url: "https://example.com", score: 1 },
+];
+
+/** the held card, drawn still: what lib/pickup.ts builds while a result is in the hand */
+function HeldStill({ hits, state, count }: { hits: SearchHit[]; state: string; count?: number }) {
+  return (
+    <div className={`held design-held ${state}`} style={{ height: hits[0].thumb ? 164 : 96 }}>
+      {hits
+        .map((h, i) => {
+          const f = fan(i);
+          const picture = Boolean(h.thumb);
+          return (
+            <div
+              key={h.id}
+              className={`held-card${picture ? " is-picture" : ""}`}
+              style={{ width: picture ? 176 : 232, height: picture ? 132 : 56, zIndex: 3 - i, transform: `translate3d(${f.dx + 12}px, ${f.dy + 12}px, 0)`, ["--fan" as string]: `${f.rotate}deg` }}
+            >
+              <div className="held-face">
+                {picture ? (
+                  <>
+                    <HitPicture hit={h} />
+                    <span className="held-name">{h.title}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="search-row-glyph">{glyphOf(h)}</span>
+                    <span className="held-main">
+                      <span className="held-title">{h.title}</span>
+                      <span className="held-src">{h.flowform?.origin ?? h.source}</span>
+                    </span>
+                  </>
+                )}
+                <i className="held-wait" />
+              </div>
+              {i === 0 && count ? <span className="held-count">{count}</span> : null}
+            </div>
+          );
+        })
+        .reverse()}
+    </div>
+  );
+}
+
+function PickupDemo() {
+  return (
+    <div className="design-pickup">
+      <div className="design-pickup-pane">
+        <div className="search-tiles">
+          <Draggable hit={DEMO_HITS[0]} className="search-tile" onPress={() => {}}>
+            <HitPicture hit={DEMO_HITS[0]} />
+            <span className="search-tile-name">{DEMO_HITS[0].title}</span>
+          </Draggable>
+        </div>
+        {DEMO_HITS.slice(1).map((h) => (
+          <Draggable key={h.id} hit={h} className="search-row" onPress={() => {}}>
+            <span className="search-row-glyph">{glyphOf(h)}</span>
+            <span className="search-row-main">
+              <span className="search-row-title">{h.title}</span>
+              <span className="search-row-snip">{h.snippet.replace(/[«»]/g, "")}</span>
+            </span>
+            <span className="search-row-src">{h.flowform?.origin ?? h.source}</span>
+          </Draggable>
+        ))}
+        <Clipboard />
+      </div>
+      <div className="design-pickup-states">
+        {(
+          [
+            ["Lifted, nowhere to land yet", "is-lifted", [DEMO_HITS[1]], 0],
+            ["Over the grid", "is-lifted is-over", [DEMO_HITS[0]], 0],
+            ["A stack of three", "is-lifted is-over", [DEMO_HITS[1], DEMO_HITS[2], DEMO_HITS[3]], 3],
+            ["Put down, waiting for its file", "is-waiting", [DEMO_HITS[2]], 0],
+          ] as Array<[string, string, SearchHit[], number]>
+        ).map(([label, state, hits, count]) => (
+          <figure key={label} className="design-pickup-state">
+            <HeldStill hits={hits} state={state} count={count || undefined} />
+            <figcaption>{label}</figcaption>
+          </figure>
+        ))}
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 /**
- * Settings (#/settings). Three tabs:
+ * Settings (#/settings). Four tabs:
  *
  *  - **Plan** — Foundation's own kanban (docs/plan.json): the local copy of the
  *    issues on GitHub, as columns from Needs you to Done. Filters by kind and
@@ -8,27 +8,32 @@
  *    and the card says so until it's pushed to GitHub.
  *  - **Services** — what this server is connected to (Slack, GitHub, Google,
  *    the agent's runtimes), so a missing key reads as a fact, not a mystery.
+ *  - **Places** — the folders on this computer Foundation may read (PlacesTab):
+ *    an admin approves them here; the search pane and agents read only inside.
  *  - **Releases** — what each version changed (docs/blog/<version>.md),
  *    newest first, bundled with the app so they open offline.
  *
  * The night orb sits in the head, as on #/design.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { isNight, setNight, springs } from "@foundation/ui";
 import { api } from "../lib/api";
 import { NightOrb } from "../shell/NightOrb";
+import { PlacesTab } from "./PlacesTab";
 import { UpdatesSection } from "../update/UpdateCard";
 import { renderMarkdown } from "../utils/markdown";
 import clientPackage from "../../package.json";
 import { longDate, releasesFrom, type ReleasePost } from "./releases";
 import { ago, boardColumns, counts, issueUrl, PLAN, syncSentence, waitingWords, type CardKind, type Plan, type PlanCard, type PlanFilter } from "./plan";
 
-type Tab = "plan" | "services" | "releases";
+type Tab = "plan" | "services" | "places" | "releases";
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "plan", label: "Plan" },
   { id: "services", label: "Services" },
+  { id: "places", label: "Places" },
   { id: "releases", label: "Releases" },
 ];
 
@@ -36,7 +41,7 @@ const TABS: Array<{ id: Tab; label: string }> = [
 const POSTS = releasesFrom(import.meta.glob("../../../../docs/blog/*.md", { query: "?raw", import: "default", eager: true }) as Record<string, string>);
 
 export function SettingsPage({ route }: { route: string }) {
-  const tab: Tab = route.startsWith("#/settings/services") ? "services" : route.startsWith("#/settings/releases") ? "releases" : "plan";
+  const tab: Tab = route.startsWith("#/settings/services") ? "services" : route.startsWith("#/settings/places") ? "places" : route.startsWith("#/settings/releases") ? "releases" : "plan";
   return (
     <div className="settings-page">
       <header className="design-head settings-head">
@@ -61,6 +66,8 @@ export function SettingsPage({ route }: { route: string }) {
         <PlanTab />
       ) : tab === "releases" ? (
         <ReleasesTab posts={POSTS} route={route} />
+      ) : tab === "places" ? (
+        <PlacesTab />
       ) : (
         <>
           <ServicesTab />
@@ -570,6 +577,169 @@ export function ReleasesTab({ posts, route }: { posts: ReleasePost[]; route: str
 
 // ---------------------------------------------------------------- services
 
+interface FlowformLink {
+  connected: boolean;
+  server: string;
+  scope?: string;
+  connectedAt?: number;
+  /** Foundation may download your Flowform files (it keeps your Flowform session for that, encrypted) */
+  downloads?: boolean;
+  since?: number;
+}
+
+const inDesktop = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+/**
+ * Your own link to Flowform (its boards and files, read-only). Unlike the rows
+ * under it, this one is per person and is connected here: Connect opens
+ * Flowform's approval page (the system browser in the desktop app), and the
+ * row waits for it.
+ */
+function FlowformRow() {
+  const [link, setLink] = useState<FlowformLink | null>(null);
+  const [tools, setTools] = useState<number | null>(null);
+  const [waiting, setWaiting] = useState(false);
+  const [allowing, setAllowing] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const live = useRef(true);
+  const read = () => api<FlowformLink>("/api/flowform/link").then((l) => (live.current && setLink(l), l));
+  useEffect(() => {
+    live.current = true;
+    read().catch((e: Error) => setErr(e.message));
+    return () => {
+      live.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!link?.connected) return setTools(null);
+    api<{ tools: unknown[] }>("/api/flowform/tools").then(
+      (t) => live.current && setTools(t.tools.length),
+      (e: Error) => live.current && setErr(e.message),
+    );
+  }, [link?.connected]);
+
+  const connect = async () => {
+    setErr(null);
+    // open the tab inside the click (a tab opened after an await is a blocked pop-up)
+    const tab = inDesktop ? null : window.open("", "_blank");
+    try {
+      const { url } = await api<{ url: string }>("/api/flowform/link", { method: "POST" });
+      if (tab) tab.location.href = url;
+      else await openUrl(url);
+      setWaiting(true);
+      // the approval happens on Flowform's page; ask the server until it has landed (ten minutes, as the server allows)
+      const until = Date.now() + 10 * 60_000;
+      while (live.current && Date.now() < until) {
+        await new Promise((ok) => setTimeout(ok, 1500));
+        if ((await read().catch(() => null))?.connected) break;
+      }
+    } catch (e) {
+      tab?.close();
+      setErr((e as Error).message);
+    } finally {
+      if (live.current) setWaiting(false);
+    }
+  };
+  /** run Flowform's own sign-in once more, so Foundation keeps that session for downloading your files */
+  const allow = async () => {
+    setErr(null);
+    const tab = inDesktop ? null : window.open("", "_blank");
+    try {
+      const { url } = await api<{ url: string }>("/api/flowform/files/allow", { method: "POST" });
+      if (tab) tab.location.href = url;
+      else await openUrl(url);
+      setAllowing(true);
+      const until = Date.now() + 10 * 60_000;
+      while (live.current && Date.now() < until) {
+        await new Promise((ok) => setTimeout(ok, 1500));
+        if ((await read().catch(() => null))?.downloads) break;
+      }
+    } catch (e) {
+      tab?.close();
+      setErr((e as Error).message);
+    } finally {
+      if (live.current) setAllowing(false);
+    }
+  };
+  const stop = async () => {
+    setErr(null);
+    try {
+      await api("/api/flowform/files/stop", { method: "POST" });
+      await read();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+  const disconnect = async () => {
+    setErr(null);
+    try {
+      await api("/api/flowform/unlink", { method: "POST" });
+      await read();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+
+  const on = Boolean(link?.connected);
+  return (
+    <div className="services-row">
+      <span className={`f-dot ${on ? "is-ok" : "is-warn"}`} />
+      <span className="services-name">Flowform · your boards and files</span>
+      <span className="services-detail">
+        {!link
+          ? "Asking the server…"
+          : on
+            ? `Connected to ${link.server}, read-only${tools === null ? "" : ` · ${tools} tools`}${link.connectedAt ? ` · since ${longDate(new Date(link.connectedAt).toLocaleDateString("en-CA"))}` : ""}`
+            : waiting
+              ? `Waiting for you to approve it on ${link.server}…`
+              : "Not connected for you"}
+      </span>
+      <span className="services-act">
+        {on ? (
+          <button className="f-pill" onClick={disconnect} data-tip="Revokes Foundation's access at Flowform and forgets it here">
+            Disconnect
+          </button>
+        ) : (
+          <button className="f-pill is-accent" onClick={connect} disabled={!link || waiting}>
+            {waiting ? "Waiting…" : "Connect Flowform"}
+          </button>
+        )}
+      </span>
+      {!on && link && <span className="services-how">Opens Flowform's own page to approve. Foundation asks only to read your boards and search your files (never to write), as you, and you can disconnect here.</span>}
+      {err && <span className="services-how is-bad">{err}</span>}
+      {on && (
+        <>
+          <span className={`f-dot ${link?.downloads ? "is-ok" : "is-warn"}`} />
+          <span className="services-name">Flowform · file downloads</span>
+          <span className="services-detail">
+            {link?.downloads
+              ? `Allowed${link.since ? ` · since ${longDate(new Date(link.since).toLocaleDateString("en-CA"))}` : ""}: images, videos and files come in with your rooms`
+              : allowing
+                ? "Waiting for you to sign in to Flowform…"
+                : "Not allowed: images and files in your rooms show by name"}
+          </span>
+          <span className="services-act">
+            {link?.downloads ? (
+              <button className="f-pill" onClick={stop} data-tip="Ends that Flowform session and forgets it here. Files already brought in stay">
+                Stop
+              </button>
+            ) : (
+              <button className="f-pill is-accent" onClick={allow} disabled={allowing}>
+                {allowing ? "Waiting…" : "Allow file downloads"}
+              </button>
+            )}
+          </span>
+          {!link?.downloads && (
+            <span className="services-how">
+              Signs you in to Flowform once more and keeps that session, encrypted, to download your files and nothing else. It has to be the Flowform account you sign in to Foundation with.
+            </span>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 interface Integrations {
   slack: boolean;
   github: boolean | "cli";
@@ -599,6 +769,7 @@ function ServicesTab() {
       {err && <div className="kb-error">{err}</div>}
       {!s && !err && <div className="kb-col-empty">Asking the server…</div>}
       <div className="services-list">
+        <FlowformRow />
         {rows.map((r) => (
           <div key={r.name} className="services-row">
             <span className={`f-dot ${r.on ? "is-ok" : "is-warn"}`} />

@@ -28,6 +28,7 @@ import type { UserInfo } from "@foundation/protocol";
 import type { WebSocketServer } from "ws";
 import { hashToken, isServiceToken, requireUser, tokenFrom, userFromRequest, userFromSessionHash } from "./auth.ts";
 import { one, run } from "./db.ts";
+import { CLOSE_TOO_OLD, clientTooOld } from "./clientversion.ts";
 import { HttpError, type Req } from "./http.ts";
 import { attachConnection, boardEpoch, syncAccess } from "./boards.ts";
 import { attachHuddle } from "./huddles.ts";
@@ -126,7 +127,10 @@ export function handleUpgrade(wss: WebSocketServer, rawReq: IncomingMessage, soc
   // the board a client holds must be this board: a copy from before a reset is refused, and a client
   // that doesn't say (a build from before epochs) can read but not write until it reloads
   const access = syncAccess(req.query.get("epoch"), boardEpoch(m[1]), canWrite(user.id, m[1]));
+  // a client older than this server's minimum doesn't sync a board it might misread (clientversion.ts)
+  const tooOld = clientTooOld(req.query.get("client"), req.headers.origin);
   wss.handleUpgrade(req, socket, head, (ws) => {
+    if (tooOld) return ws.close(CLOSE_TOO_OLD, "update Foundation");
     if (access === "refuse") return ws.close(4002, "this board was reset");
     attachConnection(m[1], ws, access === "read", user.id);
   });

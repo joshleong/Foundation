@@ -67,6 +67,13 @@
   gap: var(--space-3);
   padding: 0 var(--space-5) 0 var(--space-6);
 }
+/* the desktop window has no frame: Today's bar is its title bar (shell/WindowControls.tsx), as the board's is */
+.is-mac .today-top {
+  padding-left: 84px;
+}
+.has-window-controls .today-top {
+  padding-right: calc(138px + var(--space-3));
+}
 .today-top-spacer {
   flex: 1;
 }

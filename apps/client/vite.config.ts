@@ -1,5 +1,9 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { readFileSync } from "node:fs";
+
+// the version this client is built as: what it tells a server that names a minimum (src/lib/version.ts)
+const version: string = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
@@ -20,6 +24,7 @@ const proxy = {
 // routes are proxied so the session cookie is same-origin in dev.
 export default defineConfig(async () => ({
   plugins: [react()],
+  define: { __FOUNDATION_VERSION__: JSON.stringify(version) },
   clearScreen: false,
   server: {
     // FOUNDATION_CLIENT_PORT moves it (scripts/dev-orphans-check.mjs runs the whole launcher above 15000)

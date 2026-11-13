@@ -13,7 +13,7 @@
  * - cards and files that match their job (their profile's focus words), from the search index.
  *
  * Goals are the person's own (this table). The Airform Data Room will be a
- * second source of goals and projects (SPEC §6 #16: an endpoint there, then
+ * second source of goals and projects (SPEC §6 #19: an endpoint there, then
  * `DATAROOM_GOALS_URL` here); until then Today says it isn't connected.
  */
 
@@ -424,7 +424,7 @@ export function todayFor(user: UserInfo): TodayState {
     focus: focusFor(user),
     apps: companyApps(),
     sources: {
-      // not built yet (SPEC §6 #16): say so rather than pretend
+      // not built yet (SPEC §6 #19): say so rather than pretend
       dataroom: { connected: false, note: "The Airform Data Room isn't connected yet: its projects and goals will join yours here" },
     },
     at: Date.now(),

@@ -34,6 +34,7 @@ const SOURCE_LABEL: Record<SearchHit["source"], string> = {
   github: "GitHub",
   app: "App",
   activity: "Activity",
+  flowform: "Flowform",
 };
 
 export function looksLikeUrl(q: string) {
@@ -280,7 +281,12 @@ export function openHit(h: SearchHit) {
     void openUrlAsPanel(h.url, "app", { name: h.title, description: h.snippet });
     return;
   }
-  if (h.url) window.open(h.url, "_blank", "noopener");
+  if (h.url) return void window.open(h.url, "_blank", "noopener");
+  // a Flowform file with no address of its own: it comes in by being put somewhere, so open where that's done
+  if (h.source === "flowform") {
+    setUi({ search: true });
+    toast("Pull it out of Search onto the grid to bring it in");
+  }
 }
 
 /** a pipeline straight from ⌘K: the six stages land in a new section and the camera goes there */

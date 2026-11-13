@@ -36,7 +36,7 @@ import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import { IndexeddbPersistence } from "y-indexeddb";
 import { BOARD_SCHEMA, boardMaps, huddleStateOf, noteTextOf, setNoteText, setTableCells, tableCellMap, tableCellsOf, type HuddleState, type ObjectDoc, type SectionDoc, type UserInfo } from "@foundation/protocol";
-import { applyRemote, getState, setSyncHook, type AnyObject, type AppState, type PanelMeta, type Section } from "../state/store";
+import { ROOT, applyRemote, getState, setSyncHook, type AnyObject, type AppState, type GridTracks, type PanelMeta, type Section } from "../state/store";
 import { workbook } from "../engine/workbook";
 import { api, openSocket } from "../lib/api";
 import { toast } from "../state/ui";
@@ -299,6 +299,11 @@ class BoardSync {
       if (ev.code === 4001) window.dispatchEvent(new Event("foundation:boards"));
       // the server's board was made again since ours: don't keep offering the old one
       if (ev.code === 4002) return void this.setAside();
+      // this client is older than the server still works with: the update card says so; there's no point knocking again
+      if (ev.code === 4426) {
+        window.dispatchEvent(new CustomEvent("foundation:client-too-old"));
+        return this.setStatus("offline");
+      }
       this.setStatus("offline");
       setTimeout(() => void this.connect(), this.backoff());
     };
@@ -359,8 +364,8 @@ class BoardSync {
     this.doc.transact(() => {
       const m = boardMaps(this.doc);
       m.meta.set("schema", BOARD_SCHEMA);
-      m.grid.set("tracks", st.grid);
-      for (const s of Object.values(st.sections)) m.sections.set(s.id, toSectionDoc(s));
+      m.grid.set("tracks", st.grids[ROOT] ?? st.grid);
+      for (const s of Object.values(st.allSections)) m.sections.set(s.id, toSectionDoc(s, st.grids[s.id]));
       for (const slice of Object.values(SLICE)) {
         for (const o of Object.values(st[slice]) as AnyObject[]) m.objects.set(o.id, toObjectDoc(o));
       }
@@ -402,19 +407,21 @@ class BoardSync {
     if (!this.ready) return;
     if (this.readOnly) {
       // only what everyone shares snaps back; camera, focus and scroll stay local
-      const shared = next.grid !== prev.grid || next.sections !== prev.sections || next.links !== prev.links || Object.values(SLICE).some((k) => next[k] !== prev[k]);
+      const shared = next.grids !== prev.grids || next.allSections !== prev.allSections || next.links !== prev.links || Object.values(SLICE).some((k) => next[k] !== prev[k]);
       if (shared) this.revert();
       return;
     }
     const m = boardMaps(this.doc);
     this.doc.transact(() => {
-      if (next.grid !== prev.grid) m.grid.set("tracks", next.grid);
-      if (next.sections !== prev.sections) {
-        for (const [id, s] of Object.entries(next.sections)) {
-          const p = prev.sections[id];
-          if (!p || p.name !== s.name || p.c0 !== s.c0 || p.c1 !== s.c1 || p.r0 !== s.r0 || p.r1 !== s.r1 || p.host !== s.host) m.sections.set(id, toSectionDoc(s));
+      // every section at every depth, and every grid's tracks (the board's in "grid", a section's on it)
+      if (next.grids[ROOT] && next.grids[ROOT] !== prev.grids[ROOT]) m.grid.set("tracks", next.grids[ROOT]);
+      if (next.allSections !== prev.allSections || next.grids !== prev.grids) {
+        for (const [id, s] of Object.entries(next.allSections)) {
+          const p = prev.allSections[id];
+          if (!p || p.name !== s.name || p.c0 !== s.c0 || p.c1 !== s.c1 || p.r0 !== s.r0 || p.r1 !== s.r1 || p.host !== s.host || p.parent !== s.parent || next.grids[id] !== prev.grids[id])
+            m.sections.set(id, toSectionDoc(s, next.grids[id]));
         }
-        for (const id of Object.keys(prev.sections)) if (!next.sections[id]) m.sections.delete(id);
+        for (const id of Object.keys(prev.allSections)) if (!next.allSections[id]) m.sections.delete(id);
       }
       for (const slice of Object.values(SLICE)) {
         const a = next[slice] as Record<string, AnyObject>;
@@ -466,21 +473,20 @@ class BoardSync {
 
   private pullGrid() {
     const tracks = boardMaps(this.doc).grid.get("tracks");
-    if (tracks) applyRemote({ grid: tracks });
+    if (tracks) applyRemote({ grids: { ...getState().grids, [ROOT]: tracks } });
   }
 
+  /** every section, at every depth; a section with a grid of its own brings its tracks (the store derives what's in view) */
   private pullSections() {
     const st = getState();
-    const sections: Record<string, Section> = {};
+    const allSections: Record<string, Section> = {};
+    const grids: Record<string, GridTracks> = st.grids[ROOT] ? { [ROOT]: st.grids[ROOT] } : {};
     for (const s of boardMaps(this.doc).sections.values()) {
-      sections[s.id] = { ...s };
+      const { grid, ...rest } = s;
+      allSections[s.id] = { ...rest };
+      if (grid) grids[s.id] = grid;
     }
-    const partial: Partial<AppState> = { sections };
-    if (!sections[st.activeSectionId]) {
-      const first = Object.keys(sections)[0];
-      if (first) partial.activeSectionId = first;
-    }
-    applyRemote(partial);
+    applyRemote({ allSections, grids });
   }
 
   private pullObjects(keys: string[] | null) {
@@ -495,6 +501,13 @@ class BoardSync {
       for (const id of keys) {
         const o = m.objects.get(id);
         if (o) {
+          // a card whose kind changed (a note that became an image, say) leaves its old kind, or it shows twice
+          for (const k of Object.keys(SLICE) as Kind[]) {
+            if (k !== o.kind && (st[SLICE[k]] as Record<string, AnyObject>)[id]) {
+              delete slice(k)[id];
+              if (k === "table") workbook.removeTable(id);
+            }
+          }
           slice(o.kind)[id] = fromObjectDoc(o, this.doc);
         } else {
           for (const k of Object.keys(SLICE) as Kind[]) {
@@ -732,9 +745,11 @@ function sameRecord(a: Record<string, string>, b: Record<string, string>) {
   return true;
 }
 
-function toSectionDoc(s: Section): SectionDoc {
+function toSectionDoc(s: Section, grid?: GridTracks): SectionDoc {
   const doc: SectionDoc = { id: s.id, name: s.name, c0: s.c0, r0: s.r0, c1: s.c1, r1: s.r1 };
   if (s.host) doc.host = s.host;
+  if (s.parent) doc.parent = s.parent;
+  if (grid) doc.grid = grid;
   return doc;
 }
 

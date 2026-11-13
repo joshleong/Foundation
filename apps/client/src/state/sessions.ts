@@ -11,7 +11,7 @@ import type { AgentEvent } from "@foundation/protocol";
 import { api, followRun, streamAgent } from "../lib/api";
 import { activeBoard } from "../sync/board";
 import { getState } from "./store";
-import { getUi, newSession, newSessionId, renameTab, toast } from "./ui";
+import { getUi, newSession, newSessionId, renameSession, toast } from "./ui";
 
 export interface Turn {
   /** the server's run, once it has said (reattach and stop by it) */
@@ -110,7 +110,7 @@ export async function sendToSession(id: string, prompt: string, runtime?: string
   const text = prompt.trim();
   const r = runs.get(id) ?? EMPTY;
   if (!text || r.busy) return;
-  if (r.turns.length === 0) renameTab(id, titleOf(text));
+  if (r.turns.length === 0) renameSession(id, titleOf(text));
   patch(id, (x) => ({ ...x, loaded: true, turns: [...x.turns, { prompt: text, events: [], status: "running", at: Date.now() }] }));
   await follow(id, (ctrl, on) => streamAgent({ board: activeBoard()?.boardId ?? "company", prompt: text, runtime, session: id }, on, ctrl.signal));
 }
@@ -118,7 +118,7 @@ export async function sendToSession(id: string, prompt: string, runtime?: string
 /** said out loud (the talk button, V): into the agent session on screen if it's free, else a new one — sent at once */
 export function sayToAgent(text: string) {
   const ui = getUi();
-  const showing = ui.tabs.find((t) => t.id === ui.tab && t.kind === "agent");
+  const showing = ui.sessions.find((t) => t.id === ui.session && t.kind === "agent");
   const id = showing && !runs.get(showing.id)?.busy ? showing.id : newSession().id;
   const pref = localStorage.getItem("foundation-runtime");
   void sendToSession(id, text, pref && pref !== "auto" ? pref : undefined);

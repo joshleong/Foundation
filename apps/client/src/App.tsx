@@ -9,6 +9,7 @@ import { Today } from "./today/Today";
 import { Privacy } from "./privacy/Privacy";
 import { SettingsPage } from "./settings/SettingsPage";
 import { Tip } from "./shell/Tip";
+import { WindowControls } from "./shell/WindowControls";
 import { rememberMe, whoAmI } from "./lib/api";
 import { UpdateShelf } from "./update/UpdateCard";
 import { startUpdates } from "./update/updater";
@@ -16,9 +17,12 @@ import "./App.css";
 import "./shell/shell.css";
 import "./panels/live.css";
 import "./shell/crew.css";
+import "./shell/spaces.css";
+import { initScrollbars } from "./lib/scrollbars";
 import "./settings/settings.css";
 
 initNight();
+initScrollbars();
 // the desktop app asks its signed feed for a new version a few seconds after it opens (inert in a browser)
 startUpdates();
 
@@ -63,6 +67,7 @@ function App() {
     return (
       <>
         <DesignPage />
+        <WindowControls />
         <Tip />
       </>
     );
@@ -73,15 +78,24 @@ function App() {
       <>
         <Privacy />
         <Tip />
+        <WindowControls />
       </>
     );
   }
-  if (user === undefined && !preview) return <div className="boot" />;
+  if (user === undefined && !preview) {
+    return (
+      <>
+        <div className="boot" />
+        <WindowControls />
+      </>
+    );
+  }
   if (user && route.startsWith("#/settings")) {
     return (
       <>
         <SettingsPage route={route} />
         <UpdateShelf />
+        <WindowControls />
         <Tip />
       </>
     );
@@ -108,6 +122,7 @@ function App() {
       )}
       {/* over the sign-in page (always day), the card wears day too */}
       <UpdateShelf day={preview || !user || veil} />
+      <WindowControls day={preview || !user || veil} />
       <Tip />
     </>
   );

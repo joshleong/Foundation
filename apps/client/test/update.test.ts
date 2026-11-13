@@ -1,12 +1,27 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { compareVersions, explainError, mayCheckOnLaunch, noteLines, parsePrefs, progressLabel, settleOnLaunch, shortDate, shouldOffer } from "../src/update/policy.ts";
+import { compareVersions, explainError, mayCheckOnLaunch, minimumOver, noteLines, parsePrefs, progressLabel, settleOnLaunch, shortDate, shouldOffer } from "../src/update/policy.ts";
 
 test("only an installed desktop build checks by itself, and only online", () => {
   assert.equal(mayCheckOnLaunch({ desktop: true, dev: false, online: true }), true);
   assert.equal(mayCheckOnLaunch({ desktop: true, dev: true, online: true }), false);
   assert.equal(mayCheckOnLaunch({ desktop: false, dev: false, online: true }), false);
   assert.equal(mayCheckOnLaunch({ desktop: true, dev: false, online: false }), false);
+});
+
+test("an update the server needs can't be put off: under its minimum, Later and Skip don't hide it", () => {
+  // the server names the oldest client it still works with; only an older client is under it
+  assert.equal(minimumOver("0.3.0", "0.4.0"), "0.4.0");
+  assert.equal(minimumOver("0.3.0", "v0.4.0"), "0.4.0");
+  assert.equal(minimumOver("0.4.0", "0.4.0"), null);
+  assert.equal(minimumOver("0.5.0", "0.4.0"), null);
+  // no minimum, or one that isn't a version, or a client that can't say: nothing is required
+  assert.equal(minimumOver("0.3.0", null), null);
+  assert.equal(minimumOver("0.3.0", "soon"), null);
+  assert.equal(minimumOver(null, "0.4.0"), null);
+  // required: shown whatever was pressed before
+  assert.equal(shouldOffer("0.4.0", { skipped: "0.4.0" }, { manual: false, laterThisLaunch: true, required: true }), true);
+  assert.equal(shouldOffer("0.4.0", { skipped: "0.4.0" }, { manual: false, laterThisLaunch: false, required: false }), false);
 });
 
 test("Later hides the card this launch; Skip hides that version only; a manual check always shows", () => {

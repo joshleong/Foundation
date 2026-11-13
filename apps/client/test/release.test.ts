@@ -15,6 +15,6 @@ test("latest.json names a signed installer per platform, at its release URL", ()
   assert.equal(f.notes, "- Desktop updates");
   assert.equal(f.pub_date, "2026-11-09T08:00:00Z");
   assert.deepEqual(Object.keys(f.platforms).sort(), ["windows-x86_64", "windows-x86_64-msi", "windows-x86_64-nsis"], "unsigned artifacts are left out");
-  assert.equal(f.platforms["windows-x86_64"].url, "https://github.com/joshleong/Foundation/releases/download/v0.3.0/Foundation_0.3.0_x64-setup.exe");
+  assert.equal(f.platforms["windows-x86_64"].url, "https://github.com/Normal-AI-Vibe-Code/Foundation/releases/download/v0.3.0/Foundation_0.3.0_x64-setup.exe");
   assert.equal(f.platforms["windows-x86_64-msi"].signature, "SIG-MSI");
 });

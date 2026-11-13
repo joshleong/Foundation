@@ -11,9 +11,10 @@
  *      signup allowlist) and 303s back to the loopback with ?session_token=…
  *   2. Foundation asks {flowform}/auth/me with that bearer: a verified Google
  *      identity (email_verified) and flowform's role.
- *   3. Foundation revokes that flowform session (POST /auth/logout) — it never
- *      keeps another service's bearer — upserts its own user, and mints its own
- *      session.
+ *   3. Foundation keeps that flowform session, encrypted, for downloading the
+ *      person's Flowform files and nothing else (flowformfiles.ts; Josh,
+ *      2026-11-11; until then it was revoked here), upserts its own user, and
+ *      mints its own session. A refused sign-in's session is revoked.
  *
  * Two ways to finish:
  *  - web: the browser that started is the browser that finishes; a cookie
@@ -37,6 +38,7 @@ import { config } from "./config.ts";
 import { all, db, one, run } from "./db.ts";
 import { createSession, setSessionCookie, signIn, upsertUser } from "./auth.ts";
 import { HttpError, parseCookies, type Req } from "./http.ts";
+import { finishGrant, keepSession, takeGrant } from "./flowformfiles.ts";
 
 const ATTEMPT_TTL = 10 * 60_000; // flowform's own oauth_state lives 10 minutes
 const ATTEMPT_COOKIE = "foundation_ff_attempt";
@@ -118,7 +120,7 @@ function sameHash(a: string, b: string) {
 export const flowformUrl = () => config.flowformUrl.replace(/\/$/, "");
 
 /** The loopback origin flowform will send the person back to. */
-function loopbackOrigin(req: Req): string {
+export function loopbackOrigin(req: Req): string {
   // Through Vite's proxy the Host is the client's (localhost:1430), so the
   // session cookie lands on the origin the person is actually using.
   const host = req.headers.host ?? "";
@@ -178,7 +180,7 @@ async function verifyWithFlowform(token: string): Promise<FlowformMe> {
   return (await res.json()) as FlowformMe;
 }
 
-/** Foundation keeps no flowform bearer: the session flowform minted for this hand-off is revoked. */
+/** a session Foundation won't keep (a refused sign-in) is ended at Flowform */
 async function revokeAtFlowform(token: string) {
   try {
     await fetch(`${flowformUrl()}/auth/logout`, { method: "POST", headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5_000) });
@@ -237,8 +239,20 @@ export function admitFlowformUser(me: FlowformMe): UserInfo {
 /** flowform 303s here with ?session_token=… after Google */
 export async function done(req: Req, res: ServerResponse) {
   sweep();
-  const attempt = consumeAttempt(req.params.nonce ?? "");
   const token = req.query.get("session_token") ?? "";
+  // a signed-in person allowing file downloads (flowformfiles.ts) comes back here too: keep the session, sign nobody in
+  const grant = takeGrant(req.params.nonce ?? "");
+  if (grant) {
+    if (!/^[0-9a-f]{32}$|^[0-9a-f-]{36}$/i.test(token)) return page(res, 400, "Nothing was allowed", "Flowform didn't return a session. Try again from Foundation.");
+    try {
+      await finishGrant(grant.userId, await verifyWithFlowform(token), token);
+    } catch (e) {
+      void revokeAtFlowform(token);
+      return page(res, e instanceof HttpError ? e.status : 500, "Nothing was allowed", (e as Error).message);
+    }
+    return page(res, 200, "Flowform files allowed", "Foundation can now bring your Flowform files in. You can close this tab.");
+  }
+  const attempt = consumeAttempt(req.params.nonce ?? "");
   if (!attempt) return page(res, 400, "Sign-in expired", "That sign-in took too long or was already used. Go back to Foundation and try again.");
   if (attempt.mode === "web") {
     const presented = parseCookies(req.headers.cookie)[ATTEMPT_COOKIE] ?? "";
@@ -255,12 +269,13 @@ export async function done(req: Req, res: ServerResponse) {
   try {
     const me = await verifyWithFlowform(token);
     user = admitFlowformUser(me);
+    // kept for downloading their Flowform files (encrypted; flowformfiles.ts)
+    keepSession(user.id, me.user_id, token);
   } catch (e) {
+    void revokeAtFlowform(token);
     const msg = (e as Error).message;
     finishDesktop(attempt, { error: msg });
     return page(res, e instanceof HttpError ? e.status : 500, "Sign-in didn't finish", msg);
-  } finally {
-    void revokeAtFlowform(token);
   }
   if (attempt.mode === "desktop") {
     finishDesktop(attempt, { userId: user.id });

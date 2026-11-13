@@ -23,8 +23,12 @@ import {
   describeBoard,
   findSection,
   isHostable,
+  leafSectionOf,
   logActivity,
   MACHINE_DISTROS,
+  noteTextOf,
+  tableCellMap,
+  tableCellsOf,
   uid,
   type LinkDoc,
   type NoteDoc,
@@ -36,7 +40,9 @@ import {
   type PanelKind,
   type Port,
 } from "@foundation/protocol";
-import { editBoard, getBoard } from "./boards.ts";
+import { editBoard, getBoard, listBoards } from "./boards.ts";
+import { canSeeBoard } from "./members.ts";
+import type { UserInfo } from "@foundation/protocol";
 import { one } from "./db.ts";
 import { searchAll } from "./search.ts";
 import { discoverRepo, parseRepo, repoCommits, repoInfo, repoReadme } from "./github.ts";
@@ -44,7 +50,8 @@ import { callMcpTool, listMcpTools } from "./mcpclient.ts";
 import { companySnapshot, readConnector } from "./connectors.ts";
 import { createAsk } from "./hermes.ts";
 import { queueJob } from "./jobs.ts";
-import { readFileText } from "./files.ts";
+import { isCad, readFileText, shareFileWith } from "./files.ts";
+import { bringForCard, listPlace, listPlaces, readPlaceText } from "./places.ts";
 import { attachToStage, chooseArtifact, completeStage, describePipeline, setChecklist, startPipeline, updateStageSettings } from "./pipeline.ts";
 import { stageDef } from "@foundation/protocol";
 import { huddleArchive, transcriptText } from "./huddles.ts";
@@ -52,9 +59,9 @@ import { channelHistory, channelInfo, listChannels } from "./slack.ts";
 import { describeMachines, proposeMachine, validImage } from "./machines.ts";
 import { askToRun } from "./machineasks.ts";
 import { writeDigest } from "./digest.ts";
+import { flowformCall, flowformTools } from "./flowformlink.ts";
 import { aim, canCallHelp, crewMember, crewWork, describeStep, guide, resolveTarget, setDoing, stepTarget, travel, type CrewMember } from "./crew.ts";
 import { saveGoal, setProfile, todayFor } from "./today.ts";
-import type { UserInfo } from "@foundation/protocol";
 
 /** the person a tool acts for (Today's tools are theirs, not the board's) */
 function personOf(ctx: ToolCtx): UserInfo {
@@ -134,13 +141,14 @@ const PANEL_SIZES: Record<PanelKind, [number, number]> = {
 };
 
 function sectionOrCreate(doc: Y.Doc, section?: string) {
+  // a section that is a grid of sections holds no cards itself: its first section does
   if (section) {
     const found = findSection(doc, section);
-    if (found) return found;
+    if (found) return leafSectionOf(doc, found);
     return appendSection(doc, section);
   }
-  const first = [...boardMaps(doc).sections.values()][0];
-  return first ?? appendSection(doc, "Workspace");
+  const first = [...boardMaps(doc).sections.values()].find((s) => !s.parent);
+  return first ? leafSectionOf(doc, first) : appendSection(doc, "Workspace");
 }
 
 /**
@@ -467,6 +475,65 @@ export const TOOLS: BoardTool[] = [
     },
   }),
   def({
+    name: "send_to_board",
+    description:
+      "Move a card to another board (a person drags it onto that space's tab). It lands in a section named for the board it came from (made if missing) on the other board, with its note text, table cells and files; wires to it are let go. Machines, huddles and pipeline stages stay on their board.",
+    schema: z.object({ id: z.string(), to_board: z.string(), request_id: z.string().optional() }),
+    write: true,
+    run: (ctx, { id, to_board }) => {
+      if (to_board === ctx.boardId) throw new HttpError(400, "That card is already on this board");
+      const target = listBoards().find((b) => b.id === to_board);
+      // a board this person can't see answers like a missing one (members.ts)
+      const role = one<{ role: string }>("select role from users where id = ?", ctx.userId)?.role ?? "member";
+      if (!target || !canSeeBoard({ id: ctx.userId, role } as UserInfo, to_board)) throw new HttpError(404, "no such board");
+      if (target.kind !== "grid") throw new HttpError(400, `“${target.name}” isn't a grid, so it can't hold cards`);
+      if (!canWrite(ctx.userId, to_board)) throw new HttpError(403, `View only: you can read “${target.name}” but not change it`);
+      const from = getBoard(ctx.boardId).doc;
+      const src = boardMaps(from);
+      const card = src.objects.get(id);
+      if (!card) throw new HttpError(404, `no card ${id}`);
+      if (card.kind === "panel" && (card.panel === "machine" || card.panel === "huddle" || card.panel === "stage")) {
+        throw new HttpError(400, `A ${card.panel === "stage" ? "pipeline stage" : card.panel} stays on the board it was made on`);
+      }
+      const fromName = listBoards().find((b) => b.id === ctx.boardId)?.name ?? ctx.boardId;
+      const text = card.kind === "note" ? noteTextOf(from, card) : undefined;
+      const cells = card.kind === "table" ? tableCellsOf(from, id) : undefined;
+      // its file goes with it: the other board gets its own record of the same bytes
+      const moved = { ...card } as typeof card & { src?: string; fileId?: string; sourceTableId?: string | null };
+      if (card.kind === "media") {
+        const m = /^\/files\/([^/?#]+)/.exec(card.src);
+        if (m) moved.src = card.src.replace(m[1], shareFileWith(m[1], to_board, ctx.userId));
+      }
+      if (card.kind === "panel" && card.fileId) moved.fileId = shareFileWith(card.fileId, to_board, ctx.userId);
+      if (card.kind === "map") moved.sourceTableId = null; // its table stays behind
+      const landed = editBoard(to_board, "agent", (doc) => {
+        const sec = cardSection(doc, `From ${fromName}`);
+        const next = { ...moved, sectionId: sec.id, x: 0, y: 0, float: false } as typeof moved;
+        delete (next as { text?: string }).text;
+        const m = boardMaps(doc);
+        m.objects.set(id, next);
+        if (text !== undefined) setNoteText(doc, id, text);
+        if (cells) {
+          tableCellMap(doc, id);
+          setTableCells(doc, id, cells);
+        }
+        logActivity(doc, { who: ctx.actor, role: ctx.person ? "human" : "agent", text: `brought “${card.name}” from ${fromName}`, objectId: id });
+        return sec;
+      });
+      editBoard(ctx.boardId, "agent", (doc) => {
+        const m = boardMaps(doc);
+        m.objects.delete(id);
+        m.noteText.delete(id);
+        m.cells.delete(id);
+        for (const [lid, l] of m.links.entries()) if (l.from.panel === id || l.to.panel === id) m.links.delete(lid);
+        for (const s of m.sections.values()) if (s.host === id) m.sections.set(s.id, { ...s, host: undefined });
+        for (const o of m.objects.values()) if (o.kind === "map" && o.sourceTableId === id) m.objects.set(o.id, { ...o, sourceTableId: null });
+      });
+      touch(ctx, undefined, `sent “${card.name}” to ${target.name}`);
+      return { id, board: to_board, section: landed.name };
+    },
+  }),
+  def({
     name: "connect",
     description: "Wire an app's output port to another app's input port. Values the source emits flow to the target (delivered to the running app via the Foundation bridge).",
     schema: z.object({ from_panel: z.string(), from_port: z.string(), to_panel: z.string(), to_port: z.string(), label: z.string().optional() }),
@@ -560,6 +627,61 @@ export const TOOLS: BoardTool[] = [
       }
       touch(ctx, panel, `called ${tool}`);
       return result.text.slice(0, 8000);
+    },
+  }),
+  def({
+    name: "places",
+    description:
+      "Look in the folders on this computer that a person approved for Foundation (Settings → Places). With no arguments: the approved places. With `place`: what's in it (or in `dir` inside it). With `place` and `read`: the start of a text file there. Read-only, and only inside approved places; hidden files, keys and credentials are never shown. If nothing is approved, say so: only an admin can approve a place, in Settings → Places.",
+    schema: z.object({ place: z.string().optional().describe("a place's id or name"), dir: z.string().optional().describe("a folder inside the place"), read: z.string().optional().describe("a text file's path inside the place") }),
+    run: async (_ctx, { place, dir, read }) => {
+      const places = listPlaces();
+      if (!place) return places.length ? places.map((p) => ({ id: p.id, name: p.name, path: p.path, reachable: p.reachable })) : "No places are approved yet. An admin approves folders in Settings → Places.";
+      const p = places.find((x) => x.id === place || x.name.toLowerCase() === place.toLowerCase());
+      if (!p) throw new Error(`no approved place “${place}” (approved: ${places.map((x) => x.name).join(", ") || "none"})`);
+      if (read) return readPlaceText(p.id, read);
+      const { entries, more } = await listPlace(p.id, dir ?? "");
+      return { place: p.name, dir: dir ?? "", entries: entries.slice(0, 400).map((e) => (e.dir ? { folder: e.path } : { file: e.path, size: e.size, modified: new Date(e.modified).toISOString().slice(0, 10) })), more: more + Math.max(0, entries.length - 400) };
+    },
+  }),
+  def({
+    name: "bring_file",
+    description:
+      "Bring one file from an approved place on this computer onto the board: its bytes are copied into Foundation's archive (the original is only read) and it lands as a card — a picture as an image, anything else as a file card (CAD shows in 3D, documents become searchable). Find the path with `places` first.",
+    schema: z.object({ place: z.string(), path: z.string().describe("the file's path inside the place"), section: z.string().optional(), request_id: z.string().optional() }),
+    write: true,
+    run: async (ctx, { place, path, section }) => {
+      const p = listPlaces().find((x) => x.id === place || x.name.toLowerCase() === place.toLowerCase());
+      if (!p) throw new Error(`no approved place “${place}”`);
+      const { file, image } = await bringForCard({ id: ctx.userId }, p.id, path, ctx.boardId);
+      let id = "";
+      editBoard(ctx.boardId, "agent", (doc) => {
+        const sec = cardSection(doc, section);
+        const base = { sectionId: sec.id, x: 0, y: 0, float: false, bornAt: Date.now(), ...(madeBy(ctx) ? { createdBy: madeBy(ctx) } : {}) };
+        const m = boardMaps(doc);
+        if (image) {
+          const w = 440;
+          id = uid("media");
+          m.objects.set(id, { ...base, id, kind: "media", name: file.name, w, h: Math.round((w * image.h) / image.w), src: `/files/${file.id}`, media: "image", autoplay: false, muted: true });
+        } else {
+          id = uid("pnl");
+          const cad = isCad(file.name);
+          m.objects.set(id, { ...base, id, kind: "panel", panel: "file", name: file.name, w: cad ? 460 : 420, h: cad ? 380 : 340, fileId: file.id, mime: file.mime, ports: [] } satisfies PanelDoc);
+        }
+      });
+      touch(ctx, id, `brought ${file.name} from “${p.name}”`);
+      return { id, file: file.id, name: file.name, size: file.size };
+    },
+  }),
+  def({
+    name: "flowform",
+    description:
+      "Read the person's Flowform (the canvas app Foundation grew out of): their boards, cards and files, through Flowform's own tools, as them and read-only. Call it with no `tool` first to list Flowform's tools and their inputs; then call one by name. To bring something into Foundation, read it here and write it with Foundation's own tools (add_section, add_note, add_table…). It works only once the person has connected Flowform in Settings → Services; if it says they haven't, tell them that instead of retrying.",
+    schema: z.object({ tool: z.string().optional().describe("one of Flowform's tool names; leave out to list them"), args: z.record(z.any()).default({}) }),
+    run: async (ctx, { tool, args }) => {
+      if (!tool) return flowformTools(ctx.userId);
+      const result = await flowformCall(ctx.userId, tool, args);
+      return (result.isError ? "Flowform refused: " : "") + result.text.slice(0, 24_000);
     },
   }),
   def({

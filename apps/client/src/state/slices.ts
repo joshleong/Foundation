@@ -52,8 +52,8 @@ export function gridViewSlice(st: AppState) {
   };
 }
 
-/** the section opened as its own grid, if it still exists (wires between the others step back) */
-const openSection = (st: AppState) => (st.expandedSection && st.sections[st.expandedSection] ? st.expandedSection : "");
+/** the section opened full-screen as its own grid (wires redraw for the grid in view), "" on the board */
+const openSection = (st: AppState) => st.level ?? (st.expandedSection && st.sections[st.expandedSection] ? st.expandedSection : "");
 
 /**
  * What the sheet's wire layer draws (table → map and table → table): which
