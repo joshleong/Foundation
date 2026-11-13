@@ -137,6 +137,13 @@ function pickName(boardId: string, seed: string) {
   return `${CREW_NAMES[start]} ${crewOn(boardId).length + 1}`;
 }
 
+/** a name an agent brings with it, told apart when it's already on the board */
+function ownName(boardId: string, name: string) {
+  const taken = new Set(crewOn(boardId).map((m) => m.name));
+  if (!taken.has(name)) return name;
+  for (let i = 2; ; i++) if (!taken.has(`${name} ${i}`)) return `${name} ${i}`;
+}
+
 function pickHue(boardId: string, seed: string) {
   const taken = new Set(crewOn(boardId).map((m) => m.hue));
   const start = hash(seed + "/hue") % CREW_HUES;
@@ -145,14 +152,14 @@ function pickHue(boardId: string, seed: string) {
 }
 
 /** an agent arrives on the board: a name, a colour and a presence everyone sees */
-export function joinCrew(opts: { boardId: string; userId: string; userName: string; runId: string; task: string; lead?: CrewMember }): CrewMember {
+export function joinCrew(opts: { boardId: string; userId: string; userName: string; runId: string; task: string; lead?: CrewMember; /** its own name (a T3 agent: "Kimi"); a second one on the board is "Kimi 2" */ name?: string }): CrewMember {
   if (opts.lead && opts.lead.left) throw new Error("the agent that called for help has finished");
   if (crewOn(opts.boardId).length >= MAX_CREW_PER_BOARD) throw new Error(`this board already has ${MAX_CREW_PER_BOARD} agents working; wait for one to finish`);
   const board = getBoard(opts.boardId);
   const doc = new Y.Doc();
   const awareness = new awarenessProtocol.Awareness(doc);
   const id = `crew_${(++seq).toString(36)}${hash(opts.runId).toString(36).slice(0, 4)}`;
-  const name = pickName(opts.boardId, opts.runId);
+  const name = opts.name ? ownName(opts.boardId, opts.name) : pickName(opts.boardId, opts.runId);
   const hue = pickHue(opts.boardId, opts.runId);
   const m: CrewMember = {
     id,

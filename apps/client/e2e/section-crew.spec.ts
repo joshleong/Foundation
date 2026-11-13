@@ -191,22 +191,84 @@ test("agents in a section on #/design, day and night", async ({ browser }) => {
   }
 });
 
-test("this computer's agents: T3 is off until a person starts it, and says why when it can't", async () => {
-  // (this server's T3_CLI points nowhere, so Start can only fail: the running state is on #/design and in test/t3host.test.ts)
+test("this computer's agents: a person starts T3, asks an agent in a section, and it joins that section's group", async ({ browser }) => {
+  // (this server's T3 is a stand-in that speaks T3's start, sign-in and streams: apps/server/test/t3-standin.mjs. No model runs.)
   const pane = kai.locator(".agents-pane");
   await expect(pane).toBeVisible();
   const t3 = pane.locator(".t3-block");
   await expect(t3).toHaveAttribute("data-t3", "off");
   await expect(t3).toContainText("a person starts it");
-  await t3.locator(".t3-start").click();
-  await expect(t3).toHaveAttribute("data-t3", "error", { timeout: 8000 });
-  await expect(t3.locator(".t3-words.is-bad")).toContainText("T3 program isn't on this computer");
-  await expect(t3.locator(".t3-start")).toHaveText("Start again");
-  await t3.scrollIntoViewIfNeeded();
-  await kai.screenshot({ path: `${SHOTS}/06_kai-t3-cant-start.png` });
   // an agent's token can't start it: only a person's browser
-  const made = await kai.context().request.post(`${CLIENT}/api/t3host/start`, { headers: { authorization: "Bearer not-a-person" }, failOnStatusCode: false });
-  expect([401, 403]).toContain(made.status());
+  const refused = await kai.context().request.post(`${CLIENT}/api/t3host/start`, { headers: { authorization: "Bearer not-a-person" }, failOnStatusCode: false });
+  expect([401, 403]).toContain(refused.status());
+  await expect(t3).toHaveAttribute("data-t3", "off");
+
+  await t3.locator(".t3-start").click();
+  await expect(t3).toHaveAttribute("data-t3", "running", { timeout: 15_000 });
+  const cloud = t3.locator('[data-t3-where="cloud"]');
+  await expect(cloud.locator('[data-t3-agent="claudeAgent"]')).toContainText("Team Subscription");
+  await expect(cloud.locator('[data-t3-agent="codex"]')).toContainText("not installed on this computer");
+  await expect(t3).toContainText("On this computer");
+  await expect(t3).toContainText("None yet");
+  // Codex can't take work: no Ask on it. Kai is a member: he can't add agents
+  await expect(cloud.locator('[data-t3-agent="codex"] .crew-row-btn', { hasText: "Ask" })).toHaveCount(0);
+  await expect(t3.locator(".t3-add-open")).toHaveCount(0);
+
+  // Kai asks Claude for something in Depot
+  const depot = await sectionId(kai, "Depot");
+  await kai.locator(`.section-card[data-section-id="${depot}"] .section-header`).click({ position: { x: 200, y: 10 } });
+  const claude = cloud.locator('[data-t3-agent="claudeAgent"]');
+  await claude.locator(".crew-row-btn", { hasText: "Ask" }).click();
+  await expect(claude.locator(".t3-ask-text")).toHaveAttribute("placeholder", "What should Claude do in Depot?");
+  await claude.locator(".t3-ask-text").fill("Check the unit prices against the supplier list");
+  await claude.locator(".t3-ask-model").selectOption("claude-haiku-4-5");
+  await kai.screenshot({ path: `${SHOTS}/06_kai-asks-claude.png` });
+  await claude.locator(".t3-ask-send").click();
+
+  // Claude joins Depot's group, under its own name, on Ada's screen too; the pane lists it in Depot, for Kai
+  const face = (p: Page) => p.locator(`.section-card[data-section-id="${depot}"] > .sec-crew .crew-face[data-crew-face="Claude"]`);
+  await expect(face(kai)).toHaveCount(1, { timeout: 8000 });
+  await expect(face(ada)).toHaveCount(1, { timeout: 8000 });
+  await expect(pane.locator('.agents-place[data-agents-place="Depot"] .agent-row[data-agent-row="Claude"]')).toContainText("Check the unit prices");
+  await expect(claude.locator(".t3-work")).toContainText("working", { timeout: 8000 });
+  await kai.locator(`.section-card[data-section-id="${depot}"]`).hover({ position: { x: 300, y: 300 } });
+  await settle(kai, 500);
+  await kai.screenshot({ path: `${SHOTS}/07_kai-claude-in-depot.png` });
+  // the thread ends (the stand-in finishes it): Claude leaves the group
+  await expect(face(kai)).toHaveCount(0, { timeout: 20_000 });
+  await expect(claude.locator(".t3-work")).toHaveCount(0);
+
+  // an admin adds Kimi (cloud, a key) and DeepSeek (this computer, no key): two groups
+  const admin = (await person(browser, "Root Test", "admin@normal.dev", board)).page;
+  await admin.locator(".top-btn[aria-label='Agents']").click();
+  const at3 = admin.locator(".agents-pane .t3-block");
+  await expect(at3).toHaveAttribute("data-t3", "running", { timeout: 8000 });
+  await at3.locator(".t3-add-open").click();
+  const form = at3.locator(".t3-add");
+  await expect(form).toContainText("api.moonshot.ai");
+  await expect(form.locator(".t3-add-go")).toBeDisabled(); // no key yet
+  await form.locator('input[type="password"]').fill("sk-test-not-a-real-key");
+  await form.locator(".t3-add-go").click();
+  await expect(at3.locator('[data-t3-where="cloud"] [data-t3-agent="kimi-cloud"]')).toContainText("api.moonshot.ai", { timeout: 8000 });
+  await at3.locator(".t3-add-open").click();
+  await form.locator(".pane-seg-btn", { hasText: "DeepSeek" }).click();
+  await form.locator(".pane-seg-btn", { hasText: "This computer" }).click();
+  await expect(form).toContainText("nothing leaves the computer");
+  await expect(form.locator('input[type="password"]')).toHaveCount(0);
+  await expect(form.locator(".t3-add-note")).toContainText("No model server answers", { timeout: 6000 });
+  await form.locator(".t3-field input").first().fill("deepseek-r1:14b");
+  await admin.screenshot({ path: `${SHOTS}/08_admin-adds-deepseek-local.png` });
+  await form.locator(".t3-add-go").click();
+  await expect(at3.locator('[data-t3-where="local"] [data-t3-agent="deepseek-local"]')).toContainText("127.0.0.1:11434", { timeout: 8000 });
+  await expect(at3.locator('[data-t3-where="cloud"] [data-t3-agent="deepseek-local"]')).toHaveCount(0);
+  // the key isn't anywhere on the page or in what the server says
+  expect(await admin.content()).not.toContain("sk-test-not-a-real-key");
+  expect(JSON.stringify(await (await admin.context().request.get(`${CLIENT}/api/t3host`)).json())).not.toContain("sk-test-not-a-real-key");
+  await at3.scrollIntoViewIfNeeded();
+  await admin.screenshot({ path: `${SHOTS}/09_admin-cloud-and-local.png` });
+  // Kai sees both groups too (the pane reads T3 every few seconds)
+  await expect(t3.locator('[data-t3-where="local"] [data-t3-agent="deepseek-local"]')).toHaveCount(1, { timeout: 8000 });
+  await admin.context().close();
 });
 
 test("this computer's agents on #/design, day and night", async ({ browser }) => {
@@ -218,9 +280,10 @@ test("this computer's agents on #/design, day and night", async ({ browser }) =>
     const demo = p.locator('.sec-crew-demo .t3-block[data-t3="running"]').first();
     await demo.scrollIntoViewIfNeeded();
     await settle(p, 900);
-    await p.locator(".sec-crew-demo .adapt-row").nth(1).screenshot({ path: `${SHOTS}/07_design-t3-${scheme === "dark" ? "night" : "day"}.png` });
-    await expect(demo.locator(".t3-agent")).toHaveCount(3);
-    await expect(demo.locator(".t3-off")).toHaveText("Off in T3: Cursor, Grok");
+    await p.locator(".sec-crew-demo .adapt-row").nth(1).screenshot({ path: `${SHOTS}/10_design-t3-${scheme === "dark" ? "night" : "day"}.png` });
+    await expect(demo.locator('[data-t3-where="cloud"] .t3-agent')).toHaveCount(3);
+    await expect(demo.locator('[data-t3-where="local"] .t3-agent')).toHaveCount(1);
+    await expect(demo.locator(".t3-off").last()).toHaveText("Off in T3: Cursor, Grok");
     await ctx.close();
   }
 });

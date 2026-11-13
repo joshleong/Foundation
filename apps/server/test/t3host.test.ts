@@ -112,7 +112,9 @@ const tell = (c: object) => writeFileSync(control, JSON.stringify({ ...c, n: Mat
 
 test("a provider is read as an agent: ready, needs sign-in, missing, off", () => {
   const base = { instanceId: "claudeAgent", driver: "claudeAgent", displayName: "Claude", enabled: true, installed: true, version: "2.1.3", status: "ready", auth: { status: "authenticated", label: "Claude Team Subscription" }, models: [{}, {}, {}] };
-  assert.deepEqual(agentOf(base), { id: "claudeAgent", driver: "claudeAgent", name: "Claude", enabled: true, installed: true, version: "2.1.3", state: "ready", account: "Claude Team Subscription", message: undefined, models: 3 });
+  // its models, by slug (one without a slug is skipped)
+  assert.deepEqual(agentOf({ ...base, models: [{ slug: "m1", name: "Model One" }, { slug: "m2" }, { name: "no slug" }] })?.modelList, [{ slug: "m1", name: "Model One" }, { slug: "m2", name: "m2" }]);
+  assert.deepEqual(agentOf(base), { id: "claudeAgent", driver: "claudeAgent", name: "Claude", enabled: true, installed: true, version: "2.1.3", state: "ready", account: "Claude Team Subscription", message: undefined, models: 3, modelList: [], where: "cloud" });
   assert.equal(agentOf({ ...base, auth: { status: "unauthenticated" }, status: "error" })?.state, "sign-in");
   assert.equal(agentOf({ ...base, installed: false, status: "error", message: "Could not start Codex CLI" })?.state, "missing");
   assert.equal(agentOf({ ...base, availability: "unavailable", unavailableReason: "No driver for kimi in this build" })?.message, "No driver for kimi in this build");

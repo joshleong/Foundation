@@ -11,6 +11,7 @@ import { defineConfig } from "@playwright/test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const data = mkdtempSync(join(tmpdir(), "foundation-e2e-"));
 // Ports can move: Windows (Hyper-V/WSL) reserves blocks of the dynamic range at
@@ -64,6 +65,11 @@ export default defineConfig({
         T3_CLI: "/nonexistent/t3",
         T3_URL: "http://127.0.0.1:9",
         T3CODE_HOME: "/nonexistent/t3home",
+        // Foundation's own T3 (the agents pane) is a stand-in that speaks T3's start, sign-in and streams; no model runs
+        FOUNDATION_T3_CLI: fileURLToPath(new URL("../../server/test/t3-standin.mjs", import.meta.url)),
+        FOUNDATION_T3_PORT: process.env.E2E_T3_PORT ?? "15790",
+        T3_STANDIN_DIR: data,
+        T3_STANDIN_FINISH_MS: "6000",
         ANTHROPIC_API_KEY: "",
       },
       url: `http://127.0.0.1:${SERVER_PORT}/api/me`,

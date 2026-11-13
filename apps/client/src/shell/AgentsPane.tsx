@@ -19,7 +19,12 @@
  * Codex (OpenAI) and the others from one place. Off until a person starts it
  * (it's a third-party program); running, it lists each agent T3 has with how
  * it stands (ready and on which plan, needs sign-in, not installed) and the
- * threads each is working on. Starting a thread from here isn't built yet.
+ * threads each is working on, in two groups: **in the cloud** (what you ask
+ * goes to a service, on a plan or a key) and **on this computer** (a local
+ * model server; nothing leaves it). **Ask** on a ready agent starts a
+ * supervised thread on it for the section the pane was opened from; the agent
+ * joins that section's group under its own name. An admin can add Kimi or
+ * DeepSeek, to either group.
  */
 
 import { useEffect, useState, useSyncExternalStore } from "react";
@@ -33,6 +38,7 @@ import { WIDTHS, openSession, setUi, toast, useUi } from "../state/ui";
 import { followCrew, useFollowing, type CrewPeer } from "./Crew";
 import { FloorEdge } from "./FloorEdge";
 import { useActiveBoard } from "./Presence";
+import { activeBoard } from "../sync/board";
 
 export interface AgentRowData extends CrewFace {
   task: string;
@@ -49,6 +55,13 @@ export interface AgentsPlace {
 }
 
 const allSectionsOf = () => getState().allSections;
+const activeBoardId = () => activeBoard()?.boardId ?? null;
+/** where an ask from the pane goes: the section it was opened from, else the one in use */
+const activeSectionOf = () => getState().activeSectionId;
+function askSection(at: string | null, sections: Record<string, { id: string; name: string }>, active: string): { id: string; name: string } | null {
+  const s = (at && sections[at]) || sections[active];
+  return s ? { id: s.id, name: s.name } : null;
+}
 
 const rowOf = (p: CrewPeer, me: string | undefined): AgentRowData => ({
   id: p.crew.id,
@@ -87,6 +100,8 @@ export function AgentsPane() {
   const board = useActiveBoard();
   const crew = useCrew();
   const sections = useSyncExternalStore(subscribe, allSectionsOf);
+  // an ask from the pane goes to the section in use: the pane follows it
+  const active = useSyncExternalStore(subscribe, activeSectionOf);
   if (!ui.agents || ui.presenting) return null;
   const me = board?.user.id;
   const places = agentPlaces(
@@ -97,7 +112,7 @@ export function AgentsPane() {
   return (
     <aside className="agents-pane floor-pane" style={{ width: ui.agentsW }} aria-label="Agents">
       <FloorEdge side="left" value={ui.agentsW} {...WIDTHS.agents} onChange={(w) => setUi({ agentsW: w })} label="Agents" />
-      <AgentsPaneBody places={places} count={crew.length} onClose={() => setUi({ agents: false })} onGo={(id) => requestSnap({ kind: "section", id })} live foot={<T3Block viewer={ui.role === "viewer"} />} />
+      <AgentsPaneBody places={places} count={crew.length} onClose={() => setUi({ agents: false })} onGo={(id) => requestSnap({ kind: "section", id })} live foot={<T3Block viewer={ui.role === "viewer"} admin={ui.role === "admin"} section={askSection(ui.agentsAt, sections, active)} />} />
     </aside>
   );
 }
@@ -164,6 +179,12 @@ export interface T3Agent {
   account?: string;
   message?: string;
   models: number;
+  modelList: Array<{ slug: string; name: string }>;
+  model?: string;
+  /** cloud: the work goes to a service · local: a model server on this computer */
+  where: "cloud" | "local";
+  /** added from Foundation (Kimi, DeepSeek): which, and the address it talks to */
+  added?: { preset: string; baseUrl: string };
 }
 export interface T3Work {
   id: string;
@@ -196,11 +217,297 @@ export function t3AgentWords(a: T3Agent): string {
 
 const WORK_WORD: Record<T3Work["state"], string> = { working: "working", waiting: "waiting for a person", idle: "at rest", error: "hit a problem" };
 
+/** the model an agent runs unless told otherwise */
+const firstModel = (a: T3Agent) => a.model ?? a.modelList[0]?.slug ?? "";
+
+export interface T3Preset {
+  name: string;
+  cloud: { baseUrl: string; model: string };
+  local: { baseUrl: string; model: string };
+}
+export interface T3Local {
+  baseUrl: string;
+  up: boolean;
+  models: string[];
+}
+export interface T3AddInput {
+  preset: string;
+  where: "cloud" | "local";
+  apiKey?: string;
+  model?: string;
+  baseUrl?: string;
+}
+
+/** one agent T3 has: how it stands, its threads at work, and (ready, with somewhere to work) a way to ask it */
+function T3AgentRow({
+  agent,
+  hue,
+  work,
+  viewer,
+  admin,
+  section,
+  asking,
+  onAsking,
+  onAsk,
+  onOpen,
+  onStopWork,
+  onRemove,
+}: {
+  agent: T3Agent;
+  hue: number;
+  work: T3Work[];
+  viewer: boolean;
+  admin: boolean;
+  section?: { id: string; name: string } | null;
+  asking: boolean;
+  onAsking?: (on: boolean) => void;
+  onAsk?: (agent: string, model: string, text: string) => Promise<boolean> | void;
+  onOpen?: (thread?: string) => void;
+  onStopWork?: (thread: string) => void;
+  onRemove?: (agent: string) => void;
+}) {
+  const [text, setText] = useState("");
+  const [model, setModel] = useState(firstModel(agent));
+  const [sending, setSending] = useState(false);
+  const send = async () => {
+    if (!text.trim() || sending) return;
+    setSending(true);
+    const ok = await onAsk?.(agent.id, model, text.trim());
+    setSending(false);
+    if (ok !== false) {
+      setText("");
+      onAsking?.(false);
+    }
+  };
+  return (
+    <li className={`t3-agent is-${agent.state}`} style={{ ["--crew" as string]: `var(--color-crew-${hue % 6})` }} data-t3-agent={agent.id}>
+      <span className="crew-face is-large t3-face" aria-hidden>
+        {agent.name.slice(0, 1).toUpperCase()}
+      </span>
+      <div className="t3-agent-main">
+        <div className="t3-agent-top">
+          <span className="agent-row-name">{agent.name}</span>
+          {agent.version && !agent.added && <span className="agent-row-role">{agent.version}</span>}
+          {agent.added && <span className="agent-row-role">{agent.model}</span>}
+          <span className="t3-agent-acts">
+            {agent.state === "ready" && !viewer && section && (
+              <button className={`crew-row-btn${asking ? " is-on" : ""}`} onClick={() => onAsking?.(!asking)} data-tip={`Ask ${agent.name} for something in ${section.name}`}>
+                Ask
+              </button>
+            )}
+            {agent.added && admin && (
+              <button className="crew-row-btn" onClick={() => onRemove?.(agent.id)} data-tip={`Remove ${agent.name} from T3 (its key goes with it)`}>
+                Remove
+              </button>
+            )}
+          </span>
+        </div>
+        <div className="t3-agent-words" data-tip={agent.state === "ready" ? agent.added?.baseUrl : agent.message}>
+          <span className={`f-dot ${agent.state === "ready" ? "is-ok" : agent.state === "sign-in" ? "is-warn" : agent.state === "error" ? "is-bad" : ""}`} /> {agent.added && agent.state === "ready" ? hostOf(agent.added.baseUrl) : t3AgentWords(agent)}
+        </div>
+      </div>
+      {asking && section && (
+        <div className="t3-ask">
+          <textarea
+            className="t3-ask-text"
+            autoFocus
+            rows={3}
+            value={text}
+            placeholder={`What should ${agent.name} do in ${section.name}?`}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send();
+              if (e.key === "Escape") onAsking?.(false);
+            }}
+          />
+          <div className="t3-ask-foot">
+            {agent.modelList.length > 1 ? (
+              <select className="t3-ask-model" value={model} onChange={(e) => setModel(e.target.value)} aria-label={`${agent.name}'s model`}>
+                {agent.modelList.map((m) => (
+                  <option key={m.slug} value={m.slug}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="t3-ask-note">{model}</span>
+            )}
+            <span className="t3-ask-note">supervised · {agent.where === "local" ? "runs on this computer" : agent.added ? "your key" : "your plan"}</span>
+            <button className="f-pill is-agent t3-ask-send" onClick={() => void send()} disabled={!text.trim() || sending}>
+              {sending ? "Starting" : "Ask"}
+            </button>
+          </div>
+        </div>
+      )}
+      {work.map((w) => (
+        <div key={w.id} className={`t3-work is-${w.state}`} data-t3-work={w.id}>
+          <span className="t3-work-title">{w.title}</span>
+          <span className="t3-work-state">{WORK_WORD[w.state]}</span>
+          {!viewer && (
+            <span className="t3-work-acts">
+              <button className="crew-row-btn" onClick={() => onOpen?.(w.id)} data-tip={w.state === "waiting" ? "Open it in T3 to answer what it's waiting for" : "Open its transcript in T3"}>
+                Open
+              </button>
+              {w.state !== "idle" && (
+                <button className="crew-row-btn is-stop" onClick={() => onStopWork?.(w.id)}>
+                  Stop
+                </button>
+              )}
+            </span>
+          )}
+        </div>
+      ))}
+    </li>
+  );
+}
+
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+};
+
+/** adding Kimi or DeepSeek: which, and where it runs (the cloud with a key, or a model server on this computer) */
+export function T3AddForm({ presets, local, start, busy, error, onWhere, onAdd, onCancel }: { presets: Record<string, T3Preset>; local: T3Local | null; start?: { preset?: string; where?: "cloud" | "local" }; busy?: boolean; error?: string | null; onWhere?: (where: "cloud" | "local", baseUrl: string) => void; onAdd?: (input: T3AddInput) => void; onCancel?: () => void }) {
+  const names = Object.keys(presets);
+  const [preset, setPreset] = useState(start?.preset ?? names[0] ?? "");
+  const [where, setWhere] = useState<"cloud" | "local">(start?.where ?? "cloud");
+  const [key, setKey] = useState("");
+  const [model, setModel] = useState<string | null>(null);
+  const [base, setBase] = useState<string | null>(null);
+  const d = presets[preset]?.[where];
+  const baseUrl = base ?? d?.baseUrl ?? "";
+  const modelNow = model ?? (where === "local" ? (local?.models[0] ?? "") : (d?.model ?? ""));
+  const pick = (p: string, w: "cloud" | "local") => {
+    setPreset(p);
+    setWhere(w);
+    setModel(null);
+    setBase(null);
+    onWhere?.(w, presets[p]?.[w].baseUrl ?? "");
+  };
+  const ready = !!modelNow && !!baseUrl && (where === "local" || !!key.trim());
+  return (
+    <form
+      className="t3-add"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (ready && !busy) onAdd?.({ preset, where, apiKey: where === "cloud" ? key.trim() : undefined, model: modelNow, baseUrl });
+      }}
+      onKeyDown={(e) => e.stopPropagation()}
+    >
+      <div className="t3-add-row">
+        <div className="pane-seg" role="tablist" aria-label="Which agent">
+          {names.map((p) => (
+            <button type="button" key={p} role="tab" aria-selected={preset === p} className={`pane-seg-btn${preset === p ? " is-on" : ""}`} onClick={() => pick(p, where)}>
+              {presets[p].name}
+            </button>
+          ))}
+        </div>
+        <div className="pane-seg" role="tablist" aria-label="Where it runs">
+          {(["cloud", "local"] as const).map((w) => (
+            <button type="button" key={w} role="tab" aria-selected={where === w} className={`pane-seg-btn${where === w ? " is-on" : ""}`} onClick={() => pick(preset, w)}>
+              {w === "cloud" ? "Cloud" : "This computer"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="t3-add-words">
+        {where === "cloud"
+          ? `${presets[preset]?.name}'s own service. What you ask goes to ${hostOf(baseUrl)} and is billed to your key there. T3 keeps the key; Foundation doesn't.`
+          : `A ${presets[preset]?.name} model run by a model server on this computer (Ollama's address by default). No key, and nothing leaves the computer.`}
+      </p>
+      {where === "cloud" && (
+        <label className="t3-field">
+          <span>API key</span>
+          <input type="password" autoComplete="off" spellCheck={false} value={key} onChange={(e) => setKey(e.target.value)} placeholder={`Your ${presets[preset]?.name} API key`} />
+        </label>
+      )}
+      <label className="t3-field">
+        <span>Model</span>
+        {where === "local" && local?.up && local.models.length > 0 ? (
+          <select value={modelNow} onChange={(e) => setModel(e.target.value)}>
+            {local.models.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input type="text" spellCheck={false} value={modelNow} onChange={(e) => setModel(e.target.value)} placeholder={where === "local" ? "a model your local server has, e.g. deepseek-r1:14b" : "model id"} />
+        )}
+      </label>
+      <label className="t3-field">
+        <span>Address</span>
+        <input type="text" spellCheck={false} value={baseUrl} onChange={(e) => setBase(e.target.value)} onBlur={() => where === "local" && onWhere?.("local", baseUrl)} />
+      </label>
+      {where === "local" && (
+        <p className={`t3-add-note${local && !local.up ? " is-warn" : ""}`}>
+          <span className={`f-dot ${local?.up ? "is-ok" : "is-warn"}`} />{" "}
+          {local === null ? "Asking this computer's model server…" : local.up ? `A model server answers at ${hostOf(local.baseUrl)} with ${local.models.length} model${local.models.length === 1 ? "" : "s"}.` : `No model server answers at ${hostOf(baseUrl)}. It can be added now and will work once one runs there with this model.`}
+        </p>
+      )}
+      {where === "cloud" && <p className="t3-add-note">The model id and address are the vendor's as last published: change them if yours differ.</p>}
+      {error && <p className="t3-words is-bad">{error}</p>}
+      <div className="t3-add-foot">
+        <button type="button" className="crew-row-btn" onClick={onCancel}>
+          Cancel
+        </button>
+        <button type="submit" className="f-pill t3-add-go" disabled={!ready || busy}>
+          {busy ? "Adding" : `Add ${presets[preset]?.name ?? ""}${where === "local" ? " (local)" : ""}`}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+export interface T3BlockProps {
+  host: T3Host | null;
+  viewer: boolean;
+  admin?: boolean;
+  busy?: boolean;
+  /** where an ask would go: the section the pane was opened from, or the one in use */
+  section?: { id: string; name: string } | null;
+  /** the agent whose ask is open (the design page holds one open) */
+  askingStart?: string;
+  /** the add form, when it's open */
+  form?: React.ReactNode;
+  onStart?: () => void;
+  onStop?: () => void;
+  onAsk?: (agent: string, model: string, text: string) => Promise<boolean> | void;
+  onOpen?: (thread?: string) => void;
+  onStopWork?: (thread: string) => void;
+  onRemove?: (agent: string) => void;
+  onAddOpen?: () => void;
+}
+
 /** the block alone, for the pane and the design page */
-export function T3BlockView({ host, viewer, busy, onStart, onStop }: { host: T3Host | null; viewer: boolean; busy?: boolean; onStart?: () => void; onStop?: () => void }) {
+export function T3BlockView({ host, viewer, admin = false, busy, section, askingStart, form, onStart, onStop, onAsk, onOpen, onStopWork, onRemove, onAddOpen }: T3BlockProps) {
+  const [asking, setAsking] = useState<string | null>(askingStart ?? null);
   const state = busy && host?.state !== "running" ? "starting" : (host?.state ?? "off");
   const on = host?.agents.filter((a) => a.state !== "off") ?? [];
   const off = host?.agents.filter((a) => a.state === "off") ?? [];
+  const cloud = on.filter((a) => a.where !== "local");
+  const local = on.filter((a) => a.where === "local");
+  const row = (a: T3Agent) => (
+    <T3AgentRow
+      key={a.id}
+      agent={a}
+      hue={on.indexOf(a)}
+      work={host!.work.filter((w) => w.agent === a.id && w.state !== "idle")}
+      viewer={viewer}
+      admin={admin}
+      section={section}
+      asking={asking === a.id}
+      onAsking={(v) => setAsking(v ? a.id : null)}
+      onAsk={onAsk}
+      onOpen={onOpen}
+      onStopWork={onStopWork}
+      onRemove={onRemove}
+    />
+  );
   return (
     <section className={`agents-place t3-block is-${state}`} data-t3={state}>
       <div className="agents-place-head">
@@ -209,9 +516,14 @@ export function T3BlockView({ host, viewer, busy, onStart, onStop }: { host: T3H
           {state === "running" ? `T3${host?.version ? ` ${host.version}` : ""}` : state === "starting" ? "starting" : state === "error" ? "stopped" : "off"}
         </span>
         {state === "running" && !viewer && (
-          <button className="crew-row-btn t3-stop" onClick={onStop} data-tip="Stop T3 and the agents it runs · its threads are kept">
-            Stop
-          </button>
+          <span className="t3-head-acts">
+            <button className="crew-row-btn" onClick={() => onOpen?.()} data-tip="Open T3's own page: every thread, approvals, its settings">
+              Open T3
+            </button>
+            <button className="crew-row-btn" onClick={onStop} data-tip="Stop T3 and the agents it runs · its threads are kept">
+              Stop
+            </button>
+          </span>
         )}
       </div>
       {state === "off" && <p className="t3-words">T3 runs Claude, Codex and other coding agents from one place. It's a program on this computer, so a person starts it.</p>}
@@ -227,44 +539,46 @@ export function T3BlockView({ host, viewer, busy, onStart, onStop }: { host: T3H
         </button>
       )}
       {state === "running" && (
-        <ul className="t3-agents">
-          {on.map((a, i) => {
-            const work = host!.work.filter((w) => w.agent === a.id && w.state !== "idle");
-            return (
-              <li key={a.id} className={`t3-agent is-${a.state}`} style={{ ["--crew" as string]: `var(--color-crew-${i % 6})` }} data-t3-agent={a.id}>
-                <span className="crew-face is-large t3-face" aria-hidden>
-                  {a.name.slice(0, 1).toUpperCase()}
-                </span>
-                <div className="t3-agent-main">
-                  <div>
-                    <span className="agent-row-name">{a.name}</span>
-                    {a.version && <span className="agent-row-role">{a.version}</span>}
-                  </div>
-                  <div className="t3-agent-words" data-tip={a.state === "ready" ? undefined : a.message}>
-                    <span className={`f-dot ${a.state === "ready" ? "is-ok" : a.state === "sign-in" ? "is-warn" : a.state === "error" ? "is-bad" : ""}`} /> {t3AgentWords(a)}
-                  </div>
-                </div>
-                {work.map((w) => (
-                  <div key={w.id} className={`t3-work is-${w.state}`}>
-                    <span className="t3-work-title">{w.title}</span>
-                    <span className="t3-work-state">{WORK_WORD[w.state]}</span>
-                  </div>
-                ))}
-              </li>
-            );
-          })}
-          {host!.agents.length === 0 && <li className="t3-words">Asking T3 which agents it has…</li>}
-          {off.length > 0 && <li className="t3-off">Off in T3: {off.map((a) => a.name).join(", ")}</li>}
-        </ul>
+        <>
+          {host!.agents.length === 0 && <p className="t3-words">Asking T3 which agents it has…</p>}
+          {cloud.length > 0 && (
+            <>
+              <div className="t3-where" data-tip="What you ask these goes to a service, on your plan or key">
+                In the cloud
+              </div>
+              <ul className="t3-agents" data-t3-where="cloud">{cloud.map(row)}</ul>
+            </>
+          )}
+          {host!.agents.length > 0 && (
+            <>
+              <div className="t3-where" data-tip="These run on a model server on this computer: no key, nothing leaves it">
+                On this computer
+              </div>
+              {local.length > 0 ? <ul className="t3-agents" data-t3-where="local">{local.map(row)}</ul> : <p className="t3-off">None yet. Kimi or DeepSeek can run here on a local model server.</p>}
+            </>
+          )}
+          {off.length > 0 && <p className="t3-off">Off in T3: {off.map((a) => a.name).join(", ")}</p>}
+          {form ??
+            (admin && (
+              <button className="crew-row-btn t3-add-open" onClick={onAddOpen}>
+                ＋ Add Kimi or DeepSeek
+              </button>
+            ))}
+        </>
       )}
     </section>
   );
 }
 
 /** Foundation's T3, read while the pane is open (every 3 s; faster while it starts) */
-function T3Block({ viewer }: { viewer: boolean }) {
+function T3Block({ viewer, admin, section }: { viewer: boolean; admin: boolean; section: { id: string; name: string } | null }) {
   const [host, setHost] = useState<T3Host | null>(null);
   const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [presets, setPresets] = useState<Record<string, T3Preset>>({});
+  const [local, setLocal] = useState<T3Local | null>(null);
+  const [addBusy, setAddBusy] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
   const fast = busy || host?.state === "starting";
   useEffect(() => {
     let gone = false;
@@ -276,14 +590,77 @@ function T3Block({ viewer }: { viewer: boolean }) {
       clearInterval(t);
     };
   }, [fast]);
+  const said = (e: unknown) => toast((e as Error).message, "bad");
   const press = (what: "start" | "stop") => {
     setBusy(true);
     void api<T3Host>(`/api/t3host/${what}`, { method: "POST" })
       .then(setHost) // a start that failed says why in the block itself
-      .catch((e) => toast((e as Error).message, "bad"))
+      .catch(said)
       .finally(() => setBusy(false));
   };
-  return <T3BlockView host={host} viewer={viewer} busy={busy} onStart={() => press("start")} onStop={() => press("stop")} />;
+  const askLocal = (baseUrl: string) => {
+    setLocal(null);
+    void api<T3Local>(`/api/t3host/local?base=${encodeURIComponent(baseUrl)}`).then(setLocal).catch(() => setLocal({ baseUrl, up: false, models: [] }));
+  };
+  const openAdd = () => {
+    setAdding(true);
+    setAddError(null);
+    void api<Record<string, T3Preset>>("/api/t3host/presets").then(setPresets).catch(said);
+  };
+  const board = activeBoardId();
+  return (
+    <T3BlockView
+      host={host}
+      viewer={viewer}
+      admin={admin}
+      busy={busy}
+      section={section}
+      onStart={() => press("start")}
+      onStop={() => press("stop")}
+      onAsk={async (agent, model, text) => {
+        if (!section || !board) return false;
+        try {
+          const r = await api<{ name: string }>("/api/t3host/threads", { method: "POST", json: { board, section: section.id, agent, model, text } });
+          toast(`${r.name} is on it, in ${section.name}`, "agent");
+          return true;
+        } catch (e) {
+          said(e);
+          return false;
+        }
+      }}
+      onOpen={(thread) =>
+        void api<{ url: string }>("/api/t3host/open", { method: "POST", json: { thread } })
+          .then((r) => window.open(r.url, "_blank", "noopener"))
+          .catch(said)
+      }
+      onStopWork={(thread) => void api(`/api/t3host/threads/${encodeURIComponent(thread)}/stop`, { method: "POST" }).catch(said)}
+      onRemove={(agent) => void api<{ agents: T3Agent[] }>(`/api/t3host/agents/${encodeURIComponent(agent)}`, { method: "DELETE" }).then((r) => setHost((h) => (h ? { ...h, agents: r.agents } : h))).catch(said)}
+      onAddOpen={openAdd}
+      form={
+        adding && Object.keys(presets).length > 0 ? (
+          <T3AddForm
+            presets={presets}
+            local={local}
+            busy={addBusy}
+            error={addError}
+            onWhere={(w, baseUrl) => w === "local" && askLocal(baseUrl)}
+            onCancel={() => setAdding(false)}
+            onAdd={(input) => {
+              setAddBusy(true);
+              setAddError(null);
+              void api<{ agents: T3Agent[] }>("/api/t3host/agents", { method: "POST", json: input })
+                .then((r) => {
+                  setHost((h) => (h ? { ...h, agents: r.agents } : h));
+                  setAdding(false);
+                })
+                .catch((e) => setAddError((e as Error).message))
+                .finally(() => setAddBusy(false));
+            }}
+          />
+        ) : undefined
+      }
+    />
+  );
 }
 
 /** what an agent is to its team, in a word or two */

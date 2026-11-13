@@ -24,7 +24,8 @@ import { createAsk, listAsks, resolveAsk, startHermes } from "./hermes.ts";
 import { getJob, listJobs, startJob } from "./jobs.ts";
 import { followRun, listSessions, pickRuntime, runtimes, sessionTurns, settleOrphanRuns, startRun, stopAllRuns, stopRun } from "./agent.ts";
 import { t3Thread, t3Threads } from "./t3.ts";
-import { startT3, stopT3, t3Host } from "./t3host.ts";
+import { addT3Agent, localModels, removeT3Agent, startT3, stopT3, T3_PRESETS, t3Host, t3OpenLink, type AddAgentInput } from "./t3host.ts";
+import { askT3, stopT3Thread, t3Bindings } from "./t3threads.ts";
 import { pollHandoffs } from "./vision.ts";
 import { boardPeople, boardRole, canWrite, requireWriter, setBoardRole } from "./roles.ts";
 import { handleUpgrade, issueTicket } from "./sockets.ts";
@@ -706,6 +707,52 @@ r.post("/api/t3host/stop", (req) => {
   const u = requirePerson(req, "Stopping T3");
   if (u.role === "viewer") throw new HttpError(403, "Viewers can't stop T3.");
   return stopT3();
+});
+
+// a thread runs a model on someone's plan or key: a person's press, by someone who can write the board
+r.post("/api/t3host/threads", async (req) => {
+  const u = requirePerson(req, "Asking an agent");
+  const body = await readJson<{ board?: string; section?: string; agent?: string; model?: string; text?: string }>(req);
+  if (!body.board || !body.section || !body.agent) throw new HttpError(400, "board, section and agent required");
+  requireWriter(u, body.board);
+  return askT3(u, { board: body.board, section: body.section, agent: body.agent, model: body.model, text: body.text ?? "" });
+});
+r.post("/api/t3host/threads/:id/stop", (req) => {
+  const u = requirePerson(req, "Stopping an agent");
+  if (u.role === "viewer") throw new HttpError(403, "Viewers can't stop agents.");
+  return stopT3Thread(u, req.params.id);
+});
+r.get("/api/t3host/bindings", (req) => {
+  requireUser(req);
+  return t3Bindings(req.query.get("board") ?? "");
+});
+// T3's own page, for a supervised thread's approvals and its transcript: a one-time link, per press
+r.post("/api/t3host/open", async (req) => {
+  const u = requirePerson(req, "Opening T3");
+  if (u.role === "viewer") throw new HttpError(403, "Viewers can't open T3.");
+  const { thread } = await readJson<{ thread?: string }>(req);
+  return { url: await t3OpenLink(thread).catch((e) => { throw new HttpError(502, (e as Error).message); }) };
+});
+// adding an agent gives this computer something new to run, and may carry a key: an admin, in person.
+// The key goes straight to T3 (which keeps it); Foundation doesn't store it, log it or send it back
+r.post("/api/t3host/agents", async (req) => {
+  const u = requirePerson(req, "Adding an agent");
+  if (u.role !== "admin") throw new HttpError(403, "Only an admin can add an agent.");
+  const body = await readJson<AddAgentInput>(req);
+  return { agents: await addT3Agent(body).catch((e) => { throw new HttpError(400, (e as Error).message); }) };
+});
+r.delete("/api/t3host/agents/:id", async (req) => {
+  const u = requirePerson(req, "Removing an agent");
+  if (u.role !== "admin") throw new HttpError(403, "Only an admin can remove an agent.");
+  return { agents: await removeT3Agent(req.params.id).catch((e) => { throw new HttpError(400, (e as Error).message); }) };
+});
+r.get("/api/t3host/local", async (req) => {
+  requireUser(req);
+  return localModels(req.query.get("base") || undefined).catch((e) => { throw new HttpError(400, (e as Error).message); });
+});
+r.get("/api/t3host/presets", (req) => {
+  requireUser(req);
+  return T3_PRESETS;
 });
 
 r.post("/api/agent", async (req, res) => {

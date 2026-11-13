@@ -1,7 +1,7 @@
 {
   "about": "Foundation's plan as a kanban. GitHub issues are where the team moves cards; this file is the local copy the app shows in Settings → Plan. `npm run plan:push` writes it to GitHub, `npm run plan:pull` reads the issues back. Columns: needs-you (waits on a person: a key, an install, a decision), backlog, next, doing, review (built, waiting to merge or to be checked by a person), done.",
   "repo": "joshleong/Foundation",
-  "syncedAt": "2026-11-13T03:23:34.021Z",
+  "syncedAt": "2026-11-13T03:30:39.314Z",
   "columns": [
     {
       "id": "needs-you",
@@ -1229,12 +1229,12 @@
     },
     {
       "id": "t3-more-agents",
-      "title": "More agents through T3: Codex (OpenAI), Kimi, DeepSeek",
+      "title": "Kimi and DeepSeek in T3, cloud and local: built; needs keys and a local model server to prove",
       "kind": "plan",
       "milestone": "crew",
       "area": "agent",
       "status": "needs-you",
-      "body": "T3 0.0.44 has no Kimi, DeepSeek or OpenAI-compatible driver (SPEC §7). To do: (1) Codex: install the `codex` program on this PC and sign in (`codex login`); it then shows ready with no code change. (2) Kimi and DeepSeek: add each as a named instance in Foundation's T3 (`providerInstances`: a `claudeAgent` instance with `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` and its models, or through OpenCode), from a form in the pane that sends `server.updateSettings`. Needs from Josh: an API key for each (Moonshot, DeepSeek), typed by a person into the form, kept by T3. Untried: whether those endpoints work with this build's Claude driver.",
+      "body": "Built 2026-11-12: an admin adds Kimi or DeepSeek from the agents pane, in the cloud (the vendor's Anthropic-compatible address and an API key that goes straight to T3) or on this computer (a local model server, Ollama's address by default, no key); the pane keeps the two groups apart. Each is a Claude-driven T3 instance with its own Claude folder. Checked against a stand-in T3, and the real t3.exe took both instances with a made-up key. Needs Josh: (1) a Moonshot key and a DeepSeek key, typed into the form, then one ask to each: the default model ids (`kimi-k3`, `deepseek-v4-pro`) and addresses are from the vendors' pages and guides, not from a run. (2) For local: install Ollama 0.14 or newer and pull a model this PC can run (a DeepSeek R1 distill; Kimi's open weights are too large), then add it as local. (3) Codex (OpenAI): install `codex` and `codex login`; it then shows ready with no change here.",
       "issue": 126
     },
     {
@@ -1243,8 +1243,8 @@
       "kind": "plan",
       "milestone": "crew",
       "area": "agent",
-      "status": "backlog",
-      "body": "Today the pane lists T3's agents and threads; nothing starts one. A person picks an agent (and model) for an ask in a section; Foundation dispatches `thread.turn.start` to its own T3 (supervised), with a project per board or per section's repo, and the thread's agent joins that section's group with a face, its state from the shell stream. Approvals answered from the card (`thread.approval.respond`). Then the crew's own Claude runs can move onto T3 too, so there is one list. Ties to posted-agents and agent-machines.",
+      "status": "review",
+      "body": "Built 2026-11-12: Ask on a ready agent in the agents pane starts a supervised thread on it in Foundation's T3 for the section in use; the agent joins that section's group under its own name and follows its thread; Open (T3's own page) and Stop on its row. `apps/server/src/t3threads.ts`, `/api/t3host/threads`. `test/t3threads.test.ts` (10), `e2e/section-crew.spec.ts` against a stand-in T3. To check (Josh): Start T3, ask Claude something in a section on the real server. That spends a turn on the Team plan, so no agent has done it. Left: a thread can't write the board (t3-threads-write-the-board); approvals are answered in T3's page, not on the card.",
       "issue": 127
     },
     {
@@ -1276,6 +1276,16 @@
       "status": "backlog",
       "body": "Hand Rune the app's own face (convert the bundled WOFF2 to TrueType at build; `App::font_url`), draw the paper's dot grid, grain and pointer light in Rune (its compositor hook) or get a see-through web canvas from Rune, render a note's markdown, measure frame times against the web renderer on the heavy board (`e2e/frames.spec.ts`), and have `build:desktop` run `rune:build` so an installed app carries it; check it in the Windows app, on macOS and on Linux (which has no WebGPU and must fall back).",
       "issue": 131
+    },
+    {
+      "id": "t3-threads-write-the-board",
+      "title": "An agent asked through T3 can read and write the board",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "agent",
+      "status": "backlog",
+      "body": "A T3 thread works in a folder with none of Foundation's tools (SPEC §7). Give each Claude-driven instance Foundation's MCP server (a crew id bound to the thread's person and board, as the crew's own runs have), so Kimi, DeepSeek or Claude through T3 can make cards in the section it stands in, aim its cursor, and bring the asker there; answer its approvals from the card (`thread.approval.respond`); keep its presence across a restart of Foundation's server. Then the crew's own Claude runs can move onto T3, and there is one list of agents.",
+      "issue": 132
     }
   ]
 }

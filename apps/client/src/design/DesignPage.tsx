@@ -23,7 +23,7 @@ import type { Plan } from "../settings/plan";
 import { SectionEmpty } from "../panels/SectionEmpty";
 import { SlackMarkView } from "../components/SlackMark";
 import { SectionCrewView, type CrewFace } from "../components/SectionCrew";
-import { AgentsPaneBody, T3BlockView, type AgentRowData, type AgentsPlace, type T3Host } from "../shell/AgentsPane";
+import { AgentsPaneBody, T3AddForm, T3BlockView, type AgentRowData, type AgentsPlace, type T3Host, type T3Preset } from "../shell/AgentsPane";
 import { MachineAskList } from "../panels/MachineView";
 import type { MachineAsk, SlackSectionState } from "@foundation/protocol";
 import { COMMANDS_GLYPH, IS_MAC, keys } from "../lib/keys";
@@ -920,7 +920,7 @@ export function DesignPage() {
         <CrewDemo />
       </Section>
 
-      <Section title="Agents in a section" note="Every section has an agent group: a paper tab that stands right above it, on its top edge, while the pointer is on the section, or always once it's pinned (the pin turns violet; a pin is this device's own). A face is an agent's initial on its own crew colour, with a ring that breathes while it works; done, it keeps its colour and sets back, with no ring; stopped is amber. The tab is drawn at screen size at any zoom, and when its section fills the view it comes down with the view instead of hiding under the top bar. A free agent that comes into the section joins the group on a spring, and leaves it when it moves on. A lead and the helpers it called in stand shoulder to shoulder and the tab says working together; separate asks stand apart and it counts the teams. Press a face to follow that agent. The last button opens the agents pane on the right, where search goes: every agent by the section it's in, what it's doing and the ask it's on, with each team held by a rule in its lead's colour. The section it was opened from comes first, in violet. At the pane's foot, this computer's agents: Foundation's own T3 instance, off until a person presses Start T3 (it's a third-party program). Running, each agent T3 has is a face with how it stands (an ok dot and its plan, amber for needs sign-in, set back on the panel well when it isn't installed) and the threads it's working on under a rule in its colour; the ones turned off in T3 are one dim line.">
+      <Section title="Agents in a section" note="Every section has an agent group: a paper tab that stands right above it, on its top edge, while the pointer is on the section, or always once it's pinned (the pin turns violet; a pin is this device's own). A face is an agent's initial on its own crew colour, with a ring that breathes while it works; done, it keeps its colour and sets back, with no ring; stopped is amber. The tab is drawn at screen size at any zoom, and when its section fills the view it comes down with the view instead of hiding under the top bar. A free agent that comes into the section joins the group on a spring, and leaves it when it moves on. A lead and the helpers it called in stand shoulder to shoulder and the tab says working together; separate asks stand apart and it counts the teams. Press a face to follow that agent. The last button opens the agents pane on the right, where search goes: every agent by the section it's in, what it's doing and the ask it's on, with each team held by a rule in its lead's colour. The section it was opened from comes first, in violet. At the pane's foot, this computer's agents: Foundation's own T3 instance, off until a person presses Start T3 (it's a third-party program). Running, each agent T3 has is a face with how it stands (an ok dot and its plan, amber for needs sign-in, set back on the panel well when it isn't installed) and the threads it's working on under a rule in its colour; the ones turned off in T3 are one dim line. The agents stand in two groups under small caps: In the cloud (what you ask goes to a service, on a plan or a key) and On this computer (a local model server: no key, nothing leaves it). Ask on a ready agent opens a composer on paper, ringed violet while it has focus: the model, a note that it runs supervised and on what, and Ask in violet, because an agent will act; the agent then joins the section's group under its own name. Its threads carry Open (T3's own page, for approvals and the transcript) and Stop. An admin adds Kimi or DeepSeek with a form on paper: which, and where it runs (two segmented controls), then the key (cloud only), the model and the address, with a line that says what a local model server answered.">
         <SectionCrewDemo />
       </Section>
 
@@ -1039,28 +1039,37 @@ function SectionCrewDemo() {
     { id: "parts", name: "Parts", at: true, teams: [team([row(wren, "Build the parts table from the STEP export"), row(tern, "Read the STEP header and list its parts"), row(lark, "Find a supplier for each part")])] },
     { id: "shop", name: "Shop floor", at: false, teams: [team([row(basalt, "Is web-box serving on port 80?", false)]), team([row(onyx, "Summarise yesterday's huddle", false)])] },
   ];
-  return (
-    <div className="sec-crew-demo">
-      <div className="oncall-row">
-        {specimens.map((sp) => (
-          <div className="oncall-cell" key={sp.label}>
+  const claudeModels = [
+    { slug: "claude-opus-5-5", name: "Claude Opus 5.5" },
+    { slug: "claude-haiku-4-5", name: "Claude Haiku 4.5" },
+  ];
   const t3Running: T3Host = {
     state: "running",
     version: "0.0.44",
     port: 15783,
     since: 0,
     agents: [
-      { id: "claudeAgent", driver: "claudeAgent", name: "Claude", enabled: true, installed: true, version: "2.1.319", state: "ready", account: "Claude Team Subscription", models: 12 },
-      { id: "codex", driver: "codex", name: "Codex", enabled: true, installed: true, version: "0.98.0", state: "sign-in", models: 0 },
-      { id: "opencode", driver: "opencode", name: "OpenCode", enabled: true, installed: false, version: null, state: "missing", message: "Could not start OpenCode", models: 0 },
-      { id: "cursor", driver: "cursor", name: "Cursor", enabled: false, installed: false, version: null, state: "off", models: 0 },
-      { id: "grok", driver: "grok", name: "Grok", enabled: false, installed: false, version: null, state: "off", models: 0 },
+      { id: "claudeAgent", driver: "claudeAgent", name: "Claude", enabled: true, installed: true, version: "2.1.319", state: "ready", account: "Claude Team Subscription", models: 12, modelList: claudeModels, where: "cloud" },
+      { id: "codex", driver: "codex", name: "Codex", enabled: true, installed: true, version: "0.98.0", state: "sign-in", models: 0, modelList: [], where: "cloud" },
+      { id: "kimi-cloud", driver: "claudeAgent", name: "Kimi", enabled: true, installed: true, version: "2.1.319", state: "ready", models: 1, modelList: [{ slug: "kimi-k3", name: "Kimi · kimi-k3" }], model: "kimi-k3", where: "cloud", added: { preset: "kimi", baseUrl: "https://api.moonshot.ai/anthropic" } },
+      { id: "deepseek-local", driver: "claudeAgent", name: "DeepSeek (local)", enabled: true, installed: true, version: "2.1.319", state: "ready", models: 1, modelList: [{ slug: "deepseek-r1:14b", name: "DeepSeek · deepseek-r1:14b" }], model: "deepseek-r1:14b", where: "local", added: { preset: "deepseek", baseUrl: "http://127.0.0.1:11434" } },
+      { id: "cursor", driver: "cursor", name: "Cursor", enabled: false, installed: false, version: null, state: "off", models: 0, modelList: [], where: "cloud" },
+      { id: "grok", driver: "grok", name: "Grok", enabled: false, installed: false, version: null, state: "off", models: 0, modelList: [], where: "cloud" },
     ],
     work: [
       { id: "t1", title: "Build the parts table from the STEP export", project: "Foundation", agent: "claudeAgent", model: "claude-opus-5-5", state: "working", updatedAt: "" },
-      { id: "t2", title: "Rim drive: tolerance stack", project: "Fans", agent: "claudeAgent", model: "claude-opus-5-5", state: "waiting", updatedAt: "" },
+      { id: "t2", title: "Rim drive: tolerance stack", project: "Fans", agent: "kimi-cloud", model: "kimi-k3", state: "waiting", updatedAt: "" },
     ],
   };
+  const t3Presets: Record<string, T3Preset> = {
+    kimi: { name: "Kimi", cloud: { baseUrl: "https://api.moonshot.ai/anthropic", model: "kimi-k3" }, local: { baseUrl: "http://127.0.0.1:11434", model: "" } },
+    deepseek: { name: "DeepSeek", cloud: { baseUrl: "https://api.deepseek.com/anthropic", model: "deepseek-v4-pro" }, local: { baseUrl: "http://127.0.0.1:11434", model: "" } },
+  };
+  return (
+    <div className="sec-crew-demo">
+      <div className="oncall-row">
+        {specimens.map((sp) => (
+          <div className="oncall-cell" key={sp.label}>
             <div className="section-card oncall-static oncall-section" style={{ width: 300, height: 84 }}>
               <SectionCrewView faces={sp.faces} pinned={!!sp.pinned} shown sectionName={sp.name} />
               <div className="section-header" style={{ height: 42 }}>
@@ -1084,9 +1093,19 @@ function SectionCrewDemo() {
         </div>
       </div>
       <div className="adapt-row">
-        <div className="agents-pane-specimen is-short" style={{ width: 360 }}>
+        <div className="agents-pane-specimen is-tall" style={{ width: 360 }}>
           <div className="agents-scroll">
-            <T3BlockView host={t3Running} viewer={false} />
+            <T3BlockView host={t3Running} viewer={false} admin section={{ id: "parts", name: "Parts" }} askingStart="claudeAgent" />
+          </div>
+        </div>
+        <div className="agents-pane-specimen is-tall" style={{ width: 340 }}>
+          <div className="agents-scroll">
+            <T3AddForm presets={t3Presets} local={null} start={{ preset: "kimi", where: "cloud" }} />
+          </div>
+        </div>
+        <div className="agents-pane-specimen is-tall" style={{ width: 340 }}>
+          <div className="agents-scroll">
+            <T3AddForm presets={t3Presets} local={{ baseUrl: "http://127.0.0.1:11434", up: true, models: ["deepseek-r1:14b", "qwen3-coder:30b"] }} start={{ preset: "deepseek", where: "local" }} />
           </div>
         </div>
         <div className="agents-pane-specimen is-short" style={{ width: 300 }}>

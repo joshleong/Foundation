@@ -422,6 +422,150 @@ body.is-connecting .sec-crew,
   font: 400 var(--text-11) / 1.4 var(--font-sans);
 }
 
+/* the two places an agent can run */
+.t3-where {
+  margin: var(--space-4) 0 var(--space-1);
+  color: var(--color-dim);
+  font: 600 var(--text-11) / 1.2 var(--font-sans);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.t3-head-acts {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-1);
+}
+.t3-agent-top {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+}
+.t3-agent-acts {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+.t3-work-acts {
+  margin-left: auto;
+  display: flex;
+  flex-shrink: 0;
+}
+.t3-work {
+  align-items: center;
+}
+.t3-ask {
+  grid-column: 1 / -1;
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-card);
+  background: var(--color-raise);
+  box-shadow: 0 0 0 1px var(--color-line);
+}
+.t3-ask:focus-within {
+  box-shadow: 0 0 0 1px var(--color-agent);
+}
+.t3-ask-text {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--color-frost);
+  font: 400 var(--text-13) / 1.45 var(--font-sans);
+  resize: vertical;
+  outline: none;
+}
+.t3-ask-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  min-width: 0;
+}
+.t3-ask-model,
+.t3-field select,
+.t3-field input {
+  min-width: 0;
+  height: 26px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-card);
+  background: var(--color-panel);
+  color: var(--color-frost);
+  font: 400 var(--text-12) / 1 var(--font-sans);
+  outline: none;
+}
+.t3-field select:focus,
+.t3-field input:focus,
+.t3-ask-model:focus {
+  box-shadow: 0 0 0 1px var(--color-pulse);
+}
+.t3-ask-note {
+  min-width: 0;
+  color: var(--color-dim);
+  font: 400 var(--text-11) / 1.2 var(--font-sans);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.t3-ask-send {
+  margin-left: auto;
+  flex-shrink: 0;
+  height: 26px;
+}
+.t3-add-open {
+  margin: var(--space-4) 0 0 calc(var(--space-3) * -1);
+}
+.t3-add {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border-radius: var(--radius-pane);
+  background: var(--color-raise);
+  box-shadow: 0 0 0 1px var(--color-line);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.t3-add-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+/* each choice gets the form's width: two labels side by side, never wrapped */
+.t3-add-row .pane-seg {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  margin: 0;
+}
+.t3-add-row .pane-seg-btn {
+  white-space: nowrap;
+}
+.t3-add-words,
+.t3-add-note {
+  margin: 0;
+  color: var(--color-mist);
+  font: 400 var(--text-12) / 1.5 var(--font-sans);
+}
+.t3-add-note {
+  color: var(--color-dim);
+  font-size: var(--text-11);
+}
+.t3-field {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-mist);
+  font: 500 var(--text-12) / 1 var(--font-sans);
+}
+.t3-add-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
 /* ---------- on #/design ---------- */
 
 .sec-crew-demo {
@@ -435,6 +579,9 @@ body.is-connecting .sec-crew,
 }
 .agents-pane-specimen.is-short {
   height: 300px;
+}
+.agents-pane-specimen.is-tall {
+  height: 560px;
 }
 .agents-pane-specimen {
   position: relative;
