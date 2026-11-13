@@ -1,7 +1,7 @@
 {
   "about": "Foundation's plan as a kanban. GitHub issues are where the team moves cards; this file is the local copy the app shows in Settings → Plan. `npm run plan:push` writes it to GitHub, `npm run plan:pull` reads the issues back. Columns: needs-you (waits on a person: a key, an install, a decision), backlog, next, doing, review (built, waiting to merge or to be checked by a person), done.",
   "repo": "joshleong/Foundation",
-  "syncedAt": "2026-11-13T02:37:51.518Z",
+  "syncedAt": "2026-11-13T02:43:50.669Z",
   "columns": [
     {
       "id": "needs-you",
@@ -1179,12 +1179,12 @@
     },
     {
       "id": "agent-consent-and-tokens",
-      "title": "Decide: how Claude signs in inside a machine, and what lets a posted agent keep working",
+      "title": "Decide: what lets a posted agent keep working (sign-in is decided)",
       "kind": "hookup",
       "milestone": "crew",
       "area": "agent",
       "status": "needs-you",
-      "body": "Two calls before agents live in sections for good (Josh, 2026-11-12). (1) Sign-in inside a machine: a long-lived token per subscription from `claude setup-token`, stored encrypted and passed in only when a run starts (recommended), or mounting `~/.claude` (breaks no-host-mounts). (2) The invariant says nothing that spends money or runs code starts without a person: is posting an agent to a section, from a browser session, the consent for it to keep working inside that section and its machine until someone pauses it (recommended), or does every turn need a press?",
+      "body": "**Sign-in inside a machine: decided (Josh, 2026-11-12).** Offer both, the subscription first, and keep them apart as separate instances of Claude. (a) A Claude folder on this computer, signed in to a subscription, mounted into the machine (\"Mount ~/.claude\"). (b) A token or key, passed in only when a run starts. A machine's agent uses (a) when there is one and (b) otherwise, unless a person picks. Each is its own Claude instance: its own folder, sign-in, history and name in Settings, never two sharing one folder. Found the same day: `~/.claude` here is 2.1 GB and holds every project's transcripts and history beside `.credentials.json`, so the default is a folder of its own per instance (`CLAUDE_CONFIG_DIR`), signed in once by a person; mounting the whole of `~/.claude` stays a choice a person makes on the card, said plainly. It breaks no-host-mounts for that one folder only. Untested: Docker and Kiri were both stopped, so no mount has been tried on either. **Still open:** the invariant says nothing that spends money or runs code starts without a person. Is posting an agent to a section, from a browser session, the consent for it to keep working inside that section and its machine until someone pauses it (recommended), or does every turn need a press?",
       "issue": 122
     },
     {
@@ -1204,7 +1204,7 @@
       "milestone": "crew",
       "area": "machines",
       "status": "backlog",
-      "body": "A machine image with Claude Code installed and a repo cloned inside; the server runs `claude -p --output-format stream-json` in it through the Engine API exec, with Foundation's MCP tools attached, and streams it into the session view. Each one is a new instance with its own disk, started by a person. Kiri's containers share one small VM (WSL 2 on Windows): they separate our own agents, they don't contain hostile code. Needs agent-consent-and-tokens and posted-agents.",
+      "body": "A machine image with Claude Code installed and a repo cloned inside; the server runs `claude -p --output-format stream-json` in it through the Engine API exec, with Foundation's MCP tools attached, and streams it into the session view. Each one is a new instance with its own disk, started by a person. Sign-in (decided 2026-11-12, #122): the machine's card offers both, a Claude folder signed in to a subscription (mounted) first, then a token or key; each is a separate Claude instance with its own folder. Settings → Services lists the instances. Kiri's containers share one small VM (WSL 2 on Windows): they separate our own agents, they don't contain hostile code. To find out first: whether Kiri and Docker Desktop both bind a Windows folder into a machine, and whether Claude Code in Linux reads a sign-in made on Windows. Posted agents (posted-agents) wait on the consent call in #122.",
       "issue": 124
     }
   ]
