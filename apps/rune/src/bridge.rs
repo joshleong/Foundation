@@ -21,6 +21,21 @@ pub enum Event<'a> {
     Edit { id: Option<&'a str> },
     /// "+ Section" in an empty cell.
     CreateSection { c: u32, r: u32 },
+    /// A button on a section's toolbar (or its "n more" pill).
+    SectionTool { id: &'a str, tool: &'a str },
+    /// A button on a card's bar.
+    CardTool { id: &'a str, tool: &'a str },
+    /// The remove confirmation's answer.
+    Confirm { id: &'a str, yes: bool },
+    /// A section's new name.
+    Rename { id: &'a str, name: &'a str },
+    /// A section dragged by its header: the pointer in window points, its travel in world points,
+    /// and "move", "drop" or "cancel".
+    SectionDrag { id: &'a str, x: f32, y: f32, dx: f32, dy: f32, phase: &'a str },
+    /// A card's size while its corner is dragged.
+    Resize { id: &'a str, w: f32, h: f32 },
+    /// A right-click on a section's paper, in window points (`None`: on the board, where there's no menu).
+    Menu { id: Option<&'a str>, x: f32, y: f32 },
 }
 
 thread_local! {

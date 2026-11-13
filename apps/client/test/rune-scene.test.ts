@@ -10,6 +10,8 @@ import { applyRemote, getState, objectWorldRect, sectionRestRect, setActiveObjec
 import { SCENE_VERSION, TOKEN_VARS, buildScene, hitWorld, isIsland, type SceneTokens } from "../src/rune/scene";
 import { workbook } from "../src/engine/workbook";
 import { PARITY, PARITY_WORD, parityCounts } from "../src/rune/parity";
+import { cardChrome, runCardTool, runSectionTool, sectionTools } from "../src/rune/tools";
+import { requestRemoveSection, setSectionDragTarget } from "../src/state/store";
 import { readFileSync } from "node:fs";
 
 const sec = (id: string, c0: number, c1 = c0): Section => ({ id, name: id, c0, r0: 0, c1, r1: 0 });
@@ -139,6 +141,52 @@ test("a viewer's board is handed over read-only, and an image only by an address
   // one Rune can't fetch isn't handed over at all: it's the web's
   assert.equal(card(() => ""), undefined);
   applyRemote({ media: {} });
+});
+
+test("a section's toolbar is the web toolbar's, in its groups; a viewer has none", () => {
+  const st = getState();
+  const tools = sectionTools(st, st.sections.B, false);
+  assert.deepEqual(tools.map((t) => t.id), ["app", "table", "map", "note", "upload", "split-h", "split-v", "open", "ask", "remove"]);
+  // a hairline before each group but the first
+  assert.deepEqual(tools.filter((t) => t.gap).map((t) => t.id), ["split-h", "ask"]);
+  assert.equal(tools.find((t) => t.id === "ask")!.tone, "agent");
+  assert.equal(tools.find((t) => t.id === "remove")!.tone, "danger");
+  assert.deepEqual(sectionTools(st, st.sections.B, true), []);
+  const viewer = buildScene(st, { ...opts, readOnly: true });
+  assert.ok(viewer.sections.every((x) => x.tools.length === 0 && !x.movable));
+  assert.ok(viewer.cards.every((c) => c.chrome === "" && !c.resizable));
+});
+
+test("a tool does what the web's does: a note is added, a section is split, removing asks first", () => {
+  const before = Object.keys(getState().notes).length;
+  runSectionTool("B", "note");
+  assert.equal(Object.keys(getState().notes).length, before + 1);
+  const added = Object.values(getState().notes).find((n) => !["a1", "a2", "b1"].includes(n.id))!;
+  // the note's bar: set it free, dock it again, remove it
+  assert.deepEqual(cardChrome(added, false), { chrome: "bar", tools: [{ id: "float", icon: "float", tone: "", gap: false }, { id: "remove", icon: "remove", tone: "", gap: false }], resizable: true });
+  runCardTool(added.id, "float");
+  assert.equal(getState().notes[added.id].float, true);
+  assert.equal(cardChrome(getState().notes[added.id], false).tools[0].id, "dock");
+  runCardTool(added.id, "remove");
+  assert.equal(getState().notes[added.id], undefined);
+
+  // remove asks: the scene carries the question until it's answered
+  runSectionTool("B", "remove");
+  assert.equal(getState().pendingRemoval, "B");
+  assert.match(buildScene(getState(), opts).sections.find((x) => x.id === "B")!.confirm, /^Remove B and \d+ items\?$/);
+  requestRemoveSection(null);
+  assert.equal(buildScene(getState(), opts).sections.find((x) => x.id === "B")!.confirm, "");
+});
+
+test("a section being dragged shows where it would land: a cell, or a band along the board's edge", () => {
+  setSectionDragTarget({ sectionId: "A", c: 2, r: 0 });
+  assert.deepEqual(buildScene(getState(), opts).drop, { x: 1560 * 2 + 6, y: 6, w: 1560 - 12, h: 1160 - 12, label: "" });
+  setSectionDragTarget({ sectionId: "A", c: -1, r: -1, edge: "right" });
+  const band = buildScene(getState(), opts).drop!;
+  assert.equal(band.x, 1560 * 3 + 12);
+  assert.equal(band.label, "Append along the right of the board");
+  setSectionDragTarget(null);
+  assert.equal(buildScene(getState(), opts).drop, null);
 });
 
 test("the scene's shape and the Rust reader agree on a version and on the tokens", () => {

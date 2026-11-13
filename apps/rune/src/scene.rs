@@ -10,7 +10,7 @@ use rune::Color;
 use serde::Deserialize;
 
 /// Bumped when the shape changes; the client refuses a module that speaks another version.
-pub const SCENE_VERSION: u32 = 2;
+pub const SCENE_VERSION: u32 = 3;
 
 /// sRGB, straight alpha, 0..1: what CSS computes a token to.
 pub type Rgba = [f32; 4];
@@ -43,6 +43,31 @@ pub struct Scene {
     pub sections: Vec<Section>,
     pub empties: Vec<Empty>,
     pub cards: Vec<Card>,
+    /// Where a section being dragged would land: a cell, or a band along an edge of the board.
+    pub drop: Option<DropTarget>,
+}
+
+#[derive(Deserialize, Clone, Default, PartialEq, Debug)]
+#[serde(default)]
+pub struct DropTarget {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    pub label: String,
+}
+
+/// A button on a section's toolbar or a card's bar. The client decides which a section or card
+/// has and what each does; Rune draws `icon` and says which was pressed.
+#[derive(Deserialize, Clone, Default, PartialEq, Debug)]
+#[serde(default)]
+pub struct Tool {
+    pub id: String,
+    pub icon: String,
+    /// "" (ink), "agent" (violet: an agent will act) or "danger".
+    pub tone: String,
+    /// Starts a new group: a hairline before it.
+    pub gap: bool,
 }
 
 /// The floor: how much of each side the panes take. Cards stop there, cut clean.
@@ -115,6 +140,14 @@ pub struct Section {
     /// "3", or "▦ 4" for a section that is a grid of sections.
     pub count: String,
     pub active: bool,
+    /// Its toolbar, shown while the pointer is on it (none for a viewer).
+    pub tools: Vec<Tool>,
+    /// It can be dragged to another cell (not an opened section filling its grid, not for a viewer).
+    pub movable: bool,
+    /// The question the remove confirmation asks, while it's asking.
+    pub confirm: String,
+    /// How many of its cards don't fit (it offers Expand).
+    pub more: u32,
 }
 
 #[derive(Deserialize, Clone, Default, PartialEq, Debug)]
@@ -171,6 +204,12 @@ pub struct Card {
     /// The crew agent that made it, when one did.
     pub agent: String,
     pub active: bool,
+    /// The section it's in (it travels with it while the section is dragged).
+    pub section: String,
+    /// Its chrome on hover: "bar" (a note: grip, title, tools), "icons" (an image) or "".
+    pub chrome: String,
+    pub tools: Vec<Tool>,
+    pub resizable: bool,
     /// A table's size, and the cells that hold something.
     pub cols: u32,
     pub rows: u32,

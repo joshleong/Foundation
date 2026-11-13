@@ -7,10 +7,10 @@
 
 use std::collections::HashMap;
 
-use rune::{Cursor, Cx, Drag, El, Family, Image, ImageCache, Key, KeyEvent, Live, Phase, TextEdit, TextStyle, Tx, col, el, row, text, text_input};
+use rune::{Cursor, Cx, Drag, El, Family, Image, ImageCache, Key, KeyEvent, Live, Phase, PointerPress, Shape, TextEdit, TextStyle, Tx, canvas, col, el, row, text, text_input};
 
 use crate::bridge::{Event, emit};
-use crate::scene::{Card, Empty, Kind, Scene, Section, Tokens, color, tint};
+use crate::scene::{Card, DropTarget, Empty, Kind, Rgba, Scene, Section, Tokens, Tool, color, tint};
 
 // DESIGN.md §4: radii, nothing in between
 const R_PAPER: f32 = 3.0;
@@ -41,6 +41,11 @@ const HEADER_H: f32 = 52.0;
 const ROWNUM_W: f32 = 44.0;
 const COLHEAD_H: f32 = 32.0;
 const AGENT: TextStyle = TextStyle::new(11.0, 600.0);
+const RENAME: TextStyle = TextStyle::new(13.0, 700.0);
+const CONFIRM: TextStyle = TextStyle::new(12.5, 400.0);
+const BUTTON: TextStyle = TextStyle::new(12.0, 600.0);
+const BAR_TITLE: TextStyle = TextStyle::new(12.0, 650.0);
+const DROP: TextStyle = TextStyle::new(13.0, 600.0);
 
 /// A card following the pointer, and where it has got to (world points from its resting place).
 pub struct Held {
@@ -52,6 +57,16 @@ pub struct Held {
     pub dropped: bool,
 }
 
+/// A section following the pointer by its header, and how far it has travelled (world points).
+pub struct SectionHeld {
+    pub id: String,
+    pub dx: f32,
+    pub dy: f32,
+    pub moved: bool,
+    /// let go: it waits there until the store's answer arrives
+    pub dropped: bool,
+}
+
 pub struct Board {
     pub scene: Scene,
     pub pan: Live<[f32; 2]>,
@@ -60,13 +75,22 @@ pub struct Board {
     /// the note being written, and its field
     pub editing: Option<String>,
     pub edit: TextEdit,
+    pub section_held: Option<SectionHeld>,
+    /// the section being renamed, and its field
+    pub renaming: Option<String>,
+    pub name_edit: TextEdit,
+    /// the card whose corner is held, and the size it had when it was pressed
+    pub resizing: Option<(String, f32, f32)>,
     pub cache: Option<ImageCache>,
     pub images: HashMap<String, Image>,
 }
 
 impl Board {
     pub fn new(pan: Live<[f32; 2]>, zoom: Live<f32>) -> Self {
-        Board { scene: Scene::default(), pan, zoom, held: None, editing: None, edit: TextEdit::new(""), cache: None, images: HashMap::new() }
+        Board {
+            scene: Scene::default(), pan, zoom, held: None, editing: None, edit: TextEdit::new(""), section_held: None, renaming: None,
+            name_edit: TextEdit::new(""), resizing: None, cache: None, images: HashMap::new(),
+        }
     }
 
     /// The store changed: take its board. A note being written keeps its own text (the field
@@ -74,6 +98,14 @@ impl Board {
     pub fn set_scene(&mut self, scene: Scene) {
         if self.held.as_ref().is_some_and(|h| h.dropped) {
             self.held = None;
+        }
+        if self.section_held.as_ref().is_some_and(|h| h.dropped) {
+            self.section_held = None;
+        }
+        if let Some(id) = &self.renaming
+            && !scene.sections.iter().any(|s| &s.id == id)
+        {
+            self.renaming = None;
         }
         if let Some(cache) = &self.cache {
             for card in scene.cards.iter().filter(|c| c.kind == Kind::Image && !c.src.is_empty()) {
@@ -100,9 +132,34 @@ impl Board {
         emit(Event::Edit { id: Some(id) });
     }
 
+    /// Whatever field is open goes back to rest: a note keeps what was typed (it's already on
+    /// the board), and a section takes its new name, as a field does when focus leaves it.
     pub fn end_edit(&mut self) {
         if self.editing.take().is_some() {
             self.edit.focused = false;
+            emit(Event::Edit { id: None });
+        }
+        if let Some(id) = self.renaming.take() {
+            self.name_edit.focused = false;
+            emit(Event::Rename { id: &id, name: &self.name_edit.text });
+            emit(Event::Edit { id: None });
+        }
+    }
+
+    pub fn begin_rename(&mut self, id: &str) {
+        let Some(sec) = self.scene.sections.iter().find(|s| s.id == id) else { return };
+        if self.scene.read_only {
+            return;
+        }
+        self.name_edit = TextEdit::new(sec.name.clone());
+        self.name_edit.focused = true;
+        self.renaming = Some(id.to_owned());
+        emit(Event::Edit { id: Some(id) });
+    }
+
+    pub fn cancel_rename(&mut self) {
+        if self.renaming.take().is_some() {
+            self.name_edit.focused = false;
             emit(Event::Edit { id: None });
         }
     }
@@ -118,21 +175,35 @@ pub fn view(b: &Board, _: &mut Cx<Board>) -> El {
     for e in &sc.empties {
         world = world.child(empty_cell(e, t, sc.read_only));
     }
-    for s in &sc.sections {
-        world = world.child(section(s, t));
-    }
-    // the held card goes last, so it's over everything it passes
+    // a section dragged by its header travels with its cards, over everything it passes
+    let moving = b.section_held.as_ref().filter(|h| h.moved).map(|h| h.id.as_str());
     let held = b.held.as_ref().map(|h| h.id.as_str());
-    for c in sc.cards.iter().filter(|c| Some(c.id.as_str()) != held) {
+    for s in sc.sections.iter().filter(|s| Some(s.id.as_str()) != moving) {
+        world = world.child(section(s, b));
+    }
+    for c in sc.cards.iter().filter(|c| Some(c.id.as_str()) != held && Some(c.section.as_str()) != moving) {
         world = world.child(card(c, b));
     }
+    if let Some(d) = &sc.drop {
+        world = world.child(drop_target(d, t));
+    }
+    if let Some(s) = moving.and_then(|id| sc.sections.iter().find(|s| s.id == id)) {
+        world = world.child(section(s, b));
+        for c in sc.cards.iter().filter(|c| c.section == s.id && Some(c.id.as_str()) != held) {
+            world = world.child(card(c, b));
+        }
+    }
+    // the held card goes last
     if let Some(c) = held.and_then(|id| sc.cards.iter().find(|c| c.id == id)) {
         world = world.child(card(c, b));
     }
 
     // the cards stop where the floor is (the top bar, an open pane), cut clean
     let clip = el().key("floor").pin(Some(v.left), Some(v.top), Some(v.right), Some(0.0)).clip_rounded(0.0).child(world);
-    let mut root = el().key("board").w_full().h_full().child(clip);
+    // Every right-click is Rune's to answer, so the browser's own menu never opens over the board:
+    // a section says which it was (the client opens its menu there), anything else has none.
+    let mut root = el().key("board").w_full().h_full().child(clip)
+        .on_secondary_press(|_: &mut Board, p: PointerPress, _: &mut Tx| emit(Event::Menu { id: None, x: p.x, y: p.y }));
     if sc.paper {
         root = root.fill(color(t.void));
     }
@@ -177,15 +248,149 @@ fn empty_cell(e: &Empty, t: &Tokens, read_only: bool) -> El {
     cell
 }
 
-/// A section: paper on the desk, no bar; its name, coordinates and count sit on the paper.
-fn section(s: &Section, t: &Tokens) -> El {
-    let id = s.id.clone();
+/// The ink a tool's tone asks for.
+fn tone(t: &Tokens, tool: &Tool, rest: Rgba) -> Rgba {
+    match tool.tone.as_str() {
+        "agent" => t.agent,
+        "danger" => t.bad,
+        _ => rest,
+    }
+}
+
+/// A 14 pt line icon, drawn (the web's glyphs are symbols Rune's face doesn't carry).
+fn icon(name: &str, c: rune::Color) -> El {
+    let w = 1.4;
+    let sq = || vec![[2.0, 2.0], [12.0, 2.0], [12.0, 12.0], [2.0, 12.0], [2.0, 2.0]];
+    let sh = Shape::new();
+    let sh = match name {
+        "app" => sh.stroke(sq(), w, c).stroke(vec![[7.0, 2.0], [7.0, 7.0], [12.0, 7.0]], w, c),
+        "table" => sh.stroke(sq(), w, c).stroke(vec![[7.0, 2.0], [7.0, 12.0]], w, c).stroke(vec![[2.0, 7.0], [12.0, 7.0]], w, c),
+        "map" => {
+            let ring: Vec<[f32; 2]> = (0..=16).map(|i| { let a = i as f32 * std::f32::consts::TAU / 16.0; [7.0 + 5.0 * a.cos(), 7.0 + 5.0 * a.sin()] }).collect();
+            sh.stroke(ring, w, c).stroke(vec![[6.5, 7.0], [7.5, 7.0]], 2.4, c)
+        }
+        "note" => sh.stroke(sq(), w, c).stroke(vec![[4.5, 5.0], [9.5, 5.0]], w, c).stroke(vec![[4.5, 7.0], [9.5, 7.0]], w, c).stroke(vec![[4.5, 9.0], [8.0, 9.0]], w, c),
+        "upload" => sh.stroke(vec![[7.0, 10.0], [7.0, 2.5]], w, c).stroke(vec![[4.0, 5.5], [7.0, 2.5], [10.0, 5.5]], w, c).stroke(vec![[3.0, 12.0], [11.0, 12.0]], w, c),
+        "split-h" => sh.stroke(sq(), w, c).stroke(vec![[7.0, 2.0], [7.0, 12.0]], w, c),
+        "split-v" => sh.stroke(sq(), w, c).stroke(vec![[2.0, 7.0], [12.0, 7.0]], w, c),
+        "open" | "frame" => sh.stroke(vec![[3.0, 11.0], [11.0, 3.0]], w, c).stroke(vec![[7.0, 3.0], [11.0, 3.0], [11.0, 7.0]], w, c).stroke(vec![[3.0, 7.0], [3.0, 11.0], [7.0, 11.0]], w, c),
+        "up" => sh.stroke(vec![[3.0, 3.0], [11.0, 11.0]], w, c).stroke(vec![[3.0, 7.0], [3.0, 3.0], [7.0, 3.0]], w, c).stroke(vec![[11.0, 7.0], [11.0, 11.0], [7.0, 11.0]], w, c),
+        "ask" => sh.fill(vec![[7.0, 1.0], [8.6, 5.4], [13.0, 7.0], [8.6, 8.6], [7.0, 13.0], [5.4, 8.6], [1.0, 7.0], [5.4, 5.4]], c),
+        "remove" => sh.stroke(vec![[3.5, 3.5], [10.5, 10.5]], w, c).stroke(vec![[10.5, 3.5], [3.5, 10.5]], w, c),
+        "unhost" => sh.stroke(sq(), w, c).stroke(vec![[2.0, 7.0], [7.0, 7.0], [7.0, 12.0]], w, c),
+        "fill" => sh.stroke(sq(), w, c).stroke(vec![[4.5, 4.5], [9.5, 4.5], [9.5, 9.5], [4.5, 9.5], [4.5, 4.5]], w, c),
+        // a floating card can be docked into the flow (a grid), a docked one set free (a cross)
+        "dock" => sh.stroke(vec![[5.0, 2.0], [5.0, 12.0]], w, c).stroke(vec![[9.0, 2.0], [9.0, 12.0]], w, c).stroke(vec![[2.0, 5.0], [12.0, 5.0]], w, c).stroke(vec![[2.0, 9.0], [12.0, 9.0]], w, c),
+        "float" => sh.stroke(vec![[7.0, 2.0], [7.0, 12.0]], w, c).stroke(vec![[2.0, 7.0], [12.0, 7.0]], w, c).stroke(vec![[5.5, 3.5], [7.0, 2.0], [8.5, 3.5]], w, c).stroke(vec![[5.5, 10.5], [7.0, 12.0], [8.5, 10.5]], w, c),
+        _ => sh.stroke(vec![[6.5, 7.0], [7.5, 7.0]], 2.4, c),
+    };
+    canvas(sh.view_box(14.0, 14.0)).size(14.0, 14.0)
+}
+
+/// One toolbar button: 26 × 24, a tint under the pointer, its icon in the tone it asks for.
+fn tool_button(t: &Tokens, tool: &Tool, w: f32, h: f32, rest: Rgba) -> El {
+    let hover = if tool.tone == "danger" { tint(t.bad, 12.0) } else { tint(t.frost, 8.0) };
+    el().key(format!("tool-{}", tool.id)).size(w, h).center().radius(R_PAPER).hover(hover).press_scale(0.92).cursor(Cursor::Pointer)
+        .child(icon(&tool.icon, color(tone(t, tool, rest))))
+}
+
+/// Where a dragged section would land: the cell it's over, or a band along an edge of the board.
+fn drop_target(d: &DropTarget, t: &Tokens) -> El {
+    let mut target = el().key("drop").absolute(d.x, d.y).size(d.w, d.h).center().radius(R_PANE).fill(tint(t.pulse, 7.0)).border(2.5, color(t.pulse)).inert();
+    if !d.label.is_empty() {
+        target = target.child(text(d.label.clone()).font(DROP).color(color(t.pulse)));
+    }
+    target
+}
+
+/// What a press or a drag on a section's header does: it selects the section; dragged past
+/// 7 pt it carries the section (the client says where it would land, and puts it there);
+/// a press on the name that never moved opens it for renaming.
+fn header_drag(id: String, on_name: bool, movable: bool) -> impl Fn(&mut Board, &mut Drag, &mut Tx) + 'static {
+    move |b: &mut Board, d: &mut Drag, tx: &mut Tx| match d.phase {
+        Phase::Down => {
+            b.end_edit();
+            emit(Event::Section { id: &id });
+            b.section_held = Some(SectionHeld { id: id.clone(), dx: 0.0, dy: 0.0, moved: false, dropped: false });
+        }
+        Phase::Move => {
+            let zoom = b.zoom.get().max(0.01);
+            let [x, y] = d.window_point();
+            if let Some(h) = b.section_held.as_mut().filter(|h| h.id == id && movable) {
+                h.moved |= d.dx.hypot(d.dy) > 7.0;
+                if h.moved {
+                    (h.dx, h.dy) = (d.dx / zoom, d.dy / zoom);
+                    tx.instant();
+                    emit(Event::SectionDrag { id: &id, x, y, dx: h.dx, dy: h.dy, phase: "move" });
+                }
+            }
+        }
+        Phase::Up => {
+            let [x, y] = d.window_point();
+            let Some(h) = b.section_held.as_mut().filter(|h| h.id == id) else { return };
+            let (moved, dx, dy) = (h.moved, h.dx, h.dy);
+            if moved {
+                // it waits where it was let go until the client has put it somewhere (or sent it back)
+                h.dropped = true;
+                emit(Event::SectionDrag { id: &id, x, y, dx, dy, phase: if d.cancelled() { "cancel" } else { "drop" } });
+            } else {
+                b.section_held = None;
+                if on_name {
+                    b.begin_rename(&id);
+                }
+            }
+        }
+    }
+}
+
+/// A section: paper on the desk, no bar; its name, coordinates and count sit on the paper, and
+/// its tools wait in the top-right corner until the pointer is on it.
+fn section(s: &Section, b: &Board) -> El {
+    let t = &b.scene.tokens;
+    let read_only = b.scene.read_only;
+    let (dx, dy) = b.section_held.as_ref().filter(|h| h.id == s.id && h.moved).map_or((0.0, 0.0), |h| (h.dx, h.dy));
     let lift = if s.active { (6.0, 9.0, 14.0, 44.0) } else { (4.0, 5.0, 10.0, 30.0) };
-    let header = row().key("header").absolute(0.0, 0.0).w_full().h(SECTION_HEADER).center_y().gap(8.0).pl(10.0).pr(8.0)
-        .child(el().px(6.0).py(3.0).child(text(s.name.clone()).font(NAME).color(color(t.frost)).truncate()))
-        .child(el().px(6.0).py(2.0).radius(R_PAPER).fill(tint(t.moss, 9.0)).child(text(s.coords.clone()).font(COORDS).color(color(t.moss))))
-        .child(el().min_w(18.0).h(18.0).px(5.0).center().radius(R_PILL).fill(color(t.panel)).child(text(s.count.clone()).font(COUNT).color(color(t.mist))));
-    el().key(format!("sec-{}", s.id)).absolute(s.x, s.y).size(s.w, s.h).radius(R_PANE)
+
+    let name = if b.renaming.as_deref() == Some(s.id.as_str()) {
+        text_input(&b.name_edit, RENAME).key("rename").single_line().color(color(t.frost)).caret(color(t.pulse), tint(t.pulse, 24.0))
+            .w(160.0).px(6.0).py(2.0).radius(R_CARD).fill(color(t.raise)).border(1.5, color(t.pulse))
+            .on_edit(|b: &mut Board| &mut b.name_edit)
+            .on_submit(|b: &mut Board, _: &mut Tx| b.end_edit())
+            .on_input_key(|b: &mut Board, ev: &KeyEvent, _: &mut Tx| {
+                let esc = ev.key == Key::Escape;
+                if esc {
+                    b.cancel_rename();
+                }
+                esc
+            })
+    } else {
+        let label = el().key("name").px(6.0).py(3.0).radius(R_CARD).child(text(s.name.clone()).font(NAME).color(color(t.frost)).truncate());
+        if read_only { label } else { label.hover(tint(t.frost, 5.0)).on_drag(header_drag(s.id.clone(), true, s.movable)) }
+    };
+    let mut header = row().key("header").absolute(0.0, 0.0).w_full().h(SECTION_HEADER).center_y().gap(8.0).pl(10.0).pr(8.0).cursor(Cursor::Grab)
+        .child(name)
+        .child(el().px(6.0).py(2.0).radius(R_PAPER).fill(tint(t.moss, 9.0)).child(text(s.coords.clone()).font(COORDS).color(color(t.moss))));
+    if !s.count.is_empty() {
+        header = header.child(el().min_w(18.0).h(18.0).px(5.0).center().radius(R_PILL).fill(color(t.panel)).child(text(s.count.clone()).font(COUNT).color(color(t.mist))));
+    }
+    if !s.tools.is_empty() {
+        let mut bar = row().key("tools").h(30.0).px(4.0).center_y().gap(1.0).radius(R_CARD).fill(tint(t.raise, 92.0)).border(1.0, color(t.line))
+            .shadow(4.0, 12.0, tint(t.frost, 10.0)).group_opacity(0.0, 1.0);
+        for (i, tool) in s.tools.iter().enumerate() {
+            if tool.gap && i > 0 {
+                bar = bar.child(el().size(1.0, 16.0).mx(3.0).fill(color(t.line)));
+            }
+            let (id, which) = (s.id.clone(), tool.id.clone());
+            bar = bar.child(tool_button(t, tool, 26.0, 24.0, t.mist).on_press(move |_: &mut Board| emit(Event::SectionTool { id: &id, tool: &which })));
+        }
+        header = header.child(el().grow(1.0)).child(bar);
+    }
+    if !read_only {
+        header = header.on_drag(header_drag(s.id.clone(), false, s.movable));
+    }
+
+    let id = s.id.clone();
+    let mut card = el().key(format!("sec-{}", s.id)).absolute(s.x + dx, s.y + dy).size(s.w, s.h).radius(R_PANE).hover_group()
         .fill(tint(t.raise, 72.0))
         .border(1.0, color(if s.active { t.dim } else { t.line_strong }))
         .shadow(1.0, 2.0, tint(t.frost, lift.0))
@@ -194,7 +399,42 @@ fn section(s: &Section, t: &Tokens) -> El {
         .on_press_tx(move |b: &mut Board, _: &mut Tx| {
             b.end_edit();
             emit(Event::Section { id: &id });
-        })
+        });
+    if !read_only {
+        let id = s.id.clone();
+        card = card.on_secondary_press(move |b: &mut Board, p: PointerPress, _: &mut Tx| {
+            b.end_edit();
+            emit(Event::Menu { id: Some(&id), x: p.x, y: p.y });
+        });
+    }
+    if s.more > 0 {
+        let id = s.id.clone();
+        card = card.child(
+            row().key("more").pin(None, None, Some(12.0), Some(12.0)).h(28.0).px(12.0).center_y().gap(6.0).radius(R_PILL).fill(color(t.raise)).border(1.0, color(t.line))
+                .shadow(4.0, 12.0, tint(t.frost, 10.0)).press_scale(0.97).cursor(Cursor::Pointer)
+                .child(text(format!("{} more", s.more)).font(COUNT.tracking(0.0)).color(color(t.mist)))
+                .child(icon("open", color(t.pulse)))
+                .child(text("Expand").font(BUTTON).color(color(t.mist)))
+                .on_press(move |_: &mut Board| emit(Event::SectionTool { id: &id, tool: "open" })),
+        );
+    }
+    if !s.confirm.is_empty() {
+        let answer = |yes: bool| {
+            let id = s.id.clone();
+            let (fill, ink, line) = if yes { (color(t.bad), color(t.void), color(t.bad)) } else { (color(t.raise), color(t.mist), color(t.line_strong)) };
+            el().key(if yes { "yes" } else { "no" }).px(12.0).py(5.0).radius(R_CARD).fill(fill).border(1.0, line).press_scale(0.94).cursor(Cursor::Pointer)
+                .child(text(if yes { "Remove" } else { "Cancel" }).font(BUTTON).color(ink))
+                .on_press(move |_: &mut Board| emit(Event::Confirm { id: &id, yes }))
+        };
+        card = card.child(
+            row().key("confirm").pin(None, Some(48.0), Some(10.0), None).center_y().gap(10.0).px(12.0).py(10.0).radius(R_CARD).fill(color(t.raise)).border(1.0, color(t.line_strong))
+                .shadow(14.0, 44.0, tint(t.frost, 16.0))
+                .child(text(s.confirm.clone()).font(CONFIRM).color(color(t.mist)))
+                .child(answer(true))
+                .child(answer(false)),
+        );
+    }
+    card
 }
 
 /// A card at its place in its section, at the section's fit; lifted and following while held.
@@ -206,7 +446,10 @@ fn card(c: &Card, b: &Board) -> El {
     let editing = b.editing.as_deref() == Some(c.id.as_str());
     let bare_image = c.kind == Kind::Image && b.images.contains_key(&c.src);
 
-    let mut frame = el().key(format!("card-{}", c.id)).absolute(c.x + dx, c.y + dy).size(c.w, c.h).origin(0.0, 0.0)
+    // its section is being dragged: it goes along
+    let (sx, sy) = b.section_held.as_ref().filter(|h| h.id == c.section && h.moved).map_or((0.0, 0.0), |h| (h.dx, h.dy));
+    let (dx, dy) = (dx + sx, dy + sy);
+    let mut frame = el().key(format!("card-{}", c.id)).absolute(c.x + dx, c.y + dy).size(c.w, c.h).origin(0.0, 0.0).hover_group()
         .scale(c.s * if carried { LIFT } else { 1.0 }).radius(R_CARD).clip_rounded(R_CARD);
     // images rest bare; everything else is paper with a hairline (DESIGN.md §5 Card, Media card)
     if !bare_image {
@@ -229,6 +472,9 @@ fn card(c: &Card, b: &Board) -> El {
             el().key("by").absolute(8.0, c.h - 26.0).h(18.0).px(7.0).center().radius(R_PILL).fill(tint(t.agent, 12.0))
                 .child(text(format!("✦ {}", c.agent)).font(AGENT).color(color(t.agent))),
         );
+    }
+    if !b.scene.read_only {
+        frame = card_chrome(frame, c, t);
     }
     if editing {
         return frame;
@@ -260,6 +506,51 @@ fn card(c: &Card, b: &Board) -> El {
             }
         }
     })
+}
+
+/// A card's chrome, called by the pointer: a note's bar over its top edge (grip, title, tools),
+/// an image's round buttons, and the resize corner.
+fn card_chrome(mut frame: El, c: &Card, t: &Tokens) -> El {
+    let press = |tool: &Tool| {
+        let (id, which) = (c.id.clone(), tool.id.clone());
+        move |_: &mut Board| emit(Event::CardTool { id: &id, tool: &which })
+    };
+    if c.chrome == "bar" {
+        let grip = col().gap(2.5).px(3.0).py(4.0).opacity(0.5).children((0..2).map(|_| el().size(14.0, 2.0).radius(2.0).fill(color(t.dim))));
+        let mut bar = row().key("bar").absolute(5.0, 5.0).size(c.w - 10.0, 30.0).center_y().gap(8.0).px(6.0).radius(R_CARD)
+            .fill(tint(t.abyss, 95.0)).border(1.0, tint(t.frost, 14.0)).shadow(4.0, 12.0, tint(t.frost, 10.0)).group_opacity(0.0, 1.0)
+            .child(grip)
+            .child(text(c.name.clone()).font(BAR_TITLE).color(color(t.mist)).truncate().grow(1.0));
+        for tool in &c.tools {
+            bar = bar.child(tool_button(t, tool, 26.0, 26.0, t.dim).on_press(press(tool)));
+        }
+        frame = frame.child(bar);
+    } else if c.chrome == "icons" {
+        let mut icons = col().key("icons").absolute(c.w - 36.0, 8.0).gap(6.0).group_opacity(0.0, 1.0);
+        for tool in &c.tools {
+            icons = icons.child(tool_button(t, tool, 28.0, 28.0, t.mist).radius(R_PILL).fill(tint(t.abyss, 95.0)).border(1.0, tint(t.frost, 14.0)).on_press(press(tool)));
+        }
+        frame = frame.child(icons);
+    }
+    if c.resizable {
+        let (id, scale) = (c.id.clone(), c.s.max(0.01));
+        let (w0, h0) = (c.w, c.h);
+        let corner = canvas(Shape::new().stroke(vec![[15.0, 5.0], [15.0, 15.0], [5.0, 15.0]], 2.5, color(t.dim)).view_box(22.0, 22.0));
+        frame = frame.child(
+            corner.key("resize").absolute(c.w - 22.0, c.h - 22.0).size(22.0, 22.0).group_opacity(0.0, 1.0).on_drag(move |b: &mut Board, d: &mut Drag, _: &mut Tx| match d.phase {
+                Phase::Down => b.resizing = Some((id.clone(), w0, h0)),
+                Phase::Move => {
+                    // the size it had when pressed, plus the pointer's travel at the scale it's drawn at
+                    let k = b.zoom.get().max(0.01) * scale;
+                    if let Some((_, w, h)) = b.resizing.as_ref().filter(|r| r.0 == id) {
+                        emit(Event::Resize { id: &id, w: w + d.dx / k, h: h + d.dy / k });
+                    }
+                }
+                Phase::Up => b.resizing = None,
+            }),
+        );
+    }
+    frame
 }
 
 /// A note at rest: its text on the card. (Markdown is drawn as typed for now: see the ledger.)

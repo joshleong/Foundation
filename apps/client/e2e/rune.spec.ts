@@ -28,7 +28,7 @@ test.use({
 });
 
 type Scene = {
-  sections: Array<{ id: string; name: string; x: number; y: number; w: number; h: number; active: boolean }>;
+  sections: Array<{ id: string; name: string; x: number; y: number; w: number; h: number; active: boolean; tools: Array<{ id: string }>; confirm: string }>;
   cards: Array<{ id: string; kind: string; x: number; y: number; w: number; h: number; s: number; text: string }>;
 };
 type Camera = { x: number; y: number; scale: number; left: number; top: number };
@@ -111,7 +111,8 @@ test("presses, the wheel, a drag and writing a note reach the board", async ({ p
   // a press on another section's paper (its header strip) selects it
   const other = sc.sections.find((s) => !s.active)!;
   const c0 = await camera(page);
-  await page.mouse.click(c0.left + c0.x + (other.x + other.w - 60) * c0.scale, c0.top + c0.y + (other.y + 20) * c0.scale);
+  // (its tools wait at the header's right end: press its paper, lower down)
+  await page.mouse.click(c0.left + c0.x + (other.x + other.w - 60) * c0.scale, c0.top + c0.y + (other.y + other.h - 40) * c0.scale);
   await expect.poll(async () => (await state(page)).activeSectionId).toBe(other.id);
 
   // the wheel pans and Ctrl+wheel zooms: the one camera, drawn by Rune
@@ -282,4 +283,159 @@ test("web content stays live as islands over Rune; a table is Rune's at rest and
   await expect.poll(() => page.locator(`.obj-slot[data-obj-id="${id}"]`).count()).toBe(0);
   const back = (await scene(page)).cards.find((c) => c.id === id) as unknown as { cells: Array<{ c: number; r: number; t: string }> };
   expect(back.cells.find((x) => x.c === 2 && x.r === 3)?.t).toBe("25");
+});
+
+test("a section's tools, rename, drag, right-click menu and remove; a note's bar and resize", async ({ page }) => {
+  mkdirSync(OUT, { recursive: true });
+  await open(page, "rune");
+  await page.keyboard.press("0");
+  await settle(page, 1400);
+  type Sec = Scene["sections"][number];
+  const at = async (s: Sec, wx: number, wy: number) => {
+    const c = await camera(page);
+    return { x: c.left + c.x + (s.x + wx) * c.scale, y: c.top + c.y + (s.y + wy) * c.scale };
+  };
+  const sectionOf = async (name: string) => (await scene(page)).sections.find((s) => s.name === name)!;
+  const full = () =>
+    page.evaluate(() => {
+      const s = (window as unknown as { __foundation: { getState(): { sections: Record<string, { id: string; name: string; c0: number; r0: number }>; notes: Record<string, { id: string; w: number; h: number; float: boolean; sectionId: string }>; pendingRemoval: string | null; level: string | null } } }).__foundation.getState();
+      return { sections: Object.values(s.sections), notes: Object.values(s.notes), pendingRemoval: s.pendingRemoval, level: s.level };
+    });
+  // where a tool sits in the toolbar: 26 px buttons from the header's right edge (8 px in, 4 px of bar padding), a 7 px hairline before each group
+  const toolPoint = async (s: Sec, id: string) => {
+    const tools = (await scene(page)).sections.find((x) => x.id === s.id)!.tools as Array<{ id: string; gap?: boolean }>;
+    let x = s.w - 8 - 4;
+    for (let i = tools.length - 1; i >= 0; i--) {
+      x -= 13;
+      if (tools[i].id === id) return at(s, x, 21);
+      x -= 13 + 1 + (tools[i].gap ? 7 + 1 : 0);
+    }
+    throw new Error(`no tool ${id}`);
+  };
+
+  // the Design section is big enough on screen to work on: frame it
+  let design = await sectionOf("Design");
+  let p = await at(design, design.w / 2, 300);
+  await page.mouse.dblclick(p.x, p.y);
+  await settle(page, 1500);
+  design = await sectionOf("Design");
+
+  // the toolbar: ▤ adds a note to this section
+  const notes0 = (await full()).notes.length;
+  p = await at(design, design.w / 2, 300);
+  await page.mouse.move(p.x, p.y);
+  await settle(page, 400);
+  await page.screenshot({ path: `${OUT}/section-tools-rune.png` });
+  p = await toolPoint(design, "note");
+  await page.mouse.click(p.x, p.y);
+  await expect.poll(async () => (await full()).notes.length).toBe(notes0 + 1);
+  await settle(page, 1500);
+
+  // rename: a press on the name opens Rune's field; typing and Enter names it
+  await page.keyboard.press("0");
+  await settle(page, 1400);
+  design = await sectionOf("Design");
+  p = await at(design, design.w / 2, 300);
+  await page.mouse.dblclick(p.x, p.y);
+  await settle(page, 1500);
+  design = await sectionOf("Design");
+  p = await at(design, 34, 21);
+  await page.mouse.click(p.x, p.y);
+  await settle(page, 700);
+  await page.keyboard.press("Control+a");
+  await page.keyboard.type("Studio work");
+  await settle(page, 300);
+  await page.screenshot({ path: `${OUT}/section-rename-rune.png` });
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await full()).sections.some((s) => s.name === "Studio work")).toBe(true);
+
+  // the right-click menu is the web section's own list
+  let studio = await sectionOf("Studio work");
+  p = await at(studio, studio.w - 200, 500);
+  await page.mouse.click(p.x, p.y, { button: "right" });
+  await expect(page.locator(".context-menu")).toContainText("Insert section left");
+  await expect(page.locator(".context-menu")).toContainText("Split column");
+  await page.screenshot({ path: `${OUT}/section-menu-rune.png` });
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".context-menu")).toHaveCount(0);
+
+  // remove asks first: Cancel keeps it, Remove takes it
+  p = await toolPoint(studio, "remove");
+  await page.mouse.click(p.x, p.y);
+  await expect.poll(async () => (await full()).pendingRemoval).toBe(studio.id);
+  await settle(page, 400);
+  await page.screenshot({ path: `${OUT}/section-confirm-rune.png` });
+  // the answer buttons sit under the toolbar, right-aligned: Cancel is the last
+  p = await at(studio, studio.w - 10 - 12 - 30, 48 + 22);
+  await page.mouse.click(p.x, p.y);
+  await expect.poll(async () => (await full()).pendingRemoval).toBe(null);
+  expect((await full()).sections.some((s) => s.id === studio.id)).toBe(true);
+
+  // drag a section by its header onto another's cell: they swap
+  await page.keyboard.press("0");
+  await settle(page, 1400);
+  const before = (await full()).sections;
+  const vision = await sectionOf("Vision");
+  const bom = await sectionOf("BomForm");
+  const from = await at(vision, 150, 21);
+  const to = await at(bom, bom.w / 2, bom.h / 2);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 20, from.y + 10, { steps: 4 });
+  await page.mouse.move(to.x, to.y, { steps: 10 });
+  await settle(page, 300);
+  await page.screenshot({ path: `${OUT}/section-drag-rune.png` });
+  await page.mouse.up();
+  const cellOf = (list: typeof before, name: string) => {
+    const s = list.find((x) => x.name === name)!;
+    return `${s.c0},${s.r0}`;
+  };
+  await expect.poll(async () => cellOf((await full()).sections, "Vision")).toBe(cellOf(before, "BomForm"));
+  expect(cellOf((await full()).sections, "BomForm")).toBe(cellOf(before, "Vision"));
+
+  // a note: its corner resizes it, its bar's ✕ removes it
+  const note = (await full()).notes.find((n) => n.sectionId === studio.id && !["Drawn"].includes(n.id))!;
+  const added = (await full()).notes[(await full()).notes.length - 1];
+  const target = added ?? note;
+  let cp = await cardPoint(page, target.id);
+  await page.mouse.dblclick(cp.x, cp.y);
+  await settle(page, 1500);
+  await page.keyboard.press("Escape");
+  await settle(page, 300);
+  const card = (await scene(page)).cards.find((c) => c.id === target.id)!;
+  const cam = await camera(page);
+  const corner = { x: cam.left + cam.x + (card.x + (card.w - 8) * card.s) * cam.scale, y: cam.top + cam.y + (card.y + (card.h - 8) * card.s) * cam.scale };
+  await page.mouse.move(corner.x, corner.y);
+  await page.mouse.down();
+  await page.mouse.move(corner.x + 30, corner.y + 20, { steps: 5 });
+  await page.mouse.move(corner.x + 80, corner.y + 50, { steps: 5 });
+  await page.mouse.up();
+  const k = cam.scale * card.s;
+  await expect.poll(async () => Math.round((await full()).notes.find((n) => n.id === target.id)!.w)).toBe(Math.round(card.w + 80 / k));
+  expect(Math.round((await full()).notes.find((n) => n.id === target.id)!.h)).toBe(Math.round(card.h + 50 / k));
+  // the bar: over the note's top edge while the pointer is on it; its last button removes the note
+  const grown = (await scene(page)).cards.find((c) => c.id === target.id)!;
+  const bar = { x: cam.left + cam.x + (grown.x + (grown.w - 5 - 6 - 13) * grown.s) * cam.scale, y: cam.top + cam.y + (grown.y + 20 * grown.s) * cam.scale };
+  await page.mouse.move(bar.x - 120, bar.y + 60);
+  await settle(page, 400);
+  await page.screenshot({ path: `${OUT}/note-bar-rune.png` });
+  await page.mouse.click(bar.x, bar.y);
+  await expect.poll(async () => (await full()).notes.some((n) => n.id === target.id)).toBe(false);
+
+  // ⤢ opens the section as its own grid; Esc goes back up a level
+  await page.keyboard.press("0");
+  await settle(page, 1400);
+  studio = await sectionOf("Studio work");
+  p = await at(studio, studio.w / 2, 400);
+  await page.mouse.dblclick(p.x, p.y);
+  await settle(page, 1500);
+  studio = await sectionOf("Studio work");
+  p = await toolPoint(studio, "open");
+  await page.mouse.click(p.x, p.y);
+  await expect.poll(async () => (await full()).level).toBe(studio.id);
+  await settle(page, 1200);
+  expect((await scene(page)).sections.length).toBe(1);
+  await page.screenshot({ path: `${OUT}/section-open-rune.png` });
+  await page.keyboard.press("Escape");
+  await expect.poll(async () => (await full()).level).toBe(null);
 });

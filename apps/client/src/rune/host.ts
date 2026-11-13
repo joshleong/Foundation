@@ -10,11 +10,21 @@
 
 import { onNight } from "@foundation/ui";
 import { workbook } from "../engine/workbook";
-import { camera, onCamera } from "../state/camera";
+import { camera, onCamera, toWorld } from "../state/camera";
 import {
   CONTENT_PAD,
   SECTION_HEADER,
   addNote,
+  cellAtWorld,
+  edgeAtWorld,
+  moveSectionTo,
+  moveSectionToEdge,
+  removeSection,
+  renameSection,
+  requestRemoveSection,
+  resizeMedia,
+  resizeNote,
+  setSectionDragTarget,
   createSectionAt,
   createTable,
   getState,
@@ -34,6 +44,9 @@ import {
 import { floorInsets, getUi } from "../state/ui";
 import { getRuneStatus, setRuneStatus, type RuneBuild } from "./engine";
 import { runeImageSrc } from "./imageSrc";
+import { runCardTool, runSectionTool, sectionContext } from "./tools";
+import { openContextMenu } from "../components/ContextMenu";
+import { sectionMenuItems } from "../components/sectionMenu";
 import { SCENE_VERSION, TOKEN_VARS, buildScene, type Rgba, type SceneTokens } from "./scene";
 
 const BASE = `${import.meta.env.BASE_URL}rune/`;
@@ -56,7 +69,14 @@ type RuneEvent =
   | { t: "move"; id: string; x: number; y: number }
   | { t: "text"; id: string; text: string }
   | { t: "edit"; id: string | null }
-  | { t: "create-section"; c: number; r: number };
+  | { t: "create-section"; c: number; r: number }
+  | { t: "section-tool"; id: string; tool: string }
+  | { t: "card-tool"; id: string; tool: string }
+  | { t: "confirm"; id: string; yes: boolean }
+  | { t: "rename"; id: string; name: string }
+  | { t: "section-drag"; id: string; x: number; y: number; dx: number; dy: number; phase: "move" | "drop" | "cancel" }
+  | { t: "resize"; id: string; w: number; h: number }
+  | { t: "menu"; id: string | null; x: number; y: number };
 
 /** dev and e2e builds keep the last events Rune reported, for checks */
 const seen: RuneEvent[] | null = import.meta.env?.DEV || import.meta.env?.VITE_E2E_HOOKS ? [] : null;
@@ -129,6 +149,22 @@ export function mountRune(canvas: HTMLCanvasElement, opts: { transparent: boolea
   let frame = 0;
   let last = "";
   const offs: Array<() => void> = [];
+  // the right button, as the page sees it: Rune may report a right-click on the press or on the release
+  const right = { down: false, downX: 0, downY: 0, x: 0, y: 0, onUp: null as null | (() => void) };
+  const onRight = (ev: PointerEvent) => {
+    if (ev.type === "pointerdown" && ev.button === 2) Object.assign(right, { down: true, downX: ev.clientX, downY: ev.clientY, x: ev.clientX, y: ev.clientY, onUp: null });
+    else if (ev.type === "pointermove" && right.down) Object.assign(right, { x: ev.clientX, y: ev.clientY });
+    else if ((ev.type === "pointerup" || ev.type === "pointercancel") && ev.button === 2) {
+      Object.assign(right, { down: false, x: ev.clientX, y: ev.clientY });
+      const then = right.onUp;
+      right.onUp = null;
+      then?.();
+    }
+  };
+  for (const t of ["pointerdown", "pointermove", "pointerup", "pointercancel"] as const) {
+    window.addEventListener(t, onRight, true);
+    offs.push(() => window.removeEventListener(t, onRight, true));
+  }
 
   const push = () => {
     frame = 0;
@@ -178,6 +214,46 @@ export function mountRune(canvas: HTMLCanvasElement, opts: { transparent: boolea
       }));
     }
     else if (e.t === "create-section") createSectionAt(e.c, e.r);
+    else if (e.t === "section-tool") runSectionTool(e.id, e.tool);
+    else if (e.t === "menu") {
+      // a right press that travelled was a pan of the grid (GridViewport), not a menu: wait for the release to know
+      const section = e.id ? st.sections[e.id] : null;
+      if (!section || getUi().role === "viewer") return;
+      const open = () => {
+        if (Math.hypot(right.x - right.downX, right.y - right.downY) >= 4) return;
+        setActiveSection(section.id);
+        const now = getState();
+        const s = now.sections[section.id];
+        if (s) openContextMenu(e.x, e.y, sectionMenuItems(s, toWorld(e.x - camera.left, e.y - camera.top), sectionContext(now, s)));
+      };
+      if (right.down) right.onUp = open;
+      else open();
+    }
+    else if (e.t === "card-tool") runCardTool(e.id, e.tool);
+    else if (e.t === "confirm") e.yes ? removeSection(e.id) : requestRemoveSection(null);
+    else if (e.t === "rename") {
+      if (e.name.trim()) renameSection(e.id, e.name);
+    } else if (e.t === "resize") st.notes[e.id] ? resizeNote(e.id, e.w, e.h) : resizeMedia(e.id, e.w, e.h);
+    else if (e.t === "section-drag") {
+      // the same rule as the web section's header: the cell under the pointer, or past the board's edge, that whole side
+      const pt = toWorld(e.x - camera.left, e.y - camera.top);
+      const cell = cellAtWorld(pt.x, pt.y);
+      const edge = cell ? null : edgeAtWorld(pt.x, pt.y);
+      // its web cards (the islands) go along with the section Rune is moving
+      const shell = canvas.parentElement?.querySelector<HTMLElement>(`.is-rune-shell[data-section-id="${CSS.escape(e.id)}"]`);
+      if (e.phase === "move") {
+        if (shell) shell.style.translate = `${e.dx}px ${e.dy}px`;
+        setSectionDragTarget(cell ? { sectionId: e.id, c: cell.c, r: cell.r } : edge ? { sectionId: e.id, c: -1, r: -1, edge } : null);
+      } else {
+        if (shell) shell.style.translate = "";
+        setSectionDragTarget(null);
+        if (e.phase === "drop" && cell) moveSectionTo(e.id, cell.c, cell.r);
+        else if (e.phase === "drop" && edge) moveSectionToEdge(e.id, edge);
+        // nowhere to land: the same board goes back, so the section lets go and returns
+        last = "";
+        schedule();
+      }
+    }
     else if (e.t === "move") {
       // let go at a world point: floating there in its own section (carrying between sections is the ledger's)
       const key = (["notes", "media", "tables", "maps", "panels"] as const).find((k) => st[k][e.id]);

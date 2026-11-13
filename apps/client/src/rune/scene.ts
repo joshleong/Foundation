@@ -36,8 +36,9 @@ import {
 import { workbook } from "../engine/workbook";
 import { colName, gutterRuns } from "../lib/gridLines";
 import { formatValue } from "../lib/cellText";
+import { cardChrome, removeQuestion, sectionTools, type SceneTool } from "./tools";
 
-export const SCENE_VERSION = 2;
+export const SCENE_VERSION = 3;
 
 /** sRGB, straight alpha, 0..1 */
 export type Rgba = [number, number, number, number];
@@ -84,6 +85,12 @@ export interface SceneCard {
   src: string;
   agent: string;
   active: boolean;
+  /** the section it's in (it travels with it while the section is dragged) */
+  section: string;
+  /** its chrome on hover, and whether its corner resizes it (tools.ts) */
+  chrome: "" | "bar" | "icons";
+  tools: SceneTool[];
+  resizable: boolean;
   /** a table's size and the cells that hold something */
   cols: number;
   rows: number;
@@ -103,9 +110,26 @@ export interface Scene {
     rows: Array<{ at: number; len: number; label: string }>;
     lines: Array<{ x: number; y: number; len: number; vertical: boolean }>;
   };
-  sections: Array<{ id: string; name: string; x: number; y: number; w: number; h: number; coords: string; count: string; active: boolean }>;
+  sections: Array<{
+    id: string;
+    name: string;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    coords: string;
+    count: string;
+    active: boolean;
+    /** its toolbar (tools.ts), whether it can be dragged to another cell, what its remove confirmation asks, how many cards don't fit */
+    tools: SceneTool[];
+    movable: boolean;
+    confirm: string;
+    more: number;
+  }>;
   empties: Array<{ c: number; r: number; x: number; y: number; w: number; h: number; label: string }>;
   cards: SceneCard[];
+  /** where a section being dragged would land (the store's sectionDragTarget, as the web grid draws it) */
+  drop: { x: number; y: number; w: number; h: number; label: string } | null;
 }
 
 export interface SceneOptions {
@@ -168,6 +192,16 @@ export function buildScene(st: AppState, opts: SceneOptions): Scene {
     const rect = sectionRestRect(st.grid, s);
     const kids = s.virtual ? [] : childrenOf(s.id, st.allSections);
     const objects = objectsInSection(s.id);
+    // a section's body never scrolls: below its smallest fit it shows what fits (the rest is one Expand away)
+    const flow = sectionFlow(s.id);
+    const bodyW = rect.w - 2;
+    const bodyH = rect.h - 2 - SECTION_HEADER;
+    const fits = (o: AnyObject) => {
+      if (!flow.clipped || s.host === o.id) return true;
+      const p = flow.pos.get(o.id) ?? { x: o.x, y: o.y };
+      const px = objectPixelSize(o);
+      return (CONTENT_PAD + p.x + px.w) * flow.fit <= bodyW + 1 && (CONTENT_PAD + p.y + px.h) * flow.fit <= bodyH + 1;
+    };
     outSections.push({
       id: s.id,
       name: s.name,
@@ -175,20 +209,17 @@ export function buildScene(st: AppState, opts: SceneOptions): Scene {
       coords: `${colName(s.c0)}${s.r0 + 1}${s.c1 !== s.c0 || s.r1 !== s.r0 ? `:${colName(s.c1)}${s.r1 + 1}` : ""}`,
       count: kids.length ? `▦ ${kids.length}` : objects.length ? String(objects.length) : "",
       active: st.activeSectionId === s.id,
+      tools: sectionTools(st, s, opts.readOnly),
+      movable: !opts.readOnly && !s.virtual,
+      confirm: removeQuestion(st, s),
+      more: objects.filter((o) => !fits(o)).length,
     });
-    // a section's body never scrolls: below its smallest fit it shows what fits (the rest is one Expand away)
-    const flow = sectionFlow(s.id);
-    const bodyW = rect.w - 2;
-    const bodyH = rect.h - 2 - SECTION_HEADER;
     for (const o of objects) {
       if (isIsland(st, o, opts)) continue; // the web's, over the canvas
       const r = objectWorldRect(o);
       if (!r) continue;
       const px = objectPixelSize(o);
-      if (flow.clipped) {
-        const p = flow.pos.get(o.id) ?? { x: o.x, y: o.y };
-        if ((CONTENT_PAD + p.x + px.w) * flow.fit > bodyW + 1 || (CONTENT_PAD + p.y + px.h) * flow.fit > bodyH + 1) continue;
-      }
+      if (!fits(o)) continue;
       const table = "cols" in o ? o : null;
       cards.push({
         id: o.id,
@@ -204,6 +235,8 @@ export function buildScene(st: AppState, opts: SceneOptions): Scene {
         src: imageSrcOf(o, opts),
         agent: o.createdBy ?? "",
         active: st.focusLevel === "object" && st.activeObjectId === o.id,
+        section: s.id,
+        ...cardChrome(o, opts.readOnly),
         cols: table?.cols ?? 0,
         rows: table?.rows ?? 0,
         cells: table ? tableCells(table.id, table.cols, table.rows) : [],
@@ -230,7 +263,26 @@ export function buildScene(st: AppState, opts: SceneOptions): Scene {
       return { c, r, x: rect.x + SECTION_INSET, y: rect.y + SECTION_INSET, w: rect.w - SECTION_INSET * 2, h: rect.h - SECTION_INSET * 2, label: `${colName(c)}${r + 1}` };
     }),
     cards,
+    drop: dropTarget(st),
   };
+}
+
+/** the cell (or the band along an edge of the board) a dragged section would land in, as GridViewport draws it */
+function dropTarget(st: AppState): Scene["drop"] {
+  const t = st.sectionDragTarget;
+  if (!t) return null;
+  if (t.edge) {
+    const size = gridSize(st.grid);
+    const band = 120;
+    const r =
+      t.edge === "left" ? { x: -band - 12, y: 0, w: band, h: size.h }
+      : t.edge === "right" ? { x: size.w + 12, y: 0, w: band, h: size.h }
+      : t.edge === "top" ? { x: 0, y: -band - 12, w: size.w, h: band }
+      : { x: 0, y: size.h + 12, w: size.w, h: band };
+    return { ...r, label: t.label ?? `Append along the ${t.edge} of the board` };
+  }
+  const r = gridCellRect(st.grid, t.c, t.r);
+  return { x: r.x + 6, y: r.y + 6, w: r.w - 12, h: r.h - 12, label: t.label ?? "" };
 }
 
 /**

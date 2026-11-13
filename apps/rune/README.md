@@ -52,6 +52,13 @@ camera.ts (one camera, both engines) ──▶ setCamera ──▶ two Live valu
   drawn by exactly one engine, and Rune is never handed an island. A table is Rune's at rest
   and an island while it's the card in hand.
 
+- **The client decides, Rune draws.** What a section's toolbar or a card's bar offers, and what
+  each button does, is `apps/client/src/rune/tools.ts` (the web toolbar's own list). Rune is
+  handed `{ id, icon, tone }`, draws the icon (`view.rs` `icon`) and reports the id.
+- **Right-clicks are claimed.** Rune's web layer hands a right-click to the browser unless an
+  element has `on_secondary_press`; the board's root has one, so the browser's menu never opens
+  over it, and a section's reports the point for the client to open the menu at.
+
 ## Adding a part
 
 1. Put what it needs in the scene (`scene.ts` and `scene.rs`, and bump `SCENE_VERSION` in both).

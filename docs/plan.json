@@ -1263,8 +1263,8 @@
       "kind": "plan",
       "milestone": "polish",
       "area": "sections",
-      "status": "backlog",
-      "body": "The interaction rows of the parity ledger that are Not yet: the ghost toolbar, the right-click menu, dragging a section to a cell or past an edge, rename in place, opening a section as its own grid and a grid section's miniature, the gutters; a card's hover bar, resize corner, and carrying it to another section or tab (lib/carry.ts's rules, with the lean).",
+      "status": "review",
+      "body": "Built 2026-11-13 (third slice). In Rune: a section's toolbar on hover (the web's list, `src/rune/tools.ts`, with line icons Rune draws), rename in Rune's own field, drag by the header to a cell or past an edge (its cards and islands travel with it; the landing cell rings), remove behind its confirmation, n more · Expand, Open as its own grid; the right-click menu is the web section's list, now shared (`components/sectionMenu.ts`); a note's bar (float or dock, remove) and resize corner, an image's remove and corner. Checked in `e2e/rune.spec.ts` (the eighth check) and `test/rune-scene.test.ts`. Left: carrying a card to another section or tab (lib/carry.ts's rules, with the lean), the gutters, + in the gaps, the empty section's welcome and file drops, a grid section's miniature, roll-over labels, tools that stay while the pointer is on a card, the settle ease after a drag.",
       "issue": 130
     },
     {

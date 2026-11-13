@@ -806,7 +806,9 @@ export function GridViewport({ boardName }: { boardName?: string } = {}) {
       onPointerDownCapture={(e) => {
         // Space held, or the middle or right button: the grid takes the pointer before any card can
         if (spaceHeld.current || e.button === 1 || e.button === 2) {
-          e.stopPropagation();
+          // (Rune hears a right press on its canvas all the same: its sections answer a right-click themselves)
+          const runes = runeRef.current && e.button === 2 && (e.target as HTMLElement).tagName === "CANVAS";
+          if (!runes) e.stopPropagation();
           onPointerDown(e);
         }
       }}
