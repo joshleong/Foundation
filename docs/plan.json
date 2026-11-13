@@ -1,7 +1,7 @@
 {
   "about": "Foundation's plan as a kanban. GitHub issues are where the team moves cards; this file is the local copy the app shows in Settings → Plan. `npm run plan:push` writes it to GitHub, `npm run plan:pull` reads the issues back. Columns: needs-you (waits on a person: a key, an install, a decision), backlog, next, doing, review (built, waiting to merge or to be checked by a person), done.",
   "repo": "joshleong/Foundation",
-  "syncedAt": "2026-11-12T03:52:53.506Z",
+  "syncedAt": "2026-11-13T01:34:04.994Z",
   "columns": [
     {
       "id": "needs-you",
@@ -254,7 +254,8 @@
       "milestone": "ship",
       "area": "desktop",
       "status": "needs-you",
-      "body": "Found 2026-11-12: the update feed (`releases/latest/download/latest.json`) is a 404 on both `joshleong/Foundation` and `Normal-AI-Vibe-Code/Foundation`. No release was ever published, so an installed 0.3.0 has nothing to update to. Before handing an installer to anyone: (1) decide which repository (or bucket) the feed lives on for good: the address is baked into every build, and the fork going private or away strands every copy; (2) `npm run release -- bump <v>`, `build`, push the tag, `publish`; (3) install from that release on a second computer and watch it take the next one; (4) back up `~/.tauri/foundation-updater.key` and `.password` somewhere that isn't this PC. Also unrun: macOS, Linux, the MSI path; the Windows installer isn't code-signed."
+      "body": "Found 2026-11-12: the update feed (`releases/latest/download/latest.json`) is a 404 on both `joshleong/Foundation` and `Normal-AI-Vibe-Code/Foundation`. No release was ever published, so an installed 0.3.0 has nothing to update to. Before handing an installer to anyone: (1) decide which repository (or bucket) the feed lives on for good: the address is baked into every build, and the fork going private or away strands every copy; (2) `npm run release -- bump <v>`, `build`, push the tag, `publish`; (3) install from that release on a second computer and watch it take the next one; (4) back up `~/.tauri/foundation-updater.key` and `.password` somewhere that isn't this PC. Also unrun: macOS, Linux, the MSI path; the Windows installer isn't code-signed.",
+      "issue": 116
     },
     {
       "id": "repo-visibility",
@@ -1133,7 +1134,8 @@
       "milestone": "polish",
       "area": "search",
       "status": "review",
-      "body": "Josh, 2026-11-12: \"a high physicality clipboard like experience where you can drag things from the search into Foundation\". A result pulled out of search is a card in the hand (the picture, or a slip of paper): drag spring, lifted 2.5 %, leaning ≤ 2.5° about where it was pressed, its row kept behind it, the section under it ringing. It lands where it's let go; a file that has to be fetched waits at that spot on the board, then becomes the card; elsewhere or Esc it flies back. The clipboard at the pane's foot holds what you clip (＋, Ctrl-click, or a drop): pull one off, or the handle to carry the whole stack, fanned and trailing, dealt a step apart. `lib/pickup.ts`, `lib/pickupMath.ts`, `lib/hits.ts`, `state/clipboard.ts`, `shell/Clipboard.tsx`; `test/pickup.test.ts`; `#/design`. Checked in the browser, day and night (docs/evidence/2026-11-12_pickup-updates/). Open: Playwright doesn't drive it; trackpad and the packaged window untried; the held card isn't the landing size; ⌘C/⌘V not wired."
+      "body": "Josh, 2026-11-12: \"a high physicality clipboard like experience where you can drag things from the search into Foundation\". A result pulled out of search is a card in the hand (the picture, or a slip of paper): drag spring, lifted 2.5 %, leaning ≤ 2.5° about where it was pressed, its row kept behind it, the section under it ringing. It lands where it's let go; a file that has to be fetched waits at that spot on the board, then becomes the card; elsewhere or Esc it flies back. The clipboard at the pane's foot holds what you clip (＋, Ctrl-click, or a drop): pull one off, or the handle to carry the whole stack, fanned and trailing, dealt a step apart. `lib/pickup.ts`, `lib/pickupMath.ts`, `lib/hits.ts`, `state/clipboard.ts`, `shell/Clipboard.tsx`; `test/pickup.test.ts`; `#/design`. Checked in the browser, day and night (docs/evidence/2026-11-12_pickup-updates/). Open: Playwright doesn't drive it; trackpad and the packaged window untried; the held card isn't the landing size; ⌘C/⌘V not wired.",
+      "issue": 117
     },
     {
       "id": "flowform-files-in-search",
@@ -1142,7 +1144,8 @@
       "milestone": "search",
       "area": "search",
       "status": "review",
-      "body": "Josh, 2026-11-12: \"read the same things as flowform in terms of the files that it has access too\". The pane's search and ⌘K ask Flowform as the person (its own `search`: uploads, board media, Slack, Figma). Image and video results carry Flowform's own thumbnail (`/files/flowform/<file>/<rev>/thumb`, fetched as the person with the kept session). › on a room lists the files on its surfaces to pull out one at a time. `flowform-live.ts` (`searchFlowformFiles`, `roomFiles`), `flowformfiles.ts` (`fileThumb`); `test/flowformfiles.test.ts` (8). Checked against a stand-in only: the first run against server.formresearch.ai is Josh's (his link and session weren't borrowed)."
+      "body": "Josh, 2026-11-12: \"read the same things as flowform in terms of the files that it has access too\". The pane's search and ⌘K ask Flowform as the person (its own `search`: uploads, board media, Slack, Figma). Image and video results carry Flowform's own thumbnail (`/files/flowform/<file>/<rev>/thumb`, fetched as the person with the kept session). › on a room lists the files on its surfaces to pull out one at a time. `flowform-live.ts` (`searchFlowformFiles`, `roomFiles`), `flowformfiles.ts` (`fileThumb`); `test/flowformfiles.test.ts` (8). Checked against a stand-in only: the first run against server.formresearch.ai is Josh's (his link and session weren't borrowed).",
+      "issue": 118
     },
     {
       "id": "min-client-version",
@@ -1151,7 +1154,8 @@
       "milestone": "ship",
       "area": "desktop",
       "status": "review",
-      "body": "From reading Flowform's updater (2026-11-12): its server refuses clients under a minimum. `FOUNDATION_MIN_CLIENT=x.y.z`: `/auth/config` carries it; an older client's socket ticket is refused (426) and its sync socket closed (4426); its update card stays up as needed, with Update and restart alone. `apps/server/src/clientversion.ts`, `packages/protocol/src/version.ts`, `update/updater.ts` (`learnMinimum`). `test/clientversion.test.ts` (5, real sockets), `test/update.test.ts` (8). Seen in the browser against a server set to 0.9.0. The installed-app path (meet a minimum, update through it) is unrun until a release is published (publish-first-release)."
+      "body": "From reading Flowform's updater (2026-11-12): its server refuses clients under a minimum. `FOUNDATION_MIN_CLIENT=x.y.z`: `/auth/config` carries it; an older client's socket ticket is refused (426) and its sync socket closed (4426); its update card stays up as needed, with Update and restart alone. `apps/server/src/clientversion.ts`, `packages/protocol/src/version.ts`, `update/updater.ts` (`learnMinimum`). `test/clientversion.test.ts` (5, real sockets), `test/update.test.ts` (8). Seen in the browser against a server set to 0.9.0. The installed-app path (meet a minimum, update through it) is unrun until a release is published (publish-first-release).",
+      "issue": 119
     }
   ]
 }
