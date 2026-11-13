@@ -24,6 +24,7 @@ import { createAsk, listAsks, resolveAsk, startHermes } from "./hermes.ts";
 import { getJob, listJobs, startJob } from "./jobs.ts";
 import { followRun, listSessions, pickRuntime, runtimes, sessionTurns, settleOrphanRuns, startRun, stopAllRuns, stopRun } from "./agent.ts";
 import { t3Thread, t3Threads } from "./t3.ts";
+import { startT3, stopT3, t3Host } from "./t3host.ts";
 import { pollHandoffs } from "./vision.ts";
 import { boardPeople, boardRole, canWrite, requireWriter, setBoardRole } from "./roles.ts";
 import { handleUpgrade, issueTicket } from "./sockets.ts";
@@ -687,6 +688,24 @@ r.get("/api/t3/threads/:id", async (req) => {
   const t = await t3Thread(req.params.id);
   if (!t) throw new HttpError(404, "no such Vision Code thread");
   return t;
+});
+
+// ---------- Foundation's own T3 instance: the agents this computer has (t3host.ts) ----------
+
+r.get("/api/t3host", (req) => {
+  requireUser(req);
+  return t3Host();
+});
+// starting it runs a third-party program on this computer: a person's press, and not a viewer's
+r.post("/api/t3host/start", async (req) => {
+  const u = requirePerson(req, "Starting T3");
+  if (u.role === "viewer") throw new HttpError(403, "Viewers can't start T3.");
+  return startT3(u.name);
+});
+r.post("/api/t3host/stop", (req) => {
+  const u = requirePerson(req, "Stopping T3");
+  if (u.role === "viewer") throw new HttpError(403, "Viewers can't stop T3.");
+  return stopT3();
 });
 
 r.post("/api/agent", async (req, res) => {

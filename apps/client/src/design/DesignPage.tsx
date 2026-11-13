@@ -23,7 +23,7 @@ import type { Plan } from "../settings/plan";
 import { SectionEmpty } from "../panels/SectionEmpty";
 import { SlackMarkView } from "../components/SlackMark";
 import { SectionCrewView, type CrewFace } from "../components/SectionCrew";
-import { AgentsPaneBody, type AgentRowData, type AgentsPlace } from "../shell/AgentsPane";
+import { AgentsPaneBody, T3BlockView, type AgentRowData, type AgentsPlace, type T3Host } from "../shell/AgentsPane";
 import { MachineAskList } from "../panels/MachineView";
 import type { MachineAsk, SlackSectionState } from "@foundation/protocol";
 import { COMMANDS_GLYPH, IS_MAC, keys } from "../lib/keys";
@@ -919,7 +919,7 @@ export function DesignPage() {
         <CrewDemo />
       </Section>
 
-      <Section title="Agents in a section" note="Every section has an agent group: a paper tab that stands right above it, on its top edge, while the pointer is on the section, or always once it's pinned (the pin turns violet; a pin is this device's own). A face is an agent's initial on its own crew colour, with a ring that breathes while it works; done, it keeps its colour and sets back, with no ring; stopped is amber. The tab is drawn at screen size at any zoom, and when its section fills the view it comes down with the view instead of hiding under the top bar. A free agent that comes into the section joins the group on a spring, and leaves it when it moves on. A lead and the helpers it called in stand shoulder to shoulder and the tab says working together; separate asks stand apart and it counts the teams. Press a face to follow that agent. The last button opens the agents pane on the right, where search goes: every agent by the section it's in, what it's doing and the ask it's on, with each team held by a rule in its lead's colour. The section it was opened from comes first, in violet.">
+      <Section title="Agents in a section" note="Every section has an agent group: a paper tab that stands right above it, on its top edge, while the pointer is on the section, or always once it's pinned (the pin turns violet; a pin is this device's own). A face is an agent's initial on its own crew colour, with a ring that breathes while it works; done, it keeps its colour and sets back, with no ring; stopped is amber. The tab is drawn at screen size at any zoom, and when its section fills the view it comes down with the view instead of hiding under the top bar. A free agent that comes into the section joins the group on a spring, and leaves it when it moves on. A lead and the helpers it called in stand shoulder to shoulder and the tab says working together; separate asks stand apart and it counts the teams. Press a face to follow that agent. The last button opens the agents pane on the right, where search goes: every agent by the section it's in, what it's doing and the ask it's on, with each team held by a rule in its lead's colour. The section it was opened from comes first, in violet. At the pane's foot, this computer's agents: Foundation's own T3 instance, off until a person presses Start T3 (it's a third-party program). Running, each agent T3 has is a face with how it stands (an ok dot and its plan, amber for needs sign-in, set back on the panel well when it isn't installed) and the threads it's working on under a rule in its colour; the ones turned off in T3 are one dim line.">
         <SectionCrewDemo />
       </Section>
 
@@ -1039,6 +1039,23 @@ function SectionCrewDemo() {
       <div className="oncall-row">
         {specimens.map((sp) => (
           <div className="oncall-cell" key={sp.label}>
+  const t3Running: T3Host = {
+    state: "running",
+    version: "0.0.44",
+    port: 15783,
+    since: 0,
+    agents: [
+      { id: "claudeAgent", driver: "claudeAgent", name: "Claude", enabled: true, installed: true, version: "2.1.319", state: "ready", account: "Claude Team Subscription", models: 12 },
+      { id: "codex", driver: "codex", name: "Codex", enabled: true, installed: true, version: "0.98.0", state: "sign-in", models: 0 },
+      { id: "opencode", driver: "opencode", name: "OpenCode", enabled: true, installed: false, version: null, state: "missing", message: "Could not start OpenCode", models: 0 },
+      { id: "cursor", driver: "cursor", name: "Cursor", enabled: false, installed: false, version: null, state: "off", models: 0 },
+      { id: "grok", driver: "grok", name: "Grok", enabled: false, installed: false, version: null, state: "off", models: 0 },
+    ],
+    work: [
+      { id: "t1", title: "Build the parts table from the STEP export", project: "Foundation", agent: "claudeAgent", model: "claude-opus-5-5", state: "working", updatedAt: "" },
+      { id: "t2", title: "Rim drive: tolerance stack", project: "Fans", agent: "claudeAgent", model: "claude-opus-5-5", state: "waiting", updatedAt: "" },
+    ],
+  };
             <div className="section-card oncall-static oncall-section" style={{ width: 300, height: 84 }}>
               <SectionCrewView faces={sp.faces} pinned={!!sp.pinned} shown sectionName={sp.name} />
               <div className="section-header" style={{ height: 42 }}>
@@ -1058,7 +1075,24 @@ function SectionCrewDemo() {
           <AgentsPaneBody places={[{ id: "suppliers", name: "Suppliers", at: true, teams: [] }]} count={0} />
         </div>
         <div className="agents-pane-specimen" style={{ width: 300 }}>
-          <AgentsPaneBody places={[]} count={0} />
+          <AgentsPaneBody places={[]} count={0} foot={<T3BlockView host={null} viewer={false} />} />
+        </div>
+      </div>
+      <div className="adapt-row">
+        <div className="agents-pane-specimen is-short" style={{ width: 360 }}>
+          <div className="agents-scroll">
+            <T3BlockView host={t3Running} viewer={false} />
+          </div>
+        </div>
+        <div className="agents-pane-specimen is-short" style={{ width: 300 }}>
+          <div className="agents-scroll">
+            <T3BlockView host={{ state: "starting", detail: "Starting T3 on port 15783", since: 0, agents: [], work: [] }} viewer={false} />
+          </div>
+        </div>
+        <div className="agents-pane-specimen is-short" style={{ width: 300 }}>
+          <div className="agents-scroll">
+            <T3BlockView host={{ state: "error", detail: "The T3 program isn't on this computer. Install Vision Code, or set T3_CLI to a t3 program where Foundation's server starts.", since: 0, agents: [], work: [] }} viewer={false} />
+          </div>
         </div>
       </div>
     </div>

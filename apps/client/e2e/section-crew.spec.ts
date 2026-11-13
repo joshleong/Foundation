@@ -190,3 +190,37 @@ test("agents in a section on #/design, day and night", async ({ browser }) => {
     await ctx.close();
   }
 });
+
+test("this computer's agents: T3 is off until a person starts it, and says why when it can't", async () => {
+  // (this server's T3_CLI points nowhere, so Start can only fail: the running state is on #/design and in test/t3host.test.ts)
+  const pane = kai.locator(".agents-pane");
+  await expect(pane).toBeVisible();
+  const t3 = pane.locator(".t3-block");
+  await expect(t3).toHaveAttribute("data-t3", "off");
+  await expect(t3).toContainText("a person starts it");
+  await t3.locator(".t3-start").click();
+  await expect(t3).toHaveAttribute("data-t3", "error", { timeout: 8000 });
+  await expect(t3.locator(".t3-words.is-bad")).toContainText("T3 program isn't on this computer");
+  await expect(t3.locator(".t3-start")).toHaveText("Start again");
+  await t3.scrollIntoViewIfNeeded();
+  await kai.screenshot({ path: `${SHOTS}/06_kai-t3-cant-start.png` });
+  // an agent's token can't start it: only a person's browser
+  const made = await kai.context().request.post(`${CLIENT}/api/t3host/start`, { headers: { authorization: "Bearer not-a-person" }, failOnStatusCode: false });
+  expect([401, 403]).toContain(made.status());
+});
+
+test("this computer's agents on #/design, day and night", async ({ browser }) => {
+  for (const scheme of ["dark", "light"] as const) {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: scheme });
+    await ctx.request.post(`${CLIENT}/auth/dev`, { data: { name: "Ada Test", email: "ada@normal.dev" } });
+    const p = await ctx.newPage();
+    await p.goto("/#/design");
+    const demo = p.locator('.sec-crew-demo .t3-block[data-t3="running"]').first();
+    await demo.scrollIntoViewIfNeeded();
+    await settle(p, 900);
+    await p.locator(".sec-crew-demo .adapt-row").nth(1).screenshot({ path: `${SHOTS}/07_design-t3-${scheme === "dark" ? "night" : "day"}.png` });
+    await expect(demo.locator(".t3-agent")).toHaveCount(3);
+    await expect(demo.locator(".t3-off")).toHaveText("Off in T3: Cursor, Grok");
+    await ctx.close();
+  }
+});

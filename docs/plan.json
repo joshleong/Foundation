@@ -1,7 +1,7 @@
 {
   "about": "Foundation's plan as a kanban. GitHub issues are where the team moves cards; this file is the local copy the app shows in Settings → Plan. `npm run plan:push` writes it to GitHub, `npm run plan:pull` reads the issues back. Columns: needs-you (waits on a person: a key, an install, a decision), backlog, next, doing, review (built, waiting to merge or to be checked by a person), done.",
   "repo": "joshleong/Foundation",
-  "syncedAt": "2026-11-13T02:43:50.669Z",
+  "syncedAt": "2026-11-13T03:00:23.758Z",
   "columns": [
     {
       "id": "needs-you",
@@ -1206,6 +1206,36 @@
       "status": "backlog",
       "body": "A machine image with Claude Code installed and a repo cloned inside; the server runs `claude -p --output-format stream-json` in it through the Engine API exec, with Foundation's MCP tools attached, and streams it into the session view. Each one is a new instance with its own disk, started by a person. Sign-in (decided 2026-11-12, #122): the machine's card offers both, a Claude folder signed in to a subscription (mounted) first, then a token or key; each is a separate Claude instance with its own folder. Settings → Services lists the instances. Kiri's containers share one small VM (WSL 2 on Windows): they separate our own agents, they don't contain hostile code. To find out first: whether Kiri and Docker Desktop both bind a Windows folder into a machine, and whether Claude Code in Linux reads a sign-in made on Windows. Posted agents (posted-agents) wait on the consent call in #122.",
       "issue": 124
+    },
+    {
+      "id": "t3-instance",
+      "title": "Foundation's own T3 instance, and this computer's agents in the pane",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "agent",
+      "status": "review",
+      "body": "Built 2026-11-12 (Josh: build off Vision's T3, a T3 instance running in Foundation that the agent panel reads). `apps/server/src/t3host.ts` starts the unmodified `t3` 0.0.44 in `<data>/t3` the way Vision does (bootstrap on stdin, token exchange, socket ticket), person-started only, and keeps its providers and threads; `/api/t3host`; the agents pane's foot lists each agent with how it stands and its threads at work. `test/t3host.test.ts` (7, stand-in t3), the real `t3.exe` on this PC (Claude ready on the Team subscription, Codex not installed, four off), `e2e/section-crew.spec.ts` (+2). To check: Start T3 from the pane on the real server (the system Node can't run it yet: node-upgrade-windows).",
+      "issue": 125
+    },
+    {
+      "id": "t3-more-agents",
+      "title": "More agents through T3: Codex (OpenAI), Kimi, DeepSeek",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "agent",
+      "status": "needs-you",
+      "body": "T3 0.0.44 has no Kimi, DeepSeek or OpenAI-compatible driver (SPEC §7). To do: (1) Codex: install the `codex` program on this PC and sign in (`codex login`); it then shows ready with no code change. (2) Kimi and DeepSeek: add each as a named instance in Foundation's T3 (`providerInstances`: a `claudeAgent` instance with `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` and its models, or through OpenCode), from a form in the pane that sends `server.updateSettings`. Needs from Josh: an API key for each (Moonshot, DeepSeek), typed by a person into the form, kept by T3. Untried: whether those endpoints work with this build's Claude driver.",
+      "issue": 126
+    },
+    {
+      "id": "t3-threads-from-foundation",
+      "title": "Start a thread on a chosen agent from a section, and show it in that section's group",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "agent",
+      "status": "backlog",
+      "body": "Today the pane lists T3's agents and threads; nothing starts one. A person picks an agent (and model) for an ask in a section; Foundation dispatches `thread.turn.start` to its own T3 (supervised), with a project per board or per section's repo, and the thread's agent joins that section's group with a face, its state from the shell stream. Approvals answered from the card (`thread.approval.respond`). Then the crew's own Claude runs can move onto T3 too, so there is one list. Ties to posted-agents and agent-machines.",
+      "issue": 127
     }
   ]
 }

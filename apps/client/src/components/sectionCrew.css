@@ -330,6 +330,98 @@ body.is-connecting .sec-crew,
   display: none;
 }
 
+/* ---------- this computer's agents: Foundation's T3 instance, at the foot of the pane ---------- */
+
+.t3-block {
+  margin-top: var(--space-4);
+}
+.t3-title {
+  color: var(--color-frost);
+  font: 600 var(--text-13) / 1.3 var(--font-sans);
+}
+.t3-stop {
+  margin-left: auto;
+}
+.t3-words {
+  margin: 0 0 var(--space-4);
+  color: var(--color-mist);
+  font: 400 var(--text-12) / 1.5 var(--font-sans);
+  list-style: none;
+}
+.t3-words.is-bad {
+  color: var(--color-bad);
+  overflow-wrap: anywhere;
+}
+.t3-agents {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.t3-agent {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  column-gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-3) var(--space-2) var(--space-3) var(--space-1);
+}
+.t3-face {
+  cursor: default;
+}
+/* an agent that can't take work yet is there, set back */
+.t3-agent.is-missing .t3-face,
+.t3-agent.is-sign-in .t3-face,
+.t3-agent.is-error .t3-face {
+  background: var(--color-panel);
+  color: var(--color-mist);
+}
+.t3-agent.is-missing .agent-row-name,
+.t3-agent.is-error .agent-row-name {
+  color: var(--color-mist);
+}
+.t3-agent-words {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-mist);
+  font: 400 var(--text-12) / 1.35 var(--font-sans);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.t3-work {
+  grid-column: 2;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  padding-left: var(--space-3);
+  box-shadow: inset 2px 0 0 var(--crew);
+  font: 400 var(--text-12) / 1.4 var(--font-sans);
+}
+.t3-work-title {
+  min-width: 0;
+  color: var(--color-frost);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.t3-work-state {
+  flex-shrink: 0;
+  color: var(--color-dim);
+  font-size: var(--text-11);
+}
+.t3-work.is-waiting .t3-work-state {
+  color: var(--color-warn);
+}
+.t3-work.is-error .t3-work-state {
+  color: var(--color-bad);
+}
+.t3-off {
+  padding: var(--space-3) 0 0;
+  color: var(--color-dim);
+  font: 400 var(--text-11) / 1.4 var(--font-sans);
+}
+
 /* ---------- on #/design ---------- */
 
 .sec-crew-demo {
@@ -340,6 +432,9 @@ body.is-connecting .sec-crew,
 /* room above each specimen section for its tab */
 .sec-crew-demo .oncall-cell {
   padding-top: 60px;
+}
+.agents-pane-specimen.is-short {
+  height: 300px;
 }
 .agents-pane-specimen {
   position: relative;

@@ -13,15 +13,23 @@
  * it's empty, so the pane you opened answers the question you asked). Press a
  * section's name to go to it; Follow rides your view along with an agent;
  * Open and Stop are for the ones you asked.
+ *
+ * Under the board's agents: **this computer's agents**, from Foundation's own
+ * T3 instance (apps/server/src/t3host.ts), the harness that runs Claude,
+ * Codex (OpenAI) and the others from one place. Off until a person starts it
+ * (it's a third-party program); running, it lists each agent T3 has with how
+ * it stands (ready and on which plan, needs sign-in, not installed) and the
+ * threads each is working on. Starting a thread from here isn't built yet.
  */
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { api } from "../lib/api";
 import { crewTeams, togetherWords, type CrewTeam } from "../lib/sectionCrew";
 import { crewSection, useCrew } from "../lib/crewWatch";
 import { CrewFaceView, type CrewFace } from "../components/SectionCrew";
 import { getState, requestSnap, subscribe } from "../state/store";
 import { crewAsk, stopSession, titleOf, useSession } from "../state/sessions";
-import { WIDTHS, openSession, setUi, useUi } from "../state/ui";
+import { WIDTHS, openSession, setUi, toast, useUi } from "../state/ui";
 import { followCrew, useFollowing, type CrewPeer } from "./Crew";
 import { FloorEdge } from "./FloorEdge";
 import { useActiveBoard } from "./Presence";
@@ -89,13 +97,13 @@ export function AgentsPane() {
   return (
     <aside className="agents-pane floor-pane" style={{ width: ui.agentsW }} aria-label="Agents">
       <FloorEdge side="left" value={ui.agentsW} {...WIDTHS.agents} onChange={(w) => setUi({ agentsW: w })} label="Agents" />
-      <AgentsPaneBody places={places} count={crew.length} onClose={() => setUi({ agents: false })} onGo={(id) => requestSnap({ kind: "section", id })} live />
+      <AgentsPaneBody places={places} count={crew.length} onClose={() => setUi({ agents: false })} onGo={(id) => requestSnap({ kind: "section", id })} live foot={<T3Block viewer={ui.role === "viewer"} />} />
     </aside>
   );
 }
 
 /** the pane's contents, for the pane and the design page */
-export function AgentsPaneBody({ places, count, onClose, onGo, live = false }: { places: AgentsPlace[]; count: number; onClose?: () => void; onGo?: (sectionId: string) => void; live?: boolean }) {
+export function AgentsPaneBody({ places, count, onClose, onGo, live = false, foot }: { places: AgentsPlace[]; count: number; onClose?: () => void; onGo?: (sectionId: string) => void; live?: boolean; foot?: React.ReactNode }) {
   return (
     <>
       <header className="agents-head">
@@ -136,9 +144,146 @@ export function AgentsPaneBody({ places, count, onClose, onGo, live = false }: {
             </section>
           );
         })}
+        {foot}
       </div>
     </>
   );
+}
+
+// ---------- this computer's agents: Foundation's own T3 instance ----------
+
+/** apps/server/src/t3host.ts */
+export interface T3Agent {
+  id: string;
+  driver: string;
+  name: string;
+  enabled: boolean;
+  installed: boolean;
+  version: string | null;
+  state: "ready" | "sign-in" | "missing" | "off" | "error";
+  account?: string;
+  message?: string;
+  models: number;
+}
+export interface T3Work {
+  id: string;
+  title: string;
+  project: string;
+  agent: string;
+  model: string;
+  state: "working" | "waiting" | "idle" | "error";
+  updatedAt: string;
+}
+export interface T3Host {
+  state: "off" | "starting" | "running" | "error";
+  detail?: string;
+  port?: number;
+  version?: string;
+  startedBy?: string;
+  since: number;
+  agents: T3Agent[];
+  work: T3Work[];
+}
+
+/** how an agent stands, in a few words */
+export function t3AgentWords(a: T3Agent): string {
+  if (a.state === "ready") return [a.account ?? "ready", a.models ? `${a.models} model${a.models === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ");
+  if (a.state === "sign-in") return "needs sign-in on this computer";
+  if (a.state === "missing") return "not installed on this computer";
+  if (a.state === "off") return "off";
+  return a.message ?? "can't start";
+}
+
+const WORK_WORD: Record<T3Work["state"], string> = { working: "working", waiting: "waiting for a person", idle: "at rest", error: "hit a problem" };
+
+/** the block alone, for the pane and the design page */
+export function T3BlockView({ host, viewer, busy, onStart, onStop }: { host: T3Host | null; viewer: boolean; busy?: boolean; onStart?: () => void; onStop?: () => void }) {
+  const state = busy && host?.state !== "running" ? "starting" : (host?.state ?? "off");
+  const on = host?.agents.filter((a) => a.state !== "off") ?? [];
+  const off = host?.agents.filter((a) => a.state === "off") ?? [];
+  return (
+    <section className={`agents-place t3-block is-${state}`} data-t3={state}>
+      <div className="agents-place-head">
+        <span className="t3-title">This computer's agents</span>
+        <span className="agents-place-words">
+          {state === "running" ? `T3${host?.version ? ` ${host.version}` : ""}` : state === "starting" ? "starting" : state === "error" ? "stopped" : "off"}
+        </span>
+        {state === "running" && !viewer && (
+          <button className="crew-row-btn t3-stop" onClick={onStop} data-tip="Stop T3 and the agents it runs · its threads are kept">
+            Stop
+          </button>
+        )}
+      </div>
+      {state === "off" && <p className="t3-words">T3 runs Claude, Codex and other coding agents from one place. It's a program on this computer, so a person starts it.</p>}
+      {state === "starting" && (
+        <p className="t3-words">
+          <span className="thinking-dots"><i /><i /><i /></span> {host?.detail ?? "Starting T3"}
+        </p>
+      )}
+      {state === "error" && <p className="t3-words is-bad">{host?.detail ?? "T3 stopped."}</p>}
+      {(state === "off" || state === "error") && !viewer && (
+        <button className="f-pill t3-start" onClick={onStart} disabled={busy}>
+          {state === "error" ? "Start again" : "Start T3"}
+        </button>
+      )}
+      {state === "running" && (
+        <ul className="t3-agents">
+          {on.map((a, i) => {
+            const work = host!.work.filter((w) => w.agent === a.id && w.state !== "idle");
+            return (
+              <li key={a.id} className={`t3-agent is-${a.state}`} style={{ ["--crew" as string]: `var(--color-crew-${i % 6})` }} data-t3-agent={a.id}>
+                <span className="crew-face is-large t3-face" aria-hidden>
+                  {a.name.slice(0, 1).toUpperCase()}
+                </span>
+                <div className="t3-agent-main">
+                  <div>
+                    <span className="agent-row-name">{a.name}</span>
+                    {a.version && <span className="agent-row-role">{a.version}</span>}
+                  </div>
+                  <div className="t3-agent-words" data-tip={a.state === "ready" ? undefined : a.message}>
+                    <span className={`f-dot ${a.state === "ready" ? "is-ok" : a.state === "sign-in" ? "is-warn" : a.state === "error" ? "is-bad" : ""}`} /> {t3AgentWords(a)}
+                  </div>
+                </div>
+                {work.map((w) => (
+                  <div key={w.id} className={`t3-work is-${w.state}`}>
+                    <span className="t3-work-title">{w.title}</span>
+                    <span className="t3-work-state">{WORK_WORD[w.state]}</span>
+                  </div>
+                ))}
+              </li>
+            );
+          })}
+          {host!.agents.length === 0 && <li className="t3-words">Asking T3 which agents it has…</li>}
+          {off.length > 0 && <li className="t3-off">Off in T3: {off.map((a) => a.name).join(", ")}</li>}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** Foundation's T3, read while the pane is open (every 3 s; faster while it starts) */
+function T3Block({ viewer }: { viewer: boolean }) {
+  const [host, setHost] = useState<T3Host | null>(null);
+  const [busy, setBusy] = useState(false);
+  const fast = busy || host?.state === "starting";
+  useEffect(() => {
+    let gone = false;
+    const read = () => void api<T3Host>("/api/t3host").then((h) => !gone && setHost(h)).catch(() => {});
+    read();
+    const t = setInterval(read, fast ? 800 : 3000);
+    return () => {
+      gone = true;
+      clearInterval(t);
+    };
+  }, [fast]);
+  const press = (what: "start" | "stop") => {
+    setBusy(true);
+    void api<T3Host>(`/api/t3host/${what}`, { method: "POST" })
+      .then(setHost) // a start that failed says why in the block itself
+      .catch((e) => toast((e as Error).message, "bad"))
+      .finally(() => setBusy(false));
+  };
+  return <T3BlockView host={host} viewer={viewer} busy={busy} onStart={() => press("start")} onStop={() => press("stop")} />;
 }
 
 /** what an agent is to its team, in a word or two */
