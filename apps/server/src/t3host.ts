@@ -59,6 +59,8 @@ export interface T3Agent {
   where: "cloud" | "local";
   /** added from Foundation (Kimi, DeepSeek): which, and the address it talks to */
   added?: { preset: string; baseUrl: string };
+  /** a thread on it can read and write the board (Foundation's tools are on its launch line); else it works in its folder only */
+  boardTools: boolean;
 }
 
 /** a thread in Foundation's T3: one agent's piece of work */
@@ -118,9 +120,10 @@ function saveAdded() {
 /** what Foundation knows about an agent beyond what T3 says: where it runs */
 function place(a: T3Agent): T3Agent {
   const x = added.get(a.id);
-  if (!x) return { ...a, where: "cloud" };
+  const boardTools = withTools.has(a.id);
+  if (!x) return { ...a, where: "cloud", boardTools };
   const mine = a.modelList.filter((m) => m.slug === x.model);
-  return { ...a, where: x.where, model: x.model, models: 1, modelList: mine.length ? mine : [{ slug: x.model, name: x.model }], added: { preset: x.preset, baseUrl: x.baseUrl } };
+  return { ...a, where: x.where, model: x.model, models: 1, modelList: mine.length ? mine : [{ slug: x.model, name: x.model }], added: { preset: x.preset, baseUrl: x.baseUrl }, boardTools };
 }
 
 /** why an agent can't take work, in a few words */
@@ -188,6 +191,7 @@ export function agentOf(v: unknown): T3Agent | null {
       .filter((m) => m.slug)
       .slice(0, 40),
     where: "cloud",
+    boardTools: false,
   };
 }
 
@@ -422,6 +426,10 @@ async function run(by: string): Promise<T3HostStatus> {
     bearer = await exchange(base, token);
     set({ state: "running", detail: undefined, version });
     await connect(base, gen);
+    // once the socket answers: the board's tools on each Claude-driven agent (a failure here leaves agents working in their folders)
+    // (before Start answers, so the first ask already has them)
+    for (let i = 0; i < 40 && gen === generation && ws?.readyState !== WebSocket.OPEN; i++) await sleep(100);
+    if (gen === generation) await ensureBoardTools().catch(() => {});
     return t3Host();
   } catch (e) {
     if (gen === generation) {
@@ -567,6 +575,8 @@ export const T3_PRESETS: Record<string, { name: string; cloud: { baseUrl: string
   deepseek: { name: "DeepSeek", cloud: { baseUrl: "https://api.deepseek.com/anthropic", model: "deepseek-v4-pro" }, local: { baseUrl: "http://127.0.0.1:11434", model: "" } },
 };
 
+export { isClaudeDriven };
+
 const isLoopback = (url: string) => {
   try {
     const h = new URL(url).hostname.replace(/^\[|\]$/g, "");
@@ -621,10 +631,11 @@ export async function addT3Agent(input: AddAgentInput): Promise<T3Agent[]> {
       { name: "ANTHROPIC_API_KEY", value: "", sensitive: false },
       { name: "ANTHROPIC_MODEL", value: model, sensitive: false },
     ],
-    config: { homePath: home, customModels: [{ slug: model, name: `${preset.name} · ${model}` }] },
+    config: { homePath: home, customModels: [{ slug: model, name: `${preset.name} · ${model}` }], launchArgs: BOARD_TOOL_ARGS },
   };
   await rpc("server.updateSettings", { patch: { providerInstances: instances } });
   added.set(id, { preset: input.preset, where: input.where, baseUrl: base, model });
+  withTools.add(id);
   saveAdded();
   await rpc("server.refreshProviders", { instanceId: id }).catch(() => {});
   set({ agents: status.agents.map(place) });
@@ -653,6 +664,52 @@ export async function localModels(base = T3_PRESETS.kimi.local.baseUrl): Promise
   } catch {
     return { baseUrl: base, up: false, models: [] };
   }
+}
+
+// ---------- the board's tools, for agents T3 runs ----------
+
+/** the file an ask's folder holds: Foundation's tool server, bound to that ask's agent, person and board (t3threads.ts) */
+export const BOARD_TOOLS_FILE = ".foundation-mcp.json";
+/**
+ * What a Claude-driven agent is launched with so a thread can reach the
+ * board: the tool file in the folder it works in (a relative path: each ask
+ * has its own folder, so each thread gets its own pass), the board's tools
+ * allowed without an approval each (everything else a supervised thread does
+ * still waits for a person), and no other tool servers: this computer's own
+ * Claude connectors (mail, docs, trackers) stay out of a board agent's reach.
+ */
+export const BOARD_TOOL_ARGS = `--mcp-config ${BOARD_TOOLS_FILE} --allowedTools mcp__foundation --strict-mcp-config`;
+
+const isClaudeDriven = (a: { driver: string }) => a.driver === "claudeAgent";
+/** agents whose launch line carries the board's tools (asked of T3 at start and after adding one) */
+const withTools = new Set<string>();
+
+/**
+ * Put the board's tools on every Claude-driven agent's launch line. A launch
+ * line a person wrote in T3 is theirs: it's left as it is, and that agent
+ * works in its folder without the board.
+ */
+async function ensureBoardTools() {
+  const settings = obj(await rpc("server.getSettings", {}, 5000));
+  withTools.clear();
+  const builtIn = obj(obj(settings?.providers)?.claudeAgent);
+  const args = str(builtIn?.launchArgs) ?? "";
+  if (!args) await rpc("server.updateSettings", { patch: { providers: { claudeAgent: { launchArgs: BOARD_TOOL_ARGS } } } });
+  if (!args || args === BOARD_TOOL_ARGS) withTools.add("claudeAgent");
+  const instances = { ...(obj(settings?.providerInstances) ?? {}) } as Record<string, Record<string, unknown>>;
+  let changed = false;
+  for (const [id, inst] of Object.entries(instances)) {
+    if (!added.has(id) || inst?.driver !== "claudeAgent") continue;
+    const cfg = obj(inst.config) ?? {};
+    const has = str(cfg.launchArgs) ?? "";
+    if (!has) {
+      instances[id] = { ...inst, config: { ...cfg, launchArgs: BOARD_TOOL_ARGS } };
+      changed = true;
+    }
+    if (!has || has === BOARD_TOOL_ARGS) withTools.add(id);
+  }
+  if (changed) await rpc("server.updateSettings", { patch: { providerInstances: instances } });
+  set({ agents: status.agents.map(place) });
 }
 
 // Foundation going away takes its T3 with it

@@ -75,6 +75,8 @@ http.on("upgrade", (req, sock, head) => {
       ids[m.tag] = m.id;
       if (m.tag === "subscribeServerConfig") ws.send(JSON.stringify({ _tag: "Chunk", requestId: m.id, values: [{ version: 1, type: "snapshot", config: { providers: [provider("claudeAgent"), provider("codex", { installed: false, status: "error", auth: { status: "unknown" }, message: "Could not start Codex CLI" })] } }] }));
       if (m.tag === "orchestration.subscribeShell") ws.send(JSON.stringify({ _tag: "Chunk", requestId: m.id, values: [{ kind: "snapshot", snapshot: { projects: [{ id: "p1", title: "Foundation" }], threads: [] } }, { kind: "synchronized" }] }));
+      // anything else gets an answer, as T3 always gives one
+      if (m.tag !== "subscribeServerConfig" && m.tag !== "orchestration.subscribeShell") ws.send(JSON.stringify({ _tag: "Exit", requestId: m.id, exit: { _tag: "Failure", cause: { message: "unknown method " + m.tag } } }));
     });
     // the test drives what happens next through a file
     let seen = "";
@@ -114,7 +116,7 @@ test("a provider is read as an agent: ready, needs sign-in, missing, off", () =>
   const base = { instanceId: "claudeAgent", driver: "claudeAgent", displayName: "Claude", enabled: true, installed: true, version: "2.1.3", status: "ready", auth: { status: "authenticated", label: "Claude Team Subscription" }, models: [{}, {}, {}] };
   // its models, by slug (one without a slug is skipped)
   assert.deepEqual(agentOf({ ...base, models: [{ slug: "m1", name: "Model One" }, { slug: "m2" }, { name: "no slug" }] })?.modelList, [{ slug: "m1", name: "Model One" }, { slug: "m2", name: "m2" }]);
-  assert.deepEqual(agentOf(base), { id: "claudeAgent", driver: "claudeAgent", name: "Claude", enabled: true, installed: true, version: "2.1.3", state: "ready", account: "Claude Team Subscription", message: undefined, models: 3, modelList: [], where: "cloud" });
+  assert.deepEqual(agentOf(base), { id: "claudeAgent", driver: "claudeAgent", name: "Claude", enabled: true, installed: true, version: "2.1.3", state: "ready", account: "Claude Team Subscription", message: undefined, models: 3, modelList: [], where: "cloud", boardTools: false });
   assert.equal(agentOf({ ...base, auth: { status: "unauthenticated" }, status: "error" })?.state, "sign-in");
   assert.equal(agentOf({ ...base, installed: false, status: "error", message: "Could not start Codex CLI" })?.state, "missing");
   assert.equal(agentOf({ ...base, availability: "unavailable", unavailableReason: "No driver for kimi in this build" })?.message, "No driver for kimi in this build");
@@ -209,5 +211,6 @@ test("a T3 that dies says so, and Start brings it back", async () => {
   await until("it's seen to have stopped", () => t3Host().state === "error");
   assert.match(t3Host().detail ?? "", /stopped on its own \(exit 3\)/);
   assert.deepEqual(t3Host().agents, []);
+  tell({ do: "nothing" }); // the stand-in reads its orders when it starts: don't have it die again
   assert.equal((await startT3("Ada")).state, "running");
 });

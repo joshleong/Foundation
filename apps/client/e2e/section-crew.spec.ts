@@ -220,6 +220,7 @@ test("this computer's agents: a person starts T3, asks an agent in a section, an
   const claude = cloud.locator('[data-t3-agent="claudeAgent"]');
   await claude.locator(".crew-row-btn", { hasText: "Ask" }).click();
   await expect(claude.locator(".t3-ask-text")).toHaveAttribute("placeholder", "What should Claude do in Depot?");
+  await expect(claude.locator(".t3-ask-note").last()).toContainText("writes the board");
   await claude.locator(".t3-ask-text").fill("Check the unit prices against the supplier list");
   await claude.locator(".t3-ask-model").selectOption("claude-haiku-4-5");
   await kai.screenshot({ path: `${SHOTS}/06_kai-asks-claude.png` });
@@ -234,6 +235,13 @@ test("this computer's agents: a person starts T3, asks an agent in a section, an
   await kai.locator(`.section-card[data-section-id="${depot}"]`).hover({ position: { x: 300, y: 300 } });
   await settle(kai, 500);
   await kai.screenshot({ path: `${SHOTS}/07_kai-claude-in-depot.png` });
+  // with its pass to the board, the agent's card lands in Depot under its own name, on both screens
+  // (the stand-in uses the tool file in its folder the way an agent would: one note)
+  type Note = { name: string; sectionId: string; createdBy?: string };
+  const claudesNote = (p: Page) => p.evaluate((id) => Object.values((window as unknown as { __foundation: { getState(): { notes: Record<string, Note> } } }).__foundation.getState().notes).filter((n) => n.sectionId === id && n.name === "Checked by Claude").map((n) => n.createdBy), depot);
+  await expect.poll(() => claudesNote(kai), { timeout: 8000 }).toEqual(["Claude"]);
+  await expect.poll(() => claudesNote(ada), { timeout: 8000 }).toEqual(["Claude"]);
+  await kai.screenshot({ path: `${SHOTS}/07b_claudes-card-in-depot.png` });
   // the thread ends (the stand-in finishes it): Claude leaves the group
   await expect(face(kai)).toHaveCount(0, { timeout: 20_000 });
   await expect(claude.locator(".t3-work")).toHaveCount(0);

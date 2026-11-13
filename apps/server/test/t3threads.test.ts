@@ -8,6 +8,12 @@
  * (working, waiting for a person, done, failed, stopped) with nothing left
  * behind; an agent that can't take work, a full board or a refused turn
  * starts nothing and leaves nobody; only the asker or an admin stops it.
+ * The board's tools: Foundation puts them on each Claude-driven agent's
+ * launch line (and leaves a launch line a person wrote alone); each ask has a
+ * folder of its own with a tool file that names its crew member, board and a
+ * session of its own; with it the agent's cards land in its section under its
+ * name; the session is revoked and the file removed when the thread ends,
+ * however it ends; an agent without the tools is told so and gets no pass.
  * Kimi and DeepSeek come in as Claude-driven instances with a folder of
  * their own: cloud needs https and a key, which goes to T3 marked sensitive
  * and is never kept or returned by Foundation; local must be an address on
@@ -20,7 +26,7 @@ import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { writeStandin } from "./t3-standin.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "foundation-t3threads-"));
@@ -33,17 +39,22 @@ process.env.FOUNDATION_CREW_TRAVEL_MS = "0";
 const standin = writeStandin(dir);
 process.env.T3_CLI = standin.cli;
 
-const { startT3, stopT3, t3Host, addT3Agent, removeT3Agent, t3OpenLink, localModels } = await import("../src/t3host.ts");
-const { askT3, stopT3Thread, t3Bindings, _resetT3Threads } = await import("../src/t3threads.ts");
+const { startT3, stopT3, t3Host, addT3Agent, removeT3Agent, t3OpenLink, localModels, BOARD_TOOL_ARGS, BOARD_TOOLS_FILE } = await import("../src/t3host.ts");
+const { askT3, stopT3Thread, t3Bindings, t3Brief, _resetT3Threads } = await import("../src/t3threads.ts");
+const { upsertUser, hashToken, userFromSessionHash } = await import("../src/auth.ts");
+const { crewFor } = await import("../src/mcp.ts");
+const { runTool } = await import("../src/tools.ts");
 const { getBoard, closeBoards } = await import("../src/boards.ts");
 const { crewOn, joinCrew, leaveCrew, MAX_CREW_PER_BOARD } = await import("../src/crew.ts");
 const { appendSection, boardMaps } = await import("@foundation/protocol");
 import type { UserInfo } from "@foundation/protocol";
 
 const BOARD = "t3-board";
-const ada: UserInfo = { id: "u1", email: "ada@formindustries.com", name: "Ada", color: "#325bb4", role: "member" };
-const kai: UserInfo = { id: "u2", email: "kai@formindustries.com", name: "Kai", color: "#2e7d54", role: "member" };
-const root: UserInfo = { id: "u3", email: "root@formindustries.com", name: "Root", color: "#2e7d54", role: "admin" };
+const ada: UserInfo = upsertUser("ada@formindustries.com", "Ada");
+const kai: UserInfo = upsertUser("kai@formindustries.com", "Kai");
+const root: UserInfo = { ...upsertUser("root@formindustries.com", "Root"), role: "admin" };
+const sessionOf = (token: string) => userFromSessionHash(hashToken(token));
+const toolsOf = (folder: string) => JSON.parse(readFileSync(join(folder, BOARD_TOOLS_FILE), "utf8")).mcpServers.foundation as { type: string; url: string; headers: { Authorization: string } };
 let parts = "";
 getBoard(BOARD).doc.transact(() => {
   parts = appendSection(getBoard(BOARD).doc, "Parts").id;
@@ -81,8 +92,8 @@ test("asking an agent starts a supervised thread on it, in the board's folder; i
   assert.equal(r.model, "claude-haiku-4-5");
   const cmds = dispatched();
   assert.deepEqual(cmds.map((c) => c.type), ["project.create", "thread.turn.start"]);
-  // one project per board, in Foundation's data, never anywhere else on this computer
-  assert.equal(cmds[0].workspaceRoot, join(dir, "data", "t3-work", BOARD));
+  // a folder for this ask alone, under its board's, in Foundation's data, never anywhere else on this computer
+  assert.ok(cmds[0].workspaceRoot.startsWith(join(dir, "data", "t3-work", BOARD) + sep), cmds[0].workspaceRoot);
   assert.ok(existsSync(cmds[0].workspaceRoot));
   const turn = cmds[1];
   assert.equal(turn.threadId, r.threadId);
@@ -90,7 +101,11 @@ test("asking an agent starts a supervised thread on it, in the board's folder; i
   assert.equal(turn.runtimeMode, "approval-required");
   assert.equal(turn.bootstrap.createThread.runtimeMode, "approval-required");
   assert.equal(turn.bootstrap.createThread.projectId, cmds[0].projectId);
-  assert.equal(turn.message.text, "List the parts in the STEP export\nand their suppliers");
+  // the brief: where it is, what it has, the board as it stands, then the ask as it was said
+  assert.match(turn.message.text, /You are Claude, working on the Foundation board "t3-board" for Ada, in the section “Parts”/);
+  assert.match(turn.message.text, /mcp__foundation__\*/);
+  assert.ok(turn.message.text.endsWith('<ask from="Ada">\nList the parts in the STEP export\nand their suppliers\n</ask>'));
+  assert.equal(r.boardTools, true);
   assert.equal(turn.titleSeed, "List the parts in the STEP export");
   // on the board: Claude, for Ada, aimed at Parts
   const [m] = crew();
@@ -122,7 +137,9 @@ test("the agent's presence follows its thread: waiting for a person, then done a
 test("a second ask on the same board reuses its project; two of one agent are told apart; a failed thread says so", async () => {
   const a = await askT3(ada, { board: BOARD, section: parts, agent: "claudeAgent", text: "First" });
   const b = await askT3(kai, { board: BOARD, section: parts, agent: "claudeAgent", text: "Second" });
-  assert.equal(dispatched().filter((c) => c.type === "project.create").length, 1);
+  // each ask has its own folder (its own pass to the board), so its own T3 project
+  const roots = dispatched().filter((c) => c.type === "project.create").map((c) => c.workspaceRoot);
+  assert.equal(new Set(roots).size, roots.length);
   assert.deepEqual([a.name, b.name], ["Claude", "Claude 2"]);
   // no model named: the agent's first
   assert.equal(b.model, "claude-opus-5-5");
@@ -167,6 +184,60 @@ test("a thread T3 never shows at work is let go, not left standing in the sectio
   await until("the providers", () => t3Host().agents.length >= 2);
 });
 
+test("the board's tools: on the launch line, a pass per ask that names its agent, person and board, gone when the thread ends", async () => {
+  // Foundation put the tools on the built-in Claude agent's launch line when T3 started
+  await until("the launch line", () => existsSync(standin.file("builtin.json")));
+  assert.equal(JSON.parse(readFileSync(standin.file("builtin.json"), "utf8")).launchArgs, BOARD_TOOL_ARGS);
+  assert.match(BOARD_TOOL_ARGS, /^--mcp-config \.foundation-mcp\.json --allowedTools mcp__foundation --strict-mcp-config$/);
+  await until("Claude has the tools", () => t3Host().agents.find((a) => a.id === "claudeAgent")?.boardTools === true);
+  assert.equal(t3Host().agents.find((a) => a.id === "codex")?.boardTools, false);
+
+  const r = await askT3(ada, { board: BOARD, section: parts, agent: "claudeAgent", text: "Make a note of the open questions" });
+  const folder = dispatched().filter((c) => c.type === "project.create").at(-1)!.workspaceRoot as string;
+  const tools = toolsOf(folder);
+  const [m] = crew();
+  // Foundation's tool server on this computer, as this ask's crew member on this board
+  assert.equal(tools.type, "http");
+  const url = new URL(tools.url);
+  assert.equal(url.hostname, "127.0.0.1");
+  assert.equal(url.pathname, "/mcp");
+  assert.deepEqual([url.searchParams.get("board"), url.searchParams.get("crew")], [BOARD, m.id]);
+  const token = tools.headers.Authorization.replace(/^Bearer /, "");
+  // its pass is a session of its own, an agent's (not a person's: it can't start machines, T3 or another thread), for the person who asked
+  assert.deepEqual([sessionOf(token)?.id, sessionOf(token)?.kind], [ada.id, "agent"]);
+  // with it, what the agent makes lands in its section under its own name, for everyone
+  assert.equal(crewFor(m.id, ada, BOARD)?.name, "Claude");
+  assert.equal(crewFor(m.id, kai, BOARD), undefined, "someone else's pass can't act as this agent");
+  const note = (await runTool({ boardId: BOARD, actor: m.name, userId: ada.id, crew: m.id }, "add_note", { section: "Parts", title: "Open questions", markdown: "- Which supplier for the hub bearing?" })) as { id: string };
+  const made = boardMaps(getBoard(BOARD).doc).objects.get(note.id) as { sectionId: string; createdBy?: string };
+  assert.deepEqual([made.sectionId, made.createdBy], [parts, "Claude"]);
+  // the thread ends: the pass is revoked and its file is gone
+  tell({ do: "finish", id: r.threadId });
+  await until("done", () => m.state.crew.status === "done");
+  assert.equal(sessionOf(token), null);
+  assert.equal(existsSync(join(folder, BOARD_TOOLS_FILE)), false);
+  assert.equal(crewFor(m.id, ada, BOARD) && !m.left ? "still there" : "leaving", m.left ? "leaving" : "still there");
+  await until("gone", () => crew().length === 0, 5000);
+
+  // stopped, or refused at the start: the same
+  const s = await askT3(ada, { board: BOARD, section: parts, agent: "claudeAgent", text: "Then stop" });
+  const folder2 = dispatched().filter((c) => c.type === "project.create").at(-1)!.workspaceRoot as string;
+  const token2 = toolsOf(folder2).headers.Authorization.replace(/^Bearer /, "");
+  await stopT3Thread(ada, s.threadId);
+  assert.equal(sessionOf(token2), null);
+  assert.equal(existsSync(join(folder2, BOARD_TOOLS_FILE)), false);
+  await until("gone", () => crew().length === 0, 5000);
+});
+
+test("an agent without the board's tools is told so and gets no pass", () => {
+  const withTools = t3Brief({ board: "b", section: "Parts", person: "Ada", name: "Kimi", tools: true, digest: "(the board)", text: "Do it" });
+  const without = t3Brief({ board: "b", section: "Parts", person: "Ada", name: "Codex", tools: false, digest: "(the board)", text: "Do it" });
+  assert.match(withTools, /Your board tools are the mcp__foundation__\* tools/);
+  assert.match(without, /You have no board tools in this thread/);
+  assert.doesNotMatch(without, /mcp__foundation/);
+  for (const b of [withTools, without]) assert.ok(b.includes('<board name="b">\n(the board)\n</board>') && b.endsWith('<ask from="Ada">\nDo it\n</ask>'));
+});
+
 test("Kimi in the cloud: a Claude-driven instance at Moonshot's address, the key T3's alone, its own folder, its one model", async () => {
   await rejects(addT3Agent({ preset: "kimi", where: "cloud" }), /needs an API key/);
   await rejects(addT3Agent({ preset: "kimi", where: "cloud", apiKey: "k", baseUrl: "http://api.moonshot.ai/anthropic" }), /must be https/);
@@ -184,9 +255,11 @@ test("Kimi in the cloud: a Claude-driven instance at Moonshot's address, the key
   // its own Claude folder under Foundation's T3, never this computer's sign-in
   assert.equal(inst.config.homePath, join(dir, "data", "t3", "claude-homes", "kimi-cloud"));
   assert.deepEqual(inst.config.customModels, [{ slug: "kimi-k3", name: "Kimi · kimi-k3" }]);
+  // and the board's tools, like Claude
+  assert.equal(inst.config.launchArgs, BOARD_TOOL_ARGS);
   await until("Kimi listed", () => t3Host().agents.some((a) => a.id === "kimi-cloud"));
   const kimi = t3Host().agents.find((a) => a.id === "kimi-cloud")!;
-  assert.deepEqual([kimi.name, kimi.where, kimi.model, kimi.models], ["Kimi", "cloud", "kimi-k3", 1]);
+  assert.deepEqual([kimi.name, kimi.where, kimi.model, kimi.models, kimi.boardTools], ["Kimi", "cloud", "kimi-k3", 1, true]);
   assert.deepEqual(kimi.modelList, [{ slug: "kimi-k3", name: "Kimi · kimi-k3" }]);
   assert.deepEqual(kimi.added, { preset: "kimi", baseUrl: "https://api.moonshot.ai/anthropic" });
   // Foundation keeps where it runs and what it talks to; never the key, anywhere it writes or says

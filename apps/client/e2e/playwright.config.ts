@@ -70,6 +70,8 @@ export default defineConfig({
         FOUNDATION_T3_PORT: process.env.E2E_T3_PORT ?? "15790",
         T3_STANDIN_DIR: data,
         T3_STANDIN_FINISH_MS: "6000",
+        // and it uses its pass to the board once, as an agent would (a note in the section it was sent to)
+        T3_STANDIN_USE_TOOLS: "1",
         ANTHROPIC_API_KEY: "",
       },
       url: `http://127.0.0.1:${SERVER_PORT}/api/me`,

@@ -1,7 +1,7 @@
 {
   "about": "Foundation's plan as a kanban. GitHub issues are where the team moves cards; this file is the local copy the app shows in Settings → Plan. `npm run plan:push` writes it to GitHub, `npm run plan:pull` reads the issues back. Columns: needs-you (waits on a person: a key, an install, a decision), backlog, next, doing, review (built, waiting to merge or to be checked by a person), done.",
   "repo": "joshleong/Foundation",
-  "syncedAt": "2026-11-13T03:30:39.314Z",
+  "syncedAt": "2026-11-13T19:58:48.332Z",
   "columns": [
     {
       "id": "needs-you",
@@ -1283,8 +1283,8 @@
       "kind": "plan",
       "milestone": "crew",
       "area": "agent",
-      "status": "backlog",
-      "body": "A T3 thread works in a folder with none of Foundation's tools (SPEC §7). Give each Claude-driven instance Foundation's MCP server (a crew id bound to the thread's person and board, as the crew's own runs have), so Kimi, DeepSeek or Claude through T3 can make cards in the section it stands in, aim its cursor, and bring the asker there; answer its approvals from the card (`thread.approval.respond`); keep its presence across a restart of Foundation's server. Then the crew's own Claude runs can move onto T3, and there is one list of agents.",
+      "status": "review",
+      "body": "Built 2026-11-13: each ask has its own folder with a tool file (Foundation's tool server as that ask's crew member, board and an agent session for the asker); Foundation puts `--mcp-config .foundation-mcp.json --allowedTools mcp__foundation --strict-mcp-config` on each Claude-driven agent's launch line in its T3; the brief gives the agent the board and tells it to work on cards in its section; the pass ends with the thread. `test/t3threads.test.ts` (12); the real t3.exe took the launch line and kept Claude ready; in the browser a stand-in T3 used the pass and its card landed in the section as Claude's. To check (Josh): ask Claude through T3 on the real server for a card in a section (one turn on the Team plan). Left: approvals answered on the card (`thread.approval.respond`), presence across a restart of Foundation's server, moving the crew's own Claude runs onto T3 so there's one list, tools for Codex.",
       "issue": 132
     }
   ]

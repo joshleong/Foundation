@@ -185,6 +185,8 @@ export interface T3Agent {
   where: "cloud" | "local";
   /** added from Foundation (Kimi, DeepSeek): which, and the address it talks to */
   added?: { preset: string; baseUrl: string };
+  /** a thread on it can read and write the board; else it works in its folder only */
+  boardTools?: boolean;
 }
 export interface T3Work {
   id: string;
@@ -333,7 +335,9 @@ function T3AgentRow({
             ) : (
               <span className="t3-ask-note">{model}</span>
             )}
-            <span className="t3-ask-note">supervised · {agent.where === "local" ? "runs on this computer" : agent.added ? "your key" : "your plan"}</span>
+            <span className="t3-ask-note" data-tip={agent.boardTools ? `${agent.name} can read the board and make cards in ${section.name} under its own name. Anything else it would change waits for a person, in T3.` : `${agent.name} has no board tools: it works in a folder of its own and says what it made.`}>
+              {agent.boardTools ? "writes the board" : "works in its folder"} · {agent.where === "local" ? "on this computer" : agent.added ? "your key" : "your plan"}
+            </span>
             <button className="f-pill is-agent t3-ask-send" onClick={() => void send()} disabled={!text.trim() || sending}>
               {sending ? "Starting" : "Ask"}
             </button>
