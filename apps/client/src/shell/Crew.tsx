@@ -384,7 +384,7 @@ export function followCrew(id: string | null) {
 export function followingCrew() {
   return following;
 }
-function useFollowing() {
+export function useFollowing() {
   const [, set] = useState(0);
   useEffect(() => {
     const f = () => set((n) => n + 1);

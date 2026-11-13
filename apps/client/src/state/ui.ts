@@ -52,6 +52,13 @@ export interface UiState {
   /** the search pane on the right */
   search: boolean;
   searchW: number;
+  /**
+   * the agents pane on the right (it takes search's place, and search takes its): every agent on the
+   * board by the section it's in, and who works with whom. `agentsAt`: the section it was opened from, listed first
+   */
+  agents: boolean;
+  agentsW: number;
+  agentsAt: string | null;
   /** cards the showing session touched — ringed on the grid */
   touched: string[];
   /** my role on the board that's showing: a viewer reads, and edits snap back */
@@ -63,10 +70,11 @@ export const WIDTHS = {
   pane: { min: 220, max: 420, initial: 272 },
   session: { min: 360, max: 720, initial: 460 },
   search: { min: 300, max: 600, initial: 380 },
+  agents: { min: 300, max: 560, initial: 360 },
 };
 
 const KEY = "foundation-floor";
-type Stored = Pick<UiState, "pane" | "paneW" | "paneView" | "spacesView" | "spaces" | "sessions" | "session" | "sessionW" | "search" | "searchW">;
+type Stored = Pick<UiState, "pane" | "paneW" | "paneView" | "spacesView" | "spaces" | "sessions" | "session" | "sessionW" | "search" | "searchW" | "agents" | "agentsW">;
 
 function stored(): Partial<Stored> {
   try {
@@ -103,6 +111,9 @@ let ui: UiState = {
   draft: "",
   search: s0.search ?? false,
   searchW: clampW(s0.searchW, WIDTHS.search),
+  agents: (s0.agents ?? false) && !s0.search,
+  agentsW: clampW(s0.agentsW, WIDTHS.agents),
+  agentsAt: null,
   touched: [],
   role: "member",
 };
@@ -120,8 +131,12 @@ export function setUi(patch: Partial<UiState>) {
   const before = ui;
   ui = { ...ui, ...patch };
   if (patch.session !== undefined && patch.session !== before.session) ui.touched = patch.touched ?? [];
+  // one pane on the right: the one just opened takes the other's place
+  if (ui.agents && !before.agents) ui.search = false;
+  else if (ui.search && !before.search) ui.agents = false;
+  if (!ui.agents) ui.agentsAt = null;
   // opening a session or search (or widening one) on a narrow screen: the side pane gives way
-  const opened = (ui.session && !before.session) || (ui.search && !before.search) || ui.sessionW > before.sessionW || ui.searchW > before.searchW;
+  const opened = (ui.session && !before.session) || (ui.search && !before.search) || (ui.agents && !before.agents) || ui.sessionW > before.sessionW || ui.searchW > before.searchW || ui.agentsW > before.agentsW;
   if (opened && ui.pane && patch.pane === undefined && typeof window !== "undefined") {
     const f = floorInsets(ui);
     if (window.innerWidth - f.left - f.right < MIN_PAPER) ui.pane = false;
@@ -132,11 +147,12 @@ export function setUi(patch: Partial<UiState>) {
     const short = () => MIN_PAPER - (window.innerWidth - floorInsets(ui).left - floorInsets(ui).right);
     if (short() > 0 && ui.session) ui.sessionW = Math.max(WIDTHS.session.min, ui.sessionW - short());
     if (short() > 0 && ui.search) ui.search = false;
+    if (short() > 0 && ui.agents) ui.agents = false;
     if (short() > 0) ui.paneW = Math.max(WIDTHS.pane.min, ui.paneW - short());
   }
-  if ((["pane", "paneW", "paneView", "spacesView", "spaces", "sessions", "session", "sessionW", "search", "searchW"] as const).some((k) => k in patch)) {
+  if ((["pane", "paneW", "paneView", "spacesView", "spaces", "sessions", "session", "sessionW", "search", "searchW", "agents", "agentsW"] as const).some((k) => k in patch)) {
     try {
-      const keep: Stored = { pane: ui.pane, paneW: ui.paneW, paneView: ui.paneView, spacesView: ui.spacesView, spaces: ui.spaces, sessions: ui.sessions, session: ui.session, sessionW: ui.sessionW, search: ui.search, searchW: ui.searchW };
+      const keep: Stored = { pane: ui.pane, paneW: ui.paneW, paneView: ui.paneView, spacesView: ui.spacesView, spaces: ui.spaces, sessions: ui.sessions, session: ui.session, sessionW: ui.sessionW, search: ui.search, searchW: ui.searchW, agents: ui.agents, agentsW: ui.agentsW };
       localStorage.setItem(KEY, JSON.stringify(keep));
     } catch { /* private window */ }
   }
@@ -163,6 +179,7 @@ export function fitFloor() {
   const patch: Partial<UiState> = {};
   if (room() < MIN_PAPER && ui.pane) patch.pane = false;
   if (room() - (patch.pane === false ? ui.paneW : 0) < MIN_PAPER && ui.search && ui.session) patch.search = false;
+  if (room() - (patch.pane === false ? ui.paneW : 0) < MIN_PAPER && ui.agents && ui.session) patch.agents = false;
   if (Object.keys(patch).length) setUi(patch);
 }
 if (typeof window !== "undefined") {
@@ -174,7 +191,7 @@ if (typeof window !== "undefined") {
 export function floorInsets(u: UiState = ui) {
   if (u.presenting) return { left: 0, top: 0, right: 0, bottom: 0 };
   const session = u.session ? u.sessionW : 0;
-  return { left: (u.pane ? u.paneW : 0) + session, top: TOP_BAR, right: u.search ? u.searchW : 0, bottom: 0 };
+  return { left: (u.pane ? u.paneW : 0) + session, top: TOP_BAR, right: u.search ? u.searchW : u.agents ? u.agentsW : 0, bottom: 0 };
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;

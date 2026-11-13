@@ -16,7 +16,7 @@ import { springs } from "@foundation/ui";
 import { MARK_VIEWBOX, MarkPanels } from "../brand/Mark";
 import { noteLines, progressLabel, shortDate } from "./policy";
 import { checkForUpdate, closeCard, inDesktop, installUpdate, later, skipVersion, useUpdate, type UpdatePhase } from "./updater";
-import { useUi } from "../state/ui";
+import { floorInsets, useUi } from "../state/ui";
 import "./update.css";
 
 export interface UpdateCardProps {
@@ -216,8 +216,9 @@ export function UpdateShelf({ day = false }: { day?: boolean }) {
   const u = useUpdate();
   const ui = useUi();
   const show = u.shown && u.phase !== "idle";
-  // beside the search pane when it's open, not over its field (a card that has to stay up would sit on it)
-  const clear = !day && ui.search && !ui.presenting ? { right: ui.searchW + 16 } : undefined;
+  // beside the pane on the right (search, or the agents) when it's open, not over it (a card that has to stay up would sit on it)
+  const paneR = floorInsets(ui).right;
+  const clear = !day && paneR ? { right: paneR + 16 } : undefined;
   return (
     <AnimatePresence>
       {show && (

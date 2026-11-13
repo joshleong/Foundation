@@ -1,7 +1,7 @@
 {
   "about": "Foundation's plan as a kanban. GitHub issues are where the team moves cards; this file is the local copy the app shows in Settings → Plan. `npm run plan:push` writes it to GitHub, `npm run plan:pull` reads the issues back. Columns: needs-you (waits on a person: a key, an install, a decision), backlog, next, doing, review (built, waiting to merge or to be checked by a person), done.",
   "repo": "joshleong/Foundation",
-  "syncedAt": "2026-11-13T01:34:04.994Z",
+  "syncedAt": "2026-11-13T02:37:51.518Z",
   "columns": [
     {
       "id": "needs-you",
@@ -274,7 +274,8 @@
       "milestone": "huddles",
       "area": "slack",
       "status": "review",
-      "body": "Josh, 2026-11-12: a board with a section for every Slack channel, each gathering the channel's latest images, top-level items and a summary, a live Slack mark on each section, and Foundation's agents pulling information, editing summaries and organizing images as they're posted. Built: slacklive.ts (the board, the `slack` server map, reading, images, the agent queue), POST /api/slack/events, apps/slack-agent (Slack's bolt-js-support-agent template plus foundation/bridge.js, `npm run slack`), the Slack mark on section headers and #/design, ⌘K → Open the Slack board. Agents are off until a person presses ✦. Checked against a stand-in Slack with the scripted agent: slacklive.test.ts, bridge.test.js, browser day and night (docs/evidence/2026-11-12_slack-board/). Waits on Josh: slack login and linking the project to app A0CGWUQ6WSK, FOUNDATION_SERVICE_TOKEN in .env, then a run against the real workspace and one real agent summary (SPEC, Waiting on a person)."
+      "body": "Josh, 2026-11-12: a board with a section for every Slack channel, each gathering the channel's latest images, top-level items and a summary, a live Slack mark on each section, and Foundation's agents pulling information, editing summaries and organizing images as they're posted. Built: slacklive.ts (the board, the `slack` server map, reading, images, the agent queue), POST /api/slack/events, apps/slack-agent (Slack's bolt-js-support-agent template plus foundation/bridge.js, `npm run slack`), the Slack mark on section headers and #/design, ⌘K → Open the Slack board. Agents are off until a person presses ✦. Checked against a stand-in Slack with the scripted agent: slacklive.test.ts, bridge.test.js, browser day and night (docs/evidence/2026-11-12_slack-board/). Waits on Josh: slack login and linking the project to app A0CGWUQ6WSK, FOUNDATION_SERVICE_TOKEN in .env, then a run against the real workspace and one real agent summary (SPEC, Waiting on a person).",
+      "issue": 120
     },
     {
       "id": "slack-app",
@@ -1165,6 +1166,46 @@
       "status": "review",
       "body": "From reading Flowform's updater (2026-11-12): its server refuses clients under a minimum. `FOUNDATION_MIN_CLIENT=x.y.z`: `/auth/config` carries it; an older client's socket ticket is refused (426) and its sync socket closed (4426); its update card stays up as needed, with Update and restart alone. `apps/server/src/clientversion.ts`, `packages/protocol/src/version.ts`, `update/updater.ts` (`learnMinimum`). `test/clientversion.test.ts` (5, real sockets), `test/update.test.ts` (8). Seen in the browser against a server set to 0.9.0. The installed-app path (meet a minimum, update through it) is unrun until a release is published (publish-first-release).",
       "issue": 119
+    },
+    {
+      "id": "section-agents",
+      "title": "An agent group on every section, and the agents pane",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "agent",
+      "status": "review",
+      "body": "Built 2026-11-12: a tab right above each section with a face per agent at work inside it (hover, or pinned on this device; at screen size at any zoom; it comes down with the view when the section fills it). A free agent joins the group of the section it aims into and leaves when it moves on. A lead and its helpers read as one team. It opens into the agents pane on the right (✦ in the top bar too): every agent by section, what it's doing, who works with whom, Follow / Open / Stop. `components/SectionCrew.tsx`, `shell/AgentsPane.tsx`, `lib/sectionCrew.ts`, `lib/crewWatch.ts`. `test/section-crew.test.ts` (8), `e2e/section-crew.spec.ts` (3, two people, script runtime), `docs/evidence/2026-11-12_section-agents/`. To check: with a real model turn; whether the tab's place and the pin feel right (Josh).",
+      "issue": 121
+    },
+    {
+      "id": "agent-consent-and-tokens",
+      "title": "Decide: how Claude signs in inside a machine, and what lets a posted agent keep working",
+      "kind": "hookup",
+      "milestone": "crew",
+      "area": "agent",
+      "status": "needs-you",
+      "body": "Two calls before agents live in sections for good (Josh, 2026-11-12). (1) Sign-in inside a machine: a long-lived token per subscription from `claude setup-token`, stored encrypted and passed in only when a run starts (recommended), or mounting `~/.claude` (breaks no-host-mounts). (2) The invariant says nothing that spends money or runs code starts without a person: is posting an agent to a section, from a browser session, the consent for it to keep working inside that section and its machine until someone pauses it (recommended), or does every turn need a press?",
+      "issue": 122
+    },
+    {
+      "id": "posted-agents",
+      "title": "Agents posted to a section: they stay in its group, with a brief and a subscription",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "agent",
+      "status": "backlog",
+      "body": "Today a section's group is whoever aims there now (section-agents). A person posts an agent to a section: a name, a brief, the Claude subscription or key it runs on, and what it's bound to (the section's cards, a machine, an app and its GitHub repo). Stored on the board, so its face stays in the group when idle, marked as resident, not visiting; free agents still come and go. Settings → Services lists the subscriptions. Needs agent-consent-and-tokens.",
+      "issue": 123
+    },
+    {
+      "id": "agent-machines",
+      "title": "Claude Code agents that run inside a machine (Kiri or Docker)",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "machines",
+      "status": "backlog",
+      "body": "A machine image with Claude Code installed and a repo cloned inside; the server runs `claude -p --output-format stream-json` in it through the Engine API exec, with Foundation's MCP tools attached, and streams it into the session view. Each one is a new instance with its own disk, started by a person. Kiri's containers share one small VM (WSL 2 on Windows): they separate our own agents, they don't contain hostile code. Needs agent-consent-and-tokens and posted-agents.",
+      "issue": 124
     }
   ]
 }

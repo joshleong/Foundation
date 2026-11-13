@@ -22,6 +22,8 @@ import { syncSentence } from "../settings/plan";
 import type { Plan } from "../settings/plan";
 import { SectionEmpty } from "../panels/SectionEmpty";
 import { SlackMarkView } from "../components/SlackMark";
+import { SectionCrewView, type CrewFace } from "../components/SectionCrew";
+import { AgentsPaneBody, type AgentRowData, type AgentsPlace } from "../shell/AgentsPane";
 import { MachineAskList } from "../panels/MachineView";
 import type { MachineAsk, SlackSectionState } from "@foundation/protocol";
 import { COMMANDS_GLYPH, IS_MAC, keys } from "../lib/keys";
@@ -917,6 +919,10 @@ export function DesignPage() {
         <CrewDemo />
       </Section>
 
+      <Section title="Agents in a section" note="Every section has an agent group: a paper tab that stands right above it, on its top edge, while the pointer is on the section, or always once it's pinned (the pin turns violet; a pin is this device's own). A face is an agent's initial on its own crew colour, with a ring that breathes while it works; done, it keeps its colour and sets back, with no ring; stopped is amber. The tab is drawn at screen size at any zoom, and when its section fills the view it comes down with the view instead of hiding under the top bar. A free agent that comes into the section joins the group on a spring, and leaves it when it moves on. A lead and the helpers it called in stand shoulder to shoulder and the tab says working together; separate asks stand apart and it counts the teams. Press a face to follow that agent. The last button opens the agents pane on the right, where search goes: every agent by the section it's in, what it's doing and the ask it's on, with each team held by a rule in its lead's colour. The section it was opened from comes first, in violet.">
+        <SectionCrewDemo />
+      </Section>
+
       <Section title="Writing together" note={`A note at rest is its markdown, tables included. Double-click and it opens as a CodeMirror editor on the note's shared text: monospace, the markdown's own marks dimmed, headings and strong text in weight, links blue — no colour of its own. Every keystroke is shared as it's typed, so two people can write in one note, even in one word, and both keep their words whole. Each person keeps their own colour: someone else's caret is a 2 px bar in it, named while it moves and quiet once it rests; their selection is a 22 % tint. A note at rest names whoever is writing in it with a breathing chip at the bottom right, clear of the bar that drops in at the top. ${keys("mod+Z")} takes back only your own words. The two editors below share one text: type in either.`}>
         <NoteEditorDemo />
       </Section>
@@ -1004,6 +1010,57 @@ function MachineAsksDemo() {
       {card(560, 400, [...answered, waiting])}
       {card(400, 360, [{ id: "ask_demo4", command: "python3 -m pip list", by: "Wren", for: "Kai", state: "running", at: now - 4_000, decidedBy: "Kai" }, waiting], true)}
       {card(260, 300, [waiting])}
+    </div>
+  );
+}
+
+/** the agent group above a section (one agent, one team, teams side by side, pinned and empty) and the agents pane */
+function SectionCrewDemo() {
+  const face = (id: string, hue: number, doing: string, extra: Partial<CrewFace> = {}): CrewFace => ({ id, name: id, hue, status: "working", doing, askerName: "Ada Okafor", ...extra });
+  const wren = face("Wren", 0, "writing the parts table");
+  const tern = face("Tern", 1, "reading the STEP export", { lead: "Wren", leadName: "Wren" });
+  const lark = face("Lark", 2, "listing suppliers to call", { lead: "Wren", leadName: "Wren" });
+  const basalt = face("Basalt", 3, "checking web-box's port", { askerName: "Kai Ito" });
+  const onyx = face("Onyx", 4, "", { status: "done", askerName: "Kai Ito" });
+  const specimens: Array<{ label: string; name: string; faces: CrewFace[]; pinned?: boolean }> = [
+    { label: "One agent, pointer on the section", name: "Parts", faces: [wren] },
+    { label: "A lead and two helpers: one team", name: "Parts", faces: [wren, tern, lark] },
+    { label: "Pinned · two asks side by side, one done", name: "Shop floor", faces: [wren, tern, basalt, onyx], pinned: true },
+    { label: "Pinned, nobody here", name: "Suppliers", faces: [], pinned: true },
+  ];
+  const row = (f: CrewFace, task: string, mine = true): AgentRowData => ({ ...f, task, mine });
+  const team = (members: AgentRowData[]) => ({ id: members[0].id, members, together: members.length > 1 });
+  const places: AgentsPlace[] = [
+    { id: "parts", name: "Parts", at: true, teams: [team([row(wren, "Build the parts table from the STEP export"), row(tern, "Read the STEP header and list its parts"), row(lark, "Find a supplier for each part")])] },
+    { id: "shop", name: "Shop floor", at: false, teams: [team([row(basalt, "Is web-box serving on port 80?", false)]), team([row(onyx, "Summarise yesterday's huddle", false)])] },
+  ];
+  return (
+    <div className="sec-crew-demo">
+      <div className="oncall-row">
+        {specimens.map((sp) => (
+          <div className="oncall-cell" key={sp.label}>
+            <div className="section-card oncall-static oncall-section" style={{ width: 300, height: 84 }}>
+              <SectionCrewView faces={sp.faces} pinned={!!sp.pinned} shown sectionName={sp.name} />
+              <div className="section-header" style={{ height: 42 }}>
+                <span className="section-name">{sp.name}</span>
+                <span className="section-coords">A1</span>
+              </div>
+            </div>
+            <div className="effect-label">{sp.label}</div>
+          </div>
+        ))}
+      </div>
+      <div className="adapt-row">
+        <div className="agents-pane-specimen" style={{ width: 360 }}>
+          <AgentsPaneBody places={places} count={5} />
+        </div>
+        <div className="agents-pane-specimen" style={{ width: 300 }}>
+          <AgentsPaneBody places={[{ id: "suppliers", name: "Suppliers", at: true, teams: [] }]} count={0} />
+        </div>
+        <div className="agents-pane-specimen" style={{ width: 300 }}>
+          <AgentsPaneBody places={[]} count={0} />
+        </div>
+      </div>
     </div>
   );
 }

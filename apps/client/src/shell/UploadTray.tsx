@@ -13,13 +13,13 @@ import { useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { dismissUploads, foldUploads, retryAllUploads, retryUpload, uploadTotals, useUploads, type UploadItem } from "../lib/uploads";
 import { pasteFiles } from "../lib/ingest";
-import { getUi, useUi } from "../state/ui";
+import { floorInsets, getUi, useUi } from "../state/ui";
 
 export function UploadTray() {
   const s = useUploads();
   const ui = useUi();
   usePasteIntake();
-  const right = 16 + (ui.search && !ui.presenting ? ui.searchW : 0);
+  const right = 16 + floorInsets(ui).right;
   return (
     <AnimatePresence>
       {s.items.length > 0 && !ui.presenting && (

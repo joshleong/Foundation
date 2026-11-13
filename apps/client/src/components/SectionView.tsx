@@ -48,6 +48,7 @@ import { NoteView } from "./NoteView";
 import { MediaView } from "./MediaView";
 import { PANEL_GLYPH, PanelActions, PanelView } from "../panels/PanelView";
 import { SlackMark } from "./SlackMark";
+import { SectionCrew, openAgentsPane } from "./SectionCrew";
 import { FullscreenButton } from "./Fullscreen";
 import { isHostable } from "@foundation/protocol";
 import { isPanel } from "../state/store";
@@ -330,6 +331,7 @@ export const SectionView = memo(function SectionView({
         { icon: "#", label: "Add a Slack channel", action: () => addPanel(section.id, { panel: "slack", name: "Slack", ...at(420, 520) }) },
         { icon: "▤", label: "Start a machine here", action: () => addPanel(section.id, { panel: "machine", name: "Machine", machine: { name: `box-${Math.random().toString(16).slice(2, 6)}`, state: "absent" }, ...at(760, 520) }) },
         ...tellSlack,
+        { icon: "✦", label: "Agents in this section", action: () => openAgentsPane(section.id) },
         ...(host
           ? [{ icon: "◱", label: `Show ${host.name} as a card`, action: () => setSectionHost(section.id, null) }]
           : hostable
@@ -423,6 +425,9 @@ export const SectionView = memo(function SectionView({
       }}
       onDrop={onDrop}
     >
+      {/* the agents at work in here, right above the section: up while the pointer is on it, or pinned */}
+      {!mini && <SectionCrew sectionId={section.id} sectionName={section.name} />}
+
       {/* header — drag it to move the section to another grid cell */}
       <div
         className="section-header"

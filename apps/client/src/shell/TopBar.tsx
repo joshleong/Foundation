@@ -189,6 +189,9 @@ export function TopBar({ boards, current, onSwitch, onNew, onClose, onRename }: 
         <button className={`top-btn${ui.search ? " is-on" : ""}`} onClick={() => setUi({ search: !ui.search })} data-tip={`Search, drag onto the grid (${keys("mod+F")})`}>
           ⌕
         </button>
+        <button className={`top-btn is-agent${ui.agents ? " is-on" : ""}`} onClick={() => setUi({ agents: !ui.agents })} aria-label="Agents" data-tip="Agents on this board: who's in which section, and who works together">
+          ✦
+        </button>
         <button className="top-btn" onClick={() => setUi({ command: true })} data-tip={`Commands, open an app (${keys("mod+K")})`}>
           {COMMANDS_GLYPH}
         </button>

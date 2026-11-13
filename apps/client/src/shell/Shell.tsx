@@ -22,6 +22,7 @@ import { CommandBar } from "./CommandBar";
 import { TopBar } from "./TopBar";
 import { SessionView, TouchedRings } from "./SessionView";
 import { SearchPane } from "./SearchPane";
+import { AgentsPane } from "./AgentsPane";
 import { talkTyping, toggleTalk } from "./Talk";
 import { Present } from "./Present";
 import { RepoDrawer } from "./RepoDrawer";
@@ -247,6 +248,7 @@ export function Shell({ user }: { user: UserInfo }) {
       {!ui.presenting && ui.paneView === "info" && <SpaceInfo user={user} space={space} boards={boards} onUpdate={updateSpace} />}
       <SessionView />
       <SearchPane />
+      <AgentsPane />
       <TouchedRings />
       <ContextMenuView />
       <CommandBar />
