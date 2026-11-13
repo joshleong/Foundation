@@ -22,7 +22,7 @@ import { parseRepo, repoCommits, repoInfo, repoReadme } from "./github.ts";
 import { companySnapshot, connectorEvents, readConnector, watchFactoryForm } from "./connectors.ts";
 import { createAsk, listAsks, resolveAsk, startHermes } from "./hermes.ts";
 import { getJob, listJobs, startJob } from "./jobs.ts";
-import { followRun, listSessions, runtimes, sessionTurns, settleOrphanRuns, startRun, stopAllRuns, stopRun } from "./agent.ts";
+import { followRun, listSessions, pickRuntime, runtimes, sessionTurns, settleOrphanRuns, startRun, stopAllRuns, stopRun } from "./agent.ts";
 import { t3Thread, t3Threads } from "./t3.ts";
 import { pollHandoffs } from "./vision.ts";
 import { boardPeople, boardRole, canWrite, requireWriter, setBoardRole } from "./roles.ts";
@@ -47,12 +47,16 @@ import { startGridLog } from "./gridlog.ts";
 import { answerAsk, startMachineAsks } from "./machineasks.ts";
 import { createPlanCard, movePlanCard, readPlan, syncPlan, type NewCard } from "./plan.ts";
 import { startDigest } from "./digest.ts";
+import { buildSlackBoard, fromBridge, joinFor, setAgents, setCurator, slackLiveStatus, startSlackLive, syncChannel, type BridgeMessage } from "./slacklive.ts";
 import { engineImages, engineStatus, loadImage, reconcileMachine, removeMachine, restartMachine, startMachine, stopMachine } from "./machines.ts";
 
 // people's grid edits go in the activity log, from the first board loaded
 startGridLog();
 startFlowformSync();
 startMachineAsks();
+// the Slack board: read in turn while the Slack app is quiet; its agents are ordinary crew runs
+startSlackLive();
+setCurator((o) => startRun(o));
 
 const r = new Router();
 
@@ -527,6 +531,59 @@ r.post("/api/slack/channels/:id/huddle-notes", async (req) => {
   const excerpt = lines.slice(0, 40).join("\n") + (lines.length > 40 ? `\n… ${lines.length - 40} more lines on Foundation` : "");
   const text = `${b.summary ? `${b.summary.trim()}\n\n` : ""}\`\`\`${excerpt}\`\`\`\n<${boardLink(board, h.id)}|The full huddle archive on Foundation>`;
   return slackDo(() => postMessage(req.params.id, text, u, { board, huddle: h.id, session: s.id }));
+});
+
+// ---------- the Slack board: a section per channel, kept live (slacklive.ts) ----------
+
+r.get("/api/slack/live", async (req) => {
+  requireUser(req);
+  return slackLiveStatus();
+});
+/** make the Slack board (or bring the one there is up to date) and say where it is */
+r.post("/api/slack/board", async (req) => {
+  const u = requireUser(req);
+  requireWriter(u);
+  return slackDo(() => buildSlackBoard(u));
+});
+/** read one channel into its section now */
+r.post("/api/slack/board/sync", async (req) => {
+  const u = requireUser(req);
+  const board = req.query.get("board") ?? "";
+  requireBoard(u, board);
+  const { channel } = await readJson<{ channel?: string }>(req);
+  if (!channel) throw new HttpError(400, "which channel?");
+  await slackDo(() => syncChannel(board, channel));
+  return { ok: true };
+});
+/** the Slack app joins a public channel so its section can be read: the channel sees it join, so a person presses this */
+r.post("/api/slack/board/join", async (req) => {
+  const u = requirePerson(req, "Having the Slack app join a channel");
+  const board = req.query.get("board") ?? "";
+  requireBoard(u, board);
+  const { channel } = await readJson<{ channel?: string }>(req);
+  if (!channel) throw new HttpError(400, "which channel?");
+  await slackDo(() => joinFor(board, channel, u));
+  return { ok: true };
+});
+/** agents write and keep each section's summary: every one is an agent turn, so a person turns it on (and off) */
+r.post("/api/slack/board/agents", async (req) => {
+  const u = requirePerson(req, "Turning agents on for the Slack board");
+  const board = req.query.get("board") ?? "";
+  requireBoard(u, board);
+  const { on } = await readJson<{ on?: boolean }>(req);
+  if (on && !pickRuntime()) throw new HttpError(503, "No agent runtime: sign in to Claude Code (`claude`) to use your subscription, or set ANTHROPIC_API_KEY");
+  return slackDo(async () => setAgents(board, u, on === true));
+});
+/**
+ * What Slack sends, forwarded by the Slack app's own process (apps/slack-agent):
+ * that it's there, and each event as it happens. The service token only.
+ */
+r.post("/api/slack/events", async (req) => {
+  const u = requireUser(req);
+  if (u.id !== "agent") throw new HttpError(403, "Only the Slack app's process (the service token) reports Slack events");
+  const addr = req.socket.remoteAddress ?? "";
+  const loopback = addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
+  return fromBridge(await readJson<BridgeMessage>(req), { loopback });
 });
 
 // ---------- jobs ----------

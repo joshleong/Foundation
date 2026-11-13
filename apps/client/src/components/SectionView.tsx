@@ -47,6 +47,7 @@ const MapView = lazy(() => import("./MapView").then((m) => ({ default: m.MapView
 import { NoteView } from "./NoteView";
 import { MediaView } from "./MediaView";
 import { PANEL_GLYPH, PanelActions, PanelView } from "../panels/PanelView";
+import { SlackMark } from "./SlackMark";
 import { FullscreenButton } from "./Fullscreen";
 import { isHostable } from "@foundation/protocol";
 import { isPanel } from "../state/store";
@@ -472,6 +473,8 @@ export const SectionView = memo(function SectionView({
         ) : (
           objects.length > 0 && <span className="section-count">{objects.length}</span>
         )}
+        {/* a section that follows a Slack channel says how that connection stands */}
+        <SlackMark sectionId={section.id} />
 
         {/* tools wait in the top-right corner until the pointer is on the section */}
         {!mini && (

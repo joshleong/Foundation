@@ -21,8 +21,9 @@ import type { ReleasePost } from "../settings/releases";
 import { syncSentence } from "../settings/plan";
 import type { Plan } from "../settings/plan";
 import { SectionEmpty } from "../panels/SectionEmpty";
+import { SlackMarkView } from "../components/SlackMark";
 import { MachineAskList } from "../panels/MachineView";
-import type { MachineAsk } from "@foundation/protocol";
+import type { MachineAsk, SlackSectionState } from "@foundation/protocol";
 import { COMMANDS_GLYPH, IS_MAC, keys } from "../lib/keys";
 import * as Y from "yjs";
 import { loadNoteEditor } from "../components/NoteView";
@@ -729,6 +730,10 @@ export function DesignPage() {
         </div>
       </Section>
 
+      <Section title="The Slack board" note="One space with a section for every Slack channel, each kept current with its channel: a Summary note, a Latest note (the newest top-level messages) and the channel's latest images, newest first; a new one takes the first place and the rest move along. Each section wears a live Slack mark beside its count: Slack's octothorpe in the ink (the brand's colours stay out of the chrome), a word and a state dot. Live breathes green: Slack sends what's posted as it's posted. Polling is a still amber dot: the Slack app isn't running, so channels are read in turn while someone looks. Join is a hollow amber dot: the app isn't in the channel, and a press has it join. Offline is red, and the roll-over says why. Beside it, ✦: violet while agents write and keep the summaries, which only a person turns on.">
+        <SlackMarks />
+      </Section>
+
       <Section title="Machines" note="A Linux machine or container in a section, on this computer's engine: Kiri or Docker (one wire, the Docker Engine API). The state pill leads: Running (green, breathing), Pulling and Starting (amber, with the engine's own progress), Stopped and Not started (grey), Error (red, in the engine's words), No engine (amber, a hatched well that says why). Kiri installed but asleep is not No engine: the tag says Kiri · asleep and Start wakes it first; a machine whose disk is on a sleeping Kiri is Out of reach (amber), never removed. Then the engine and its version, the image in code type, and published ports as pills that open the port as a page in the section. Start is the one blue action, and only a person presses it: an agent's proposal says so in violet. Running, the shared terminal fills the card (paper, ink, the tokens as its colours); viewers watch it under an amber View only tag. Remove asks twice. A page opened from a port follows its machine: while the machine isn't running the page's poster dims and the machine's state stands over it (the card's own pill, what happened in its words, Start it for a person and Show the machine), and it reloads by itself when the machine runs again; a removed machine, or a card taken off the board, says it's gone. An agent's command (machine_run) waits on the card under the head: violet, the agent's name, the command in code type, its why, and the time left; Run is a person's blue go-ahead beside Decline, and a viewer sees who can answer instead. Running and answered asks shrink to a line (amber running, green exit 0, red otherwise, struck through when declined or unanswered) for two minutes. Shown at 560, 400 and 260 px.">
         <div className="adapt-row">
           <div className="frame-card live-specimen" style={{ width: 560, height: 320 }}>
@@ -1246,6 +1251,34 @@ function NoteEditorDemo() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** the live Slack mark in each of its states, on a section's header */
+function SlackMarks() {
+  const now = Date.now();
+  const rows: Array<[SlackSectionState, string, string, string]> = [
+    [{ channel: "C1", name: "design", state: "live", detail: "Slack sends what's posted here as it's posted", lastAt: now - 4 * 60_000, agents: { by: "Ada", at: now }, summaryBy: "Wren", summaryAt: now - 3 * 60_000 }, "#design", "7", "Live, and agents keep its summary: a breathing green dot, ✦ in violet"],
+    [{ channel: "C2", name: "general", state: "polling", detail: "Read about every 40 s while someone has this board open", lastAt: now - 2 * 3600_000 }, "#general", "5", "Polling: a still amber dot; agents off"],
+    [{ channel: "C3", name: "random", state: "waiting", detail: "The Slack app isn't in this channel. Press to have it join" }, "#random", "2", "Not in the channel: a hollow amber dot, and Join"],
+    [{ channel: "C4", name: "launch", state: "offline", detail: "Slack isn't connected: run the Slack app (npm run slack)" }, "#launch", "2", "Offline: red, and the roll-over says why"],
+  ];
+  return (
+    <div className="oncall-row">
+      {rows.map(([st, name, count, label]) => (
+        <div className="oncall-cell" key={name}>
+          <div className="section-card oncall-static oncall-section" style={{ width: 300, height: 84 }}>
+            <div className="section-header" style={{ height: 42 }}>
+              <span className="section-name">{name}</span>
+              <span className="section-coords">A1</span>
+              <span className="section-count">{count}</span>
+              <SlackMarkView st={st} viewer={false} />
+            </div>
+          </div>
+          <div className="effect-label">{label}</div>
+        </div>
+      ))}
     </div>
   );
 }

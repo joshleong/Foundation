@@ -68,6 +68,24 @@ export async function runScript(opts: { prompt: string; signal: AbortSignal }, e
     return;
   }
 
+  // keeping a Slack section (slacklive.ts's brief): read the channel, rewrite the summary, name a picture, put things in order
+  const slack = /^Keep the section “#([^”]+)” \(section id (\S+)\) on this board current with its Slack channel \(channel id (\S+)\)/.exec(opts.prompt);
+  if (slack) {
+    const [, name, sectionId, channel] = slack;
+    const summary = /note “Summary” \(card id (\S+)\)/.exec(opts.prompt)?.[1];
+    const latest = /then Latest \((\S+)\)/.exec(opts.prompt)?.[1];
+    const cards = [...opts.prompt.matchAll(/(media_\w+) \(“/g)].map((m) => m[1]);
+    const read = String(await step("slack_read", { channel, limit: 60 }));
+    const lines = read.split("\n").filter((l) => l.startsWith("["));
+    const said = lines.slice(-3).map((l) => `- ${l.replace(/^\[[^\]]+\]\s*/, "")}`);
+    if (summary) await step("update_card", { id: summary, markdown: `## #${name}\n\nWhat's going on, from the channel:\n\n${said.join("\n") || "- nothing yet"}\n\n*Written from the last ${lines.length} messages.*` });
+    if (cards[0]) await step("update_card", { id: cards[0], name: `Newest from #${name}` });
+    await step("arrange_section", { section: sectionId, order: [summary, latest, ...cards].filter(Boolean) });
+    emit({ type: "text", text: `Rewrote the summary of #${name} from ${lines.length} messages and put ${cards.length} image${cards.length === 1 ? "" : "s"} in order.` });
+    emit({ type: "done", runtime: "script" });
+    return;
+  }
+
   const section = quoted(opts.prompt) ?? "Supply chain";
   await step("set_plan", {
     goal: `${section}: the parts on the board, with their data`,

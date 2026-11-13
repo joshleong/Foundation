@@ -235,6 +235,115 @@ body.resizing-v .section-card,
   font-variant-numeric: tabular-nums;
 }
 
+/* The live Slack mark: a section that follows a Slack channel says how that
+   connection stands. A pill beside the count: Slack's octothorpe in the ink,
+   a word, and a state dot (ok breathing: live · warn: polling · hollow warn:
+   the app isn't in the channel · bad: offline). Then ✦, violet while agents
+   keep the summaries. No transitions on tokened fills (they lag the night fade). */
+.slack-marks {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.slack-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 18px;
+  padding: 0 7px 0 6px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-pill);
+  background: var(--color-raise);
+  color: var(--ink-soft);
+  font: 600 var(--text-11) / 1 var(--font);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.slack-mark:disabled {
+  cursor: default;
+}
+.slack-mark:not(:disabled):hover {
+  border-color: var(--color-line-strong);
+  background: color-mix(in srgb, var(--color-pulse) 8%, var(--color-raise));
+  color: var(--ink);
+}
+.slack-glyph {
+  flex-shrink: 0;
+}
+.slack-mark.is-busy .slack-glyph {
+  animation: slack-reading 0.9s linear infinite;
+}
+@keyframes slack-reading {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.slack-mark-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-dim);
+  flex-shrink: 0;
+}
+.slack-mark.is-live {
+  color: var(--ink);
+}
+.slack-mark.is-live .slack-mark-dot {
+  background: var(--color-ok);
+  animation: f-breathe 2.4s var(--ease-out-soft) infinite;
+}
+.slack-mark.is-polling .slack-mark-dot {
+  background: var(--color-warn);
+}
+.slack-mark.is-waiting .slack-mark-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--color-warn);
+}
+.slack-mark.is-offline .slack-mark-dot {
+  background: var(--color-bad);
+}
+.slack-agents {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-line);
+  border-radius: 50%;
+  background: var(--color-raise);
+  color: var(--color-dim);
+  font: 400 var(--text-11) / 1 var(--font);
+  cursor: pointer;
+}
+.slack-agents:disabled {
+  cursor: default;
+}
+.slack-agents:not(:disabled):hover {
+  border-color: var(--color-line-strong);
+  color: var(--color-agent);
+}
+.slack-agents.is-on {
+  color: var(--color-agent);
+  background: var(--color-agent-dim);
+  border-color: color-mix(in srgb, var(--color-agent) 40%, transparent);
+}
+/* in a grid section's miniature the mark is only read: the dot and the glyph */
+.section-card.is-mini .slack-marks {
+  pointer-events: none;
+}
+.section-card.is-mini .slack-mark-word,
+.section-card.is-mini .slack-agents {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .slack-mark.is-live .slack-mark-dot,
+  .slack-mark.is-busy .slack-glyph {
+    animation: none;
+  }
+}
+
 /* Section tools: a ghost bar in the top-right corner, only while the pointer is
    on the section (or a tool has focus). Solid paper, no blur — one
    backdrop-filter per region. Hiding waits a beat so a pointer that slips off

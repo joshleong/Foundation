@@ -268,6 +268,15 @@
       "issue": 17
     },
     {
+      "id": "slack-board",
+      "title": "The Slack board: a section per channel, live, kept by agents",
+      "kind": "plan",
+      "milestone": "huddles",
+      "area": "slack",
+      "status": "review",
+      "body": "Josh, 2026-11-12: a board with a section for every Slack channel, each gathering the channel's latest images, top-level items and a summary, a live Slack mark on each section, and Foundation's agents pulling information, editing summaries and organizing images as they're posted. Built: slacklive.ts (the board, the `slack` server map, reading, images, the agent queue), POST /api/slack/events, apps/slack-agent (Slack's bolt-js-support-agent template plus foundation/bridge.js, `npm run slack`), the Slack mark on section headers and #/design, ⌘K → Open the Slack board. Agents are off until a person presses ✦. Checked against a stand-in Slack with the scripted agent: slacklive.test.ts, bridge.test.js, browser day and night (docs/evidence/2026-11-12_slack-board/). Waits on Josh: slack login and linking the project to app A0CGWUQ6WSK, FOUNDATION_SERVICE_TOKEN in .env, then a run against the real workspace and one real agent summary (SPEC, Waiting on a person)."
+    },
+    {
       "id": "slack-app",
       "title": "Create the Slack app and set SLACK_BOT_TOKEN",
       "kind": "hookup",
