@@ -299,6 +299,11 @@ class BoardSync {
       if (ev.code === 4001) window.dispatchEvent(new Event("foundation:boards"));
       // the server's board was made again since ours: don't keep offering the old one
       if (ev.code === 4002) return void this.setAside();
+      // this client is older than the server still works with: the update card says so; there's no point knocking again
+      if (ev.code === 4426) {
+        window.dispatchEvent(new CustomEvent("foundation:client-too-old"));
+        return this.setStatus("offline");
+      }
       this.setStatus("offline");
       setTimeout(() => void this.connect(), this.backoff());
     };

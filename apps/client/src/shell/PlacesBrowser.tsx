@@ -7,8 +7,8 @@
  */
 
 import { useEffect, useState } from "react";
-import type { SearchHit } from "@foundation/protocol";
-import { api, type UploadedFile } from "../lib/api";
+import { api } from "../lib/api";
+import { placeHitId } from "../lib/hits";
 import { toast } from "../state/ui";
 import { Draggable } from "./SearchPane";
 
@@ -33,7 +33,7 @@ export function sizeWords(n: number) {
   return `${(n / 1073741824).toFixed(1)} GB`;
 }
 
-export function PlacesBrowser({ board, filter }: { board: string; filter: string }) {
+export function PlacesBrowser({ filter }: { board?: string; filter: string }) {
   const [places, setPlaces] = useState<Place[] | null>(null);
   const [at, setAt] = useState<{ place: Place; dir: string } | null>(null);
   const [entries, setEntries] = useState<Entry[] | null>(null);
@@ -60,17 +60,6 @@ export function PlacesBrowser({ board, filter }: { board: string; filter: string
       live = false;
     };
   }, [at]);
-
-  /** copy the file into the archive, and hand back the search hit its card is made from */
-  const bring = async (place: Place, e: Entry): Promise<SearchHit | null> => {
-    try {
-      const { file } = await api<{ file: UploadedFile }>(`/api/places/${encodeURIComponent(place.id)}/bring?board=${encodeURIComponent(board)}`, { method: "POST", json: { path: e.path } });
-      return { source: "file", id: `file:${file.id}`, title: file.name, snippet: file.mime, url: file.url, score: 1 };
-    } catch (x) {
-      toast(`Couldn't bring ${e.name}: ${(x as Error).message}`);
-      return null;
-    }
-  };
 
   if (err && !at) return <div className="places"><div className="pane-empty is-bad">{err}</div></div>;
   if (!places) return <div className="places"><div className="pane-empty">Asking the server…</div></div>;
@@ -139,9 +128,9 @@ export function PlacesBrowser({ board, filter }: { board: string; filter: string
           <Draggable
             key={e.path}
             className="search-row"
-            hit={{ source: "file", id: `place:${at.place.id}:${e.path}`, title: e.name, snippet: "", score: 1 }}
+            // its id says where it is (lib/hits.ts placeHitId): it's copied into the archive when it's put down
+            hit={{ source: "file", id: placeHitId(at.place.id, e.path), title: e.name, snippet: at.place.name, score: 1 }}
             onPress={() => toast("Drag it onto the grid to bring it in")}
-            resolve={() => bring(at.place, e)}
           >
             <span className="search-row-glyph">▤</span>
             <span className="search-row-main">

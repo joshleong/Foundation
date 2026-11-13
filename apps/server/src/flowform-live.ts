@@ -24,7 +24,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { BOARD_SCHEMA, DEFAULT_COL_W, DEFAULT_ROW_H, boardMaps, logActivity, noteTextOf, readTracks, setNoteText, tableCellMap, tableCellsOf, type MediaDoc, type NoteDoc, type ObjectDoc, type PanelDoc, type SectionDoc, type TableDoc } from "@foundation/protocol";
+import { BOARD_SCHEMA, DEFAULT_COL_W, DEFAULT_ROW_H, boardMaps, logActivity, noteTextOf, readTracks, setNoteText, tableCellMap, tableCellsOf, type MediaDoc, type NoteDoc, type ObjectDoc, type PanelDoc, type SearchHit, type SectionDoc, type TableDoc } from "@foundation/protocol";
 import { all, db, one, run } from "./db.ts";
 import { editBoard, ensureBoardRow } from "./boards.ts";
 import { boardRole, setMember, type BoardRole } from "./members.ts";
@@ -482,4 +482,103 @@ export function startFlowformSync(every = SYNC_MS) {
 export function stopFlowformSync() {
   if (timer) clearInterval(timer);
   timer = null;
+}
+
+// ---------- the person's files, for search and the Flowform browser ----------
+
+/** one result of Flowform's own `search` tool, as production answered on 2026-11-11 */
+interface FfSearchHit {
+  file_id: string;
+  title: string;
+  kind: string;
+  source: string;
+  snippet?: string;
+  external_url?: string | null;
+  revision_id?: string | null;
+  context?: { channel?: string | null; board?: string | null; poster?: string | null; date?: number | null };
+  byte_size?: number | null;
+}
+
+/** Flowform marks a match with <b>…</b>: as Foundation's «…», with no HTML of theirs left in it */
+export const flowformSnippet = (s: string) =>
+  s
+    .replace(/[«»]/g, '"')
+    .replace(/<b>/gi, "«")
+    .replace(/<\/b>/gi, "»")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const idOk = (s: string | null | undefined): s is string => typeof s === "string" && /^[\w.-]{1,160}$/.test(s);
+/** where a Flowform file's small picture is served from (index.ts), when it has a revision and downloads are allowed */
+const thumbPath = (fileId: string, revisionId: string | null | undefined, kind: string, downloads: boolean) =>
+  downloads && idOk(fileId) && idOk(revisionId) && (kind === "image" || kind === "video") ? `/files/flowform/${fileId}/${revisionId}/thumb` : undefined;
+
+/**
+ * The files Flowform can see for this person that match `q` (its own ranking: uploads, board media, Slack, Figma),
+ * as Foundation's search hits. Nothing when the person has no link; a failure is the caller's to catch.
+ */
+export async function searchFlowformFiles(userId: string, q: string, limit = 12): Promise<SearchHit[]> {
+  if (!linkStatus(userId).connected) return [];
+  const { results = [] } = await ask<{ results?: FfSearchHit[] }>(userId, "search", { query: q, limit });
+  const downloads = canDownload(userId);
+  return results
+    .filter((h) => h && typeof h.file_id === "string" && typeof h.title === "string")
+    .map((h, i) => {
+      const where = [h.source, h.context?.channel && `#${h.context.channel}`, h.context?.board].filter(Boolean).join(" · ");
+      return {
+        source: "flowform" as const,
+        id: `flowform:${h.file_id}`,
+        title: h.title,
+        snippet: h.snippet ? flowformSnippet(h.snippet) : where,
+        url: h.external_url && /^https?:\/\//i.test(h.external_url) ? h.external_url : undefined,
+        thumb: thumbPath(h.file_id, h.revision_id, h.kind, downloads),
+        flowform: { fileId: h.file_id, revisionId: idOk(h.revision_id) ? h.revision_id : undefined, kind: h.kind, bytes: h.byte_size ?? undefined, origin: h.source },
+        // under the board's own cards and files, in Flowform's order
+        score: 0.9 - i * 0.02,
+      };
+    });
+}
+
+/** a room's files, read for a minute at most per person and room */
+const roomFilesKept = new Map<string, { at: number; files: SearchHit[] }>();
+const KIND: Record<string, string> = { image: "image", video: "video", video_note: "video", file_reference: "file", model_3d: "model", model_3d_v2: "model" };
+
+/**
+ * The files on a room's surfaces (its images, videos, file cards and models), without bringing the room in:
+ * what Flowform's own file panel shows for a room. A card Flowform names no file for isn't listed.
+ */
+export async function roomFiles(userId: string, roomId: string): Promise<SearchHit[]> {
+  const k = `${userId}\n${roomId}`;
+  const kept = roomFilesKept.get(k);
+  if (kept && Date.now() - kept.at < 60_000) return kept.files;
+  const downloads = canDownload(userId);
+  const seen = new Set<string>();
+  const files: SearchHit[] = [];
+  for (const s of await surfaces(userId, roomId)) {
+    for (const c of await cardsOn(userId, roomId, s)) {
+      const ref = fileRef(c);
+      const kind = KIND[c.kind];
+      if (!ref || !kind || seen.has(ref.file_id)) continue;
+      seen.add(ref.file_id);
+      const bytes = c.media?.byte_size ?? undefined;
+      files.push({
+        source: "flowform",
+        id: `flowform:${ref.file_id}`,
+        title: c.name || `${kind[0].toUpperCase()}${kind.slice(1)} ${ref.file_id.slice(0, 8)}`,
+        snippet: [s.name, bytes ? sizeWords(bytes) : ""].filter(Boolean).join(" · "),
+        thumb: thumbPath(ref.file_id, ref.revision_id, kind, downloads),
+        flowform: { fileId: ref.file_id, revisionId: idOk(ref.revision_id) ? ref.revision_id : undefined, kind, bytes, origin: "flowform" },
+        score: 1,
+      });
+    }
+  }
+  roomFilesKept.set(k, { at: Date.now(), files });
+  if (roomFilesKept.size > 200) roomFilesKept.delete(roomFilesKept.keys().next().value!);
+  return files;
 }

@@ -27,6 +27,7 @@ import { t3Thread, t3Threads } from "./t3.ts";
 import { pollHandoffs } from "./vision.ts";
 import { boardPeople, boardRole, canWrite, requireWriter, setBoardRole } from "./roles.ts";
 import { handleUpgrade, issueTicket } from "./sockets.ts";
+import { SERVER_VERSION, minClient, requireCurrentClient } from "./clientversion.ts";
 import { httpToolCtx, runTool, TOOLS } from "./tools.ts";
 import { handleMcp } from "./mcp.ts";
 import { seedCompanyBoard } from "./seed.ts";
@@ -39,8 +40,8 @@ import { approvePlace, bringFromPlace, listPlace, listPlaces, removePlace } from
 import { beginLink, finishLink, flowformCall, flowformTools, landingPage, linkStatus, unlink } from "./flowformlink.ts";
 import { boardRole as memberRole, canSeeBoard, hiddenBoards, requireBoard } from "./members.ts";
 import { boardIdFor } from "./flowform-import.ts";
-import { bringFlowformFile, listRooms as listFlowformRooms, liveRooms, pullRoom, startFlowformSync } from "./flowform-live.ts";
-import { beginGrant, downloadsStatus, dropSession } from "./flowformfiles.ts";
+import { bringFlowformFile, listRooms as listFlowformRooms, liveRooms, pullRoom, roomFiles, startFlowformSync } from "./flowform-live.ts";
+import { beginGrant, downloadsStatus, dropSession, fileThumb } from "./flowformfiles.ts";
 import { isPerson, requirePerson } from "./auth.ts";
 import { startGridLog } from "./gridlog.ts";
 import { answerAsk, startMachineAsks } from "./machineasks.ts";
@@ -59,7 +60,8 @@ r.get("/api/health", () => ({ ok: true, at: Date.now() }));
 
 // ---------- auth ----------
 
-r.get("/auth/config", () => ({ google: Boolean(config.google.clientId), devLogin: config.devLogin, flowform: { url: flowform.flowformUrl() } }));
+// public: also what this server is, and the oldest client it still works with (clientversion.ts)
+r.get("/auth/config", () => ({ google: Boolean(config.google.clientId), devLogin: config.devLogin, flowform: { url: flowform.flowformUrl() }, version: SERVER_VERSION, minClient: minClient() || null }));
 r.get("/api/me", (req) => ({ user: userFromRequest(req) }));
 r.post("/auth/dev", async (req, res) => {
   if (!config.devLogin) throw new HttpError(403, "dev login is off");
@@ -114,6 +116,17 @@ r.post("/api/flowform/files/:file/bring", async (req) => {
   if (!file) throw new HttpError(404, "Flowform didn't give that file (gone, not yours to read, or over 512 MB)");
   return { file: { ...file, url: `/files/${file.id}` } };
 });
+// Flowform's own small picture of one of the person's files, fetched as them (never another person's: flowformfiles.ts)
+const THUMB_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"]);
+r.get("/files/flowform/:file/:rev/thumb", async (req, res) => {
+  const u = requireUser(req);
+  const pic = await fileThumb(u.id, req.params.file, req.params.rev);
+  if (!pic || !THUMB_TYPES.has(pic.mime)) throw new HttpError(404, "Flowform has no picture of that file");
+  res.writeHead(200, { "content-type": pic.mime, "content-length": pic.body.length, "cache-control": "private, max-age=86400", "x-content-type-options": "nosniff", "content-security-policy": "sandbox" });
+  res.end(req.method === "HEAD" ? undefined : pic.body);
+});
+// the files on one of the person's Flowform rooms, to browse and drag out without bringing the room in
+r.get("/api/flowform/rooms/:id/files", async (req) => ({ files: await roomFiles(requireUser(req).id, req.params.id) }));
 r.get("/auth/flowform/link/callback", async (req, res) => {
   // Flowform sends the person's browser here. No session is needed: the state names who started it, once
   let ok = true;
@@ -153,7 +166,9 @@ r.post("/auth/logout", (req, res) => {
 });
 /** a one-time, 30-second ticket for one socket, for a client that can't send its session on a WebSocket (sockets.ts) */
 r.post("/api/ws-ticket", async (req) => {
-  const { path } = await readJson<{ path?: string }>(req);
+  const { path, client } = await readJson<{ path?: string; client?: string }>(req);
+  // a client older than this server's minimum gets no socket (426), and says so on its update card
+  requireCurrentClient(client, req.headers.origin);
   return issueTicket(req, path);
 });
 /** a bearer for an external agent (Claude Code, Codex, Vision) acting as you */
@@ -336,7 +351,7 @@ r.get("/api/search", async (req) => {
   const u = requireUser(req);
   const q = (req.query.get("q") ?? "").trim();
   if (!q) return { hits: [], sources: {} };
-  return searchAll(q, { boardId: req.query.get("board") ?? undefined, remote: req.query.get("remote") !== "0", hidden: hiddenBoards(u) });
+  return searchAll(q, { boardId: req.query.get("board") ?? undefined, remote: req.query.get("remote") !== "0", hidden: hiddenBoards(u), userId: u.id });
 });
 r.get("/api/integrations", (req) => {
   requireUser(req);

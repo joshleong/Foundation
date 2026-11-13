@@ -11,6 +11,10 @@
  *   version shows them once ("Updated to …"), then forgets them.
  */
 
+import { belowMinimum, compareVersions } from "@foundation/protocol";
+
+export { compareVersions };
+
 export const PREFS_KEY = "foundation.update.v1";
 /** how long after launch the first check waits, so the board opens first */
 export const LAUNCH_DELAY_MS = 8_000;
@@ -77,9 +81,18 @@ export function mayCheckOnLaunch(env: { desktop: boolean; dev: boolean; online: 
   return env.desktop && !env.dev && env.online;
 }
 
-/** Whether to put the card up for a version the feed offers. A manual check always shows it. */
-export function shouldOffer(version: string, prefs: UpdatePrefs, opts: { manual: boolean; laterThisLaunch: boolean }): boolean {
-  if (opts.manual) return true;
+/**
+ * The minimum this client is under, if the server names one it doesn't meet (else null). The server
+ * says the oldest client it still works with (`FOUNDATION_MIN_CLIENT`, on `/auth/config`); under it,
+ * the update isn't one to put off: Later and Skip aren't offered, and the card stays up.
+ */
+export function minimumOver(current: string | null | undefined, min: string | null | undefined): string | null {
+  return belowMinimum(current, min) ? (min as string).replace(/^v/, "") : null;
+}
+
+/** Whether to put the card up for a version the feed offers. A manual check always shows it, and so does one the server needs. */
+export function shouldOffer(version: string, prefs: UpdatePrefs, opts: { manual: boolean; laterThisLaunch: boolean; required?: boolean }): boolean {
+  if (opts.manual || opts.required) return true;
   if (opts.laterThisLaunch) return false;
   return prefs.skipped !== version;
 }
@@ -94,24 +107,6 @@ export function settleOnLaunch(current: string, prefs: UpdatePrefs): { whatsNew:
   const next: UpdatePrefs = {};
   if (prefs.skipped && compareVersions(prefs.skipped, current) > 0) next.skipped = prefs.skipped;
   return { whatsNew, prefs: next };
-}
-
-/** Semver order for the parts Foundation uses (`1.2.3`, `1.2.3-rc.1`); a pre-release sorts before its release. */
-export function compareVersions(a: string, b: string): number {
-  const split = (v: string) => {
-    const [core, pre] = v.replace(/^v/, "").split("-", 2);
-    return { nums: core.split(".").map((n) => Number.parseInt(n, 10) || 0), pre: pre ?? null };
-  };
-  const x = split(a);
-  const y = split(b);
-  for (let i = 0; i < 3; i++) {
-    const d = (x.nums[i] ?? 0) - (y.nums[i] ?? 0);
-    if (d) return Math.sign(d);
-  }
-  if (x.pre === y.pre) return 0;
-  if (x.pre === null) return 1;
-  if (y.pre === null) return -1;
-  return x.pre.localeCompare(y.pre, undefined, { numeric: true });
 }
 
 /** A plugin or network error in a sentence a person can act on. */

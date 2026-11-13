@@ -76,6 +76,15 @@ before(async () => {
         const out =
           name === "list_rooms"
             ? { rooms: [{ room_id: ROOM, name: "Shop floor", role: "editor", asset_count: 2 }] }
+            : name === "search"
+              ? {
+                  // as production answered: a match in <b>, a Slack file with an address of its own, an upload with a revision
+                  results: [
+                    { file_id: "f1", title: "Hyperform.png", kind: "image", source: "flowform", snippet: "the <b>hyper</b>form <i>bracket</i> &amp; plate", revision_id: "r1", byte_size: PNG.length, context: { board: "Shop floor" } },
+                    { file_id: "s7", title: "hyper notes", kind: "doc", source: "slack", external_url: "https://example.slack.com/files/s7", revision_id: null, context: { channel: "shop" } },
+                    { file_id: "x1", title: "bad link", kind: "doc", source: "figma", external_url: "javascript:alert(1)", revision_id: "../../etc" },
+                  ].filter(() => String(msg.params!.arguments.query).includes("hyper")),
+                }
             : name === "room_catalog_v2"
               ? { layout: "plane", planes: [{ board_id: "p1", name: null, plane_canvas_id: "c-plane", surface: { kind: "plane", board_id: "p1" }, grids: [] }] }
               : {
@@ -188,6 +197,54 @@ test("a file from search is copied into the board's archive once", async () => {
   const b = await live.bringFlowformFile(ada, "company", "me", { file_id: "f9", revision_id: "r9", name: "Drawing" });
   assert.equal(b?.id, a?.id);
   assert.equal(one<{ n: number }>("select count(*) n from files where id = ?", a!.id)!.n, 1);
+});
+
+test("the one search finds the person's Flowform files, as them, with Flowform's marks as Foundation's", async () => {
+  const { ada } = await load();
+  const auth = await import("../src/auth.ts");
+  const { searchAll } = await import("../src/search.ts");
+  const mine = (await searchAll("hyper", { userId: ada })).hits.filter((h) => h.source === "flowform");
+  assert.deepEqual(mine.map((h) => h.title), ["Hyperform.png", "hyper notes", "bad link"]);
+  // Flowform's <b> is «», and none of its HTML is left
+  assert.equal(mine[0].snippet, "the «hyper»form bracket & plate");
+  assert.deepEqual(mine[0].flowform, { fileId: "f1", revisionId: "r1", kind: "image", bytes: PNG.length, origin: "flowform" });
+  // downloads are allowed for Ada, so a picture has a small one to show; a Slack file keeps its own address
+  assert.equal(mine[0].thumb, "/files/flowform/f1/r1/thumb");
+  assert.equal(mine[1].url, "https://example.slack.com/files/s7");
+  assert.equal(mine[1].thumb, undefined);
+  // an address that isn't http(s) and a revision that isn't an id never reach the page
+  assert.equal(mine[2].url, undefined);
+  assert.equal(mine[2].flowform?.revisionId, undefined);
+  // someone without a link asks Flowform nothing; a local-only search doesn't either
+  const kai = auth.upsertUser("kai@example.com", "Kai").id;
+  assert.equal((await searchAll("hyper", { userId: kai })).hits.filter((h) => h.source === "flowform").length, 0);
+  assert.equal((await searchAll("hyper", { userId: ada, remote: false })).hits.filter((h) => h.source === "flowform").length, 0);
+});
+
+test("a file's small picture comes as the person, once, and is never another person's", async () => {
+  const { ada, files } = await load();
+  const auth = await import("../src/auth.ts");
+  flowform.roles.length = 0;
+  const pic = await files.fileThumb(ada, "f1", "r1");
+  assert.equal(pic?.mime, "image/png");
+  // f1 has no thumbnail rendition: the display one stands in; the original is never asked for a list
+  assert.deepEqual(flowform.roles, ["thumbnail", "display"]);
+  await files.fileThumb(ada, "f1", "r1");
+  assert.equal(flowform.roles.length, 2, "asked once");
+  // a PDF's "picture" isn't one
+  assert.equal(await files.fileThumb(ada, "f9", "r9"), null);
+  // Kai has no session: nothing of Ada's answers for him
+  const kai = auth.upsertUser("kai@example.com", "Kai").id;
+  await assert.rejects(() => files.fileThumb(kai, "f1", "r1"), /aren't allowed for you yet/);
+});
+
+test("a room's files can be listed without bringing the room in", async () => {
+  const { ada, live } = await load();
+  const list = await live.roomFiles(ada, ROOM);
+  // the image, the file card and the image whose bytes are gone; the model Flowform names no file for isn't listed
+  assert.deepEqual(list.map((f) => [f.title, f.flowform?.kind, f.flowform?.fileId]), [["Hyperform", "image", "f1"], ["Drawing", "file", "f9"], ["Gone", "image", "f-gone"]]);
+  assert.equal(list[0].thumb, "/files/flowform/f1/r1/thumb");
+  assert.equal(list[1].thumb, undefined);
 });
 
 test("a session Flowform ended is forgotten and says so; stopping ends it at Flowform", async () => {

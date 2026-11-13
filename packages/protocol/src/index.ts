@@ -676,13 +676,29 @@ export type AgentEvent =
 export type AgentRuntime = "subscription" | "api" | "script";
 
 export interface SearchHit {
-  source: "board" | "file" | "slack" | "github" | "app" | "activity" | "huddle";
+  source: "board" | "file" | "slack" | "github" | "app" | "activity" | "huddle" | "flowform";
   id: string;
   title: string;
   snippet: string;
   url?: string;
   objectId?: string;
   score: number;
+  /** a small picture of it (a server path under `/files/`), when there is one */
+  thumb?: string;
+  /** a file Flowform can see for this person (source "flowform"): what's needed to bring its bytes in */
+  flowform?: FlowformFileRef;
+}
+
+/** one of a person's Flowform files, as Foundation's search and its Flowform browser hand it to the page */
+export interface FlowformFileRef {
+  fileId: string;
+  /** the revision whose bytes can be brought in (absent: Flowform names none, so it lands by name or as a link) */
+  revisionId?: string;
+  /** Flowform's own word for it: image, video, pdf, doc, model, … */
+  kind: string;
+  bytes?: number;
+  /** where Flowform found it: flowform (an upload or a board's media), slack, figma */
+  origin?: string;
 }
 
 export interface UserInfo {
@@ -693,3 +709,5 @@ export interface UserInfo {
   /** account-wide; a board can set its own (viewer: may read, not change) */
   role: "admin" | "member" | "viewer";
 }
+
+export { belowMinimum, compareVersions, isVersion } from "./version.ts";

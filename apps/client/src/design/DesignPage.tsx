@@ -28,6 +28,11 @@ import * as Y from "yjs";
 import { loadNoteEditor } from "../components/NoteView";
 import { renderMarkdown } from "../utils/markdown";
 import { TrayView } from "../shell/UploadTray";
+import type { SearchHit } from "@foundation/protocol";
+import { Draggable } from "../shell/SearchPane";
+import { Clipboard, HitPicture } from "../shell/Clipboard";
+import { glyphOf } from "../lib/hits";
+import { fan } from "../lib/pickupMath";
 import type { UploadItem } from "../lib/uploads";
 import { snippetHtml } from "../lib/snippet";
 
@@ -915,6 +920,10 @@ export function DesignPage() {
         <PlanBoardDemo />
       </Section>
 
+      <Section title="Out of search, into the hand" note={`A search result is something you pick up. Pull it past 5 px and it comes out of the list as a card: a picture as the picture, anything else as a slip of paper with its mark and name. It follows on the drag spring, lifted 2.5 % on the lift shadow and leaning at most 2.5° about the point it was pressed; its row stays behind, dimmed and dashed. It's a little faint until it's over somewhere it can land; the section under it rings. Let go over the grid and it settles flat as the card arrives under it; anywhere else (or Esc) it flies back into its row. A file that has to be fetched first (from Flowform, from an approved folder) waits where it was put, flat, with a bar moving along its foot. ＋ on a result (or ${keys("mod+click")}) keeps it on the clipboard at the foot of the pane: small cards a little askew on a paper well. Pull one off to carry it; pull the stack's handle to carry them all, fanned, each card under the top one on a looser spring so the stack trails the hand, and they're dealt out one step apart. What lands leaves the clipboard. Try it here: clip a few, pull the stack.`}>
+        <PickupDemo />
+      </Section>
+
       <Section title="Desktop updates" note="The desktop app checks its signed feed a few seconds after it opens and puts this card up under the top bar, on glass, when a new version is ready: Update and restart is the one blue action, Later hides it until the next launch, Skip this version until a newer one. Nothing downloads until a person presses Update. The bar fills on the compositor; the mark's panels settle while it works. After the restart it says what changed, once. Settings → Updates shows the same card inline on paper, with Check for updates. Shown at 260, 400 and 560 px.">
         <UpdateDemo />
       </Section>
@@ -1447,6 +1456,10 @@ const UPDATE_PHASES: Array<{ phase: UpdatePhase; width: number; layout?: "floati
   { phase: "current", width: 400, layout: "inline" },
   { phase: "unreachable", width: 400, layout: "inline" },
   { phase: "off", width: 400, layout: "inline", extra: { message: "This is a development build (tauri dev): pull main to update it." } },
+  // an update the server needs (FOUNDATION_MIN_CLIENT): no Later, no Skip, no close
+  { phase: "available", width: 400, extra: { required: "0.3.0", onLater: undefined, onSkip: undefined } },
+  { phase: "current", width: 400, extra: { required: "0.3.0", version: "0.2.0" } },
+  { phase: "off", width: 400, extra: { required: "0.3.0", message: "This page is Foundation 0.2.0, and its server is 0.3.0. Reload to get the server's own page.", onReload: () => {} } },
 ];
 
 function UpdateDemo() {
@@ -1537,6 +1550,96 @@ function UploadsDemo() {
           </div>
         </div>
         <div className="effect-label">What matched, inside the document: the search pane ({keys("mod+F")}) and {keys("mod+K")}, the match in blue and brought forward on its line</div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- out of search, into the hand ----------
+
+const DEMO_HITS: SearchHit[] = [
+  { source: "file", id: "demo:mark", title: "foundation-mark.svg", snippet: "image/svg+xml", thumb: "/foundation.svg", score: 1 },
+  { source: "file", id: "demo:bracket", title: "bracket-rev-c.step", snippet: "STEP · «bracket», 6061-T6", score: 1 },
+  { source: "flowform", id: "demo:ff", title: "Kapaa factory walk.mp4", snippet: "Form Industries · 48.2 MB", flowform: { fileId: "demo", kind: "video", origin: "flowform" }, score: 1 },
+  { source: "slack", id: "demo:slack", title: "#shop · Kai", snippet: "the «bracket» drawings are in the thread", url: "https://example.com", score: 1 },
+];
+
+/** the held card, drawn still: what lib/pickup.ts builds while a result is in the hand */
+function HeldStill({ hits, state, count }: { hits: SearchHit[]; state: string; count?: number }) {
+  return (
+    <div className={`held design-held ${state}`} style={{ height: hits[0].thumb ? 164 : 96 }}>
+      {hits
+        .map((h, i) => {
+          const f = fan(i);
+          const picture = Boolean(h.thumb);
+          return (
+            <div
+              key={h.id}
+              className={`held-card${picture ? " is-picture" : ""}`}
+              style={{ width: picture ? 176 : 232, height: picture ? 132 : 56, zIndex: 3 - i, transform: `translate3d(${f.dx + 12}px, ${f.dy + 12}px, 0)`, ["--fan" as string]: `${f.rotate}deg` }}
+            >
+              <div className="held-face">
+                {picture ? (
+                  <>
+                    <HitPicture hit={h} />
+                    <span className="held-name">{h.title}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="search-row-glyph">{glyphOf(h)}</span>
+                    <span className="held-main">
+                      <span className="held-title">{h.title}</span>
+                      <span className="held-src">{h.flowform?.origin ?? h.source}</span>
+                    </span>
+                  </>
+                )}
+                <i className="held-wait" />
+              </div>
+              {i === 0 && count ? <span className="held-count">{count}</span> : null}
+            </div>
+          );
+        })
+        .reverse()}
+    </div>
+  );
+}
+
+function PickupDemo() {
+  return (
+    <div className="design-pickup">
+      <div className="design-pickup-pane">
+        <div className="search-tiles">
+          <Draggable hit={DEMO_HITS[0]} className="search-tile" onPress={() => {}}>
+            <HitPicture hit={DEMO_HITS[0]} />
+            <span className="search-tile-name">{DEMO_HITS[0].title}</span>
+          </Draggable>
+        </div>
+        {DEMO_HITS.slice(1).map((h) => (
+          <Draggable key={h.id} hit={h} className="search-row" onPress={() => {}}>
+            <span className="search-row-glyph">{glyphOf(h)}</span>
+            <span className="search-row-main">
+              <span className="search-row-title">{h.title}</span>
+              <span className="search-row-snip">{h.snippet.replace(/[«»]/g, "")}</span>
+            </span>
+            <span className="search-row-src">{h.flowform?.origin ?? h.source}</span>
+          </Draggable>
+        ))}
+        <Clipboard />
+      </div>
+      <div className="design-pickup-states">
+        {(
+          [
+            ["Lifted, nowhere to land yet", "is-lifted", [DEMO_HITS[1]], 0],
+            ["Over the grid", "is-lifted is-over", [DEMO_HITS[0]], 0],
+            ["A stack of three", "is-lifted is-over", [DEMO_HITS[1], DEMO_HITS[2], DEMO_HITS[3]], 3],
+            ["Put down, waiting for its file", "is-waiting", [DEMO_HITS[2]], 0],
+          ] as Array<[string, string, SearchHit[], number]>
+        ).map(([label, state, hits, count]) => (
+          <figure key={label} className="design-pickup-state">
+            <HeldStill hits={hits} state={state} count={count || undefined} />
+            <figcaption>{label}</figcaption>
+          </figure>
+        ))}
       </div>
     </div>
   );

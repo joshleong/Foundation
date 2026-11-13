@@ -4,21 +4,27 @@
  *
  * Before you type: the rooms you're in. Press one to bring it in as a board
  * (or open it, once it's here); it's then kept up to date from Flowform every
- * few minutes. Type, and it searches the files Flowform can see for you
- * (uploads, board media, Slack, Figma): drag one onto the grid. With file
- * downloads allowed (Settings → Services) it's copied into this board's archive
- * and lands as the image, video or file itself. Without, a file with an address
- * of its own (Slack, Figma) lands as a link card, anything else as a note naming it.
+ * few minutes. The › on a room opens its files in place — its images, videos,
+ * file cards and models, as Flowform's own file panel shows them — to pull out
+ * one at a time without bringing the room in. Type, and it searches the files
+ * Flowform can see for you (uploads, board media, Slack, Figma). The same
+ * files answer the pane's main search too.
+ *
+ * A file pulled onto the grid: with file downloads allowed (Settings →
+ * Services) it's copied into this board's archive and lands as the image,
+ * video or file itself. Without, a file with an address of its own (Slack,
+ * Figma) lands as a link card, anything else as a note naming it (lib/hits.ts).
  */
 
 import { useEffect, useState } from "react";
 import type { SearchHit } from "@foundation/protocol";
-import { api, type UploadedFile } from "../lib/api";
+import { api, search } from "../lib/api";
+import { glyphOf, pictureOf } from "../lib/hits";
 import { activeBoard } from "../sync/board";
 import { toast } from "../state/ui";
 import { snippetHtml } from "../lib/snippet";
 import { Draggable } from "./SearchPane";
-import { sizeWords } from "./PlacesBrowser";
+import { HitPicture } from "./Clipboard";
 
 interface Room {
   room_id: string;
@@ -27,24 +33,6 @@ interface Room {
   asset_count: number;
   live: { board_id: string; pulled_at: number; cards: number; error: string | null } | null;
 }
-interface FfHit {
-  file_id: string;
-  title: string;
-  kind: string;
-  source: string;
-  snippet?: string;
-  external_url?: string | null;
-  revision_id?: string | null;
-  context?: { channel?: string | null; board?: string | null; poster?: string | null; date?: number | null };
-  byte_size?: number | null;
-}
-interface ToolAnswer<T> {
-  isError: boolean;
-  text: string;
-  structured?: T;
-}
-
-const GLYPH: Record<string, string> = { image: "▣", video: "▶", pdf: "▤", doc: "▤", model: "◇" };
 
 function ago(t: number) {
   const s = Math.round((Date.now() - t) / 1000);
@@ -54,30 +42,50 @@ function ago(t: number) {
   return new Date(t).toLocaleDateString();
 }
 
-/** Flowform marks a match with <b>…</b>; as Foundation's «…» it's escaped and drawn like any other snippet (no HTML of theirs is ever inserted) */
-const ffSnippet = (s: string) =>
-  s
-    .replace(/<b>/g, "«")
-    .replace(/<\/b>/g, "»")
-    .replace(/<[^>]*>/g, "")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, "&");
-
 const openBoard = (id: string) => window.dispatchEvent(new CustomEvent("foundation:board", { detail: id }));
+
+/** Flowform files as the pane draws any result: pictures as tiles, the rest as rows; each can be pulled out or clipped */
+export function FlowformFiles({ files }: { files: SearchHit[] }) {
+  const tiles = files.filter((h) => pictureOf(h));
+  const rows = files.filter((h) => !pictureOf(h));
+  const press = (h: SearchHit) => () => (h.url ? window.open(h.url, "_blank", "noopener") : toast("Drag it onto the grid to place it"));
+  return (
+    <>
+      {tiles.length > 0 && (
+        <div className="search-tiles">
+          {tiles.map((h) => (
+            <Draggable key={h.id} hit={h} className="search-tile" onPress={press(h)}>
+              <HitPicture hit={h} />
+              <span className="search-tile-name">{h.title}</span>
+            </Draggable>
+          ))}
+        </div>
+      )}
+      {rows.map((h) => (
+        <Draggable key={h.id} hit={h} className="search-row" onPress={press(h)}>
+          <span className="search-row-glyph">{glyphOf(h)}</span>
+          <span className="search-row-main">
+            <span className="search-row-title">{h.title}</span>
+            {h.snippet && <span className="search-row-snip" dangerouslySetInnerHTML={{ __html: snippetHtml(h.snippet) }} />}
+          </span>
+          <span className="search-row-src">{h.flowform?.origin ?? "flowform"}</span>
+        </Draggable>
+      ))}
+    </>
+  );
+}
 
 export function FlowformBrowser({ filter }: { filter: string }) {
   const [linked, setLinked] = useState<boolean | null>(null);
-  /** file downloads allowed: a dragged file brings its bytes */
-  const [downloads, setDownloads] = useState(false);
   const [rooms, setRooms] = useState<Room[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [hits, setHits] = useState<FfHit[] | null>(null);
+  const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   // bumped by Try again: the server may have been restarting, or Flowform away for a moment
   const [attempt, setAttempt] = useState(0);
+  /** the room whose files are open in place, and what they are (null: reading; a string: why not) */
+  const [open, setOpen] = useState<string | null>(null);
+  const [files, setFiles] = useState<SearchHit[] | string | null>(null);
 
   const loadRooms = () =>
     api<{ rooms: Room[] }>("/api/flowform/rooms").then(
@@ -87,50 +95,50 @@ export function FlowformBrowser({ filter }: { filter: string }) {
 
   useEffect(() => {
     setErr(null);
-    api<{ connected: boolean; downloads?: boolean }>("/api/flowform/link").then(
+    api<{ connected: boolean }>("/api/flowform/link").then(
       (s) => {
         setLinked(s.connected);
-        setDownloads(Boolean(s.downloads));
         if (s.connected) void loadRooms();
       },
       (e: Error) => setErr(e.message),
     );
   }, [attempt]);
 
-  // searching Flowform's files, a moment after typing stops
+  // searching Flowform's files, a moment after typing stops: the pane's one search, which asks Flowform as you
   const term = filter.trim();
   useEffect(() => {
     if (!linked || !term) return setHits(null);
-    let live = true;
+    const ctrl = new AbortController();
     const t = setTimeout(async () => {
       try {
-        const r = await api<ToolAnswer<{ results: FfHit[] }>>("/api/flowform/tools/search", { method: "POST", json: { query: term, limit: 30 } });
-        const results = r.structured?.results ?? (JSON.parse(r.text || "{}") as { results?: FfHit[] }).results ?? [];
-        if (live) (setHits(results), setErr(null));
+        const r = await search(term, activeBoard()?.boardId ?? "company", true, ctrl.signal);
+        setHits(r.hits.filter((h) => h.source === "flowform"));
+        setErr(null);
       } catch (e) {
-        if (live) (setHits([]), setErr((e as Error).message));
+        if (ctrl.signal.aborted) return;
+        setHits([]);
+        setErr((e as Error).message);
       }
     }, 250);
     return () => {
-      live = false;
+      ctrl.abort();
       clearTimeout(t);
     };
   }, [linked, term, attempt]);
 
-  /** copy a Flowform file into this board's archive; the search hit its card is made from */
-  const bringFile = async (h: FfHit): Promise<SearchHit | null> => {
-    const board = activeBoard()?.boardId ?? "company";
-    try {
-      const { file } = await api<{ file: UploadedFile }>(`/api/flowform/files/${encodeURIComponent(h.file_id)}/bring?board=${encodeURIComponent(board)}`, {
-        method: "POST",
-        json: { revision: h.revision_id, name: h.title },
-      });
-      return { source: "file", id: `file:${file.id}`, title: file.name, snippet: file.mime, url: file.url, score: 1 };
-    } catch (x) {
-      toast(`Couldn't bring ${h.title}: ${(x as Error).message}`, "bad");
-      return null;
-    }
-  };
+  // a room's files, read when its › is opened
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    setFiles(null);
+    api<{ files: SearchHit[] }>(`/api/flowform/rooms/${encodeURIComponent(open)}/files`).then(
+      (r) => live && setFiles(r.files),
+      (e: Error) => live && setFiles(e.message),
+    );
+    return () => {
+      live = false;
+    };
+  }, [open, attempt]);
 
   const bring = async (room: Room) => {
     setBusy(room.room_id);
@@ -178,29 +186,7 @@ export function FlowformBrowser({ filter }: { filter: string }) {
         <div className="pane-eyebrow">Your Flowform files</div>
         {!hits && <div className="pane-empty">Searching Flowform…</div>}
         {hits && hits.length === 0 && (err ? <><div className="pane-empty is-bad">{err}</div>{again}</> : <div className="pane-empty">Nothing in Flowform for “{term}”.</div>)}
-        {hits?.map((h) => {
-          const where = [h.source, h.context?.channel && `#${h.context.channel}`, h.context?.board].filter(Boolean).join(" · ");
-          const hit: SearchHit = h.external_url
-            ? { source: "app", id: `flowform:${h.file_id}`, title: h.title, snippet: where, url: h.external_url, score: 1 }
-            : { source: "board", id: `flowform:${h.file_id}`, title: h.title, snippet: `${/^[aeiou]/i.test(h.kind) ? "An" : "A"} ${h.kind} in Flowform${h.byte_size ? `, ${sizeWords(h.byte_size)}` : ""}${where ? ` (${where})` : ""}. Allow Flowform file downloads (Settings → Services) to bring the file itself.`, score: 1 };
-          return (
-            <Draggable
-              key={h.file_id}
-              className="search-row"
-              hit={hit}
-              onPress={() => (h.external_url ? window.open(h.external_url, "_blank", "noopener") : toast("Drag it onto the grid to place it"))}
-              // with downloads, the file itself; else a link card (made as a link: an outside page can't be framed as an app), or the note
-              resolve={async () => (downloads && h.revision_id ? bringFile(h) : h.external_url ? { ...hit, source: "slack" } : hit)}
-            >
-              <span className="search-row-glyph">{GLYPH[h.kind] ?? "▤"}</span>
-              <span className="search-row-main">
-                <span className="search-row-title">{h.title}</span>
-                {h.snippet ? <span className="search-row-snip" dangerouslySetInnerHTML={{ __html: snippetHtml(ffSnippet(h.snippet)) }} /> : <span className="search-row-snip">{where}</span>}
-              </span>
-              <span className="search-row-src">{h.source}</span>
-            </Draggable>
-          );
-        })}
+        {hits && <FlowformFiles files={hits} />}
       </div>
     );
   }
@@ -212,6 +198,7 @@ export function FlowformBrowser({ filter }: { filter: string }) {
       {rooms && rooms.length === 0 && <div className="pane-empty">You're not in any Flowform rooms.</div>}
       {rooms?.map((r) => {
         const viewer = r.role === "viewer";
+        const isOpen = open === r.room_id;
         const status = r.live
           ? r.live.error
             ? `Couldn't update ${ago(r.live.pulled_at)}: ${r.live.error}`
@@ -220,35 +207,53 @@ export function FlowformBrowser({ filter }: { filter: string }) {
             ? "View only in Flowform: an editor can bring it in"
             : `${r.asset_count} file${r.asset_count === 1 ? "" : "s"} · press to bring it in`;
         return (
-          <button
-            key={r.room_id}
-            className="search-row is-folder"
-            disabled={busy !== null || (viewer && !r.live)}
-            onClick={() => (r.live && !busy ? openBoard(r.live.board_id) : bring(r))}
-            data-tip={r.live ? "Open its board" : "Bring it in as a board, kept in step with Flowform"}
-          >
-            <span className="search-row-glyph">▦</span>
-            <span className="search-row-main">
-              <span className="search-row-title">{r.name}</span>
-              <span className={`search-row-snip${r.live?.error ? " is-bad" : ""}`}>{busy === r.room_id ? "Reading it from Flowform…" : status}</span>
-            </span>
-            {r.live && !viewer ? (
-              <span
-                className="search-row-src flowform-again"
-                role="button"
-                tabIndex={0}
-                data-tip="Read it from Flowform again now"
-                onClick={(e) => (e.stopPropagation(), busy === null && bring(r))}
-              >
-                ↻
+          <div key={r.room_id} className={`flowform-room${isOpen ? " is-open" : ""}`}>
+            <button
+              className="search-row is-folder"
+              disabled={busy !== null || (viewer && !r.live)}
+              onClick={() => (r.live && !busy ? openBoard(r.live.board_id) : bring(r))}
+              data-tip={r.live ? "Open its board" : "Bring it in as a board, kept in step with Flowform"}
+            >
+              <span className="search-row-glyph">▦</span>
+              <span className="search-row-main">
+                <span className="search-row-title">{r.name}</span>
+                <span className={`search-row-snip${r.live?.error ? " is-bad" : ""}`}>{busy === r.room_id ? "Reading it from Flowform…" : status}</span>
               </span>
-            ) : (
-              <span className="search-row-src">{r.role}</span>
+              {r.live && !viewer ? (
+                <span
+                  className="search-row-src flowform-again"
+                  role="button"
+                  tabIndex={0}
+                  data-tip="Read it from Flowform again now"
+                  onClick={(e) => (e.stopPropagation(), busy === null && bring(r))}
+                >
+                  ↻
+                </span>
+              ) : (
+                <span className="search-row-src">{r.role}</span>
+              )}
+            </button>
+            <button
+              className="flowform-files-toggle"
+              aria-expanded={isOpen}
+              aria-label={isOpen ? `Close ${r.name}'s files` : `Show ${r.name}'s files`}
+              data-tip={isOpen ? "Close its files" : "Its files, to pull out one at a time"}
+              onClick={() => setOpen(isOpen ? null : r.room_id)}
+            >
+              ›
+            </button>
+            {isOpen && (
+              <div className="flowform-room-files">
+                {files === null && <div className="pane-empty">Reading its files…</div>}
+                {typeof files === "string" && <div className="pane-empty is-bad">{files}</div>}
+                {Array.isArray(files) && files.length === 0 && <div className="pane-empty">No files on this room's boards.</div>}
+                {Array.isArray(files) && <FlowformFiles files={files} />}
+              </div>
             )}
-          </button>
+          </div>
         );
       })}
-      <div className="places-foot">Type to search your Flowform files · rooms brought in are read again every few minutes</div>
+      <div className="places-foot">Type to search your Flowform files · › shows a room's files · rooms brought in are read again every few minutes</div>
     </div>
   );
 }

@@ -142,11 +142,11 @@ export function dispositionName(h: string | null): string | undefined {
 }
 
 /** one file revision's bytes, as this person (null when Flowform doesn't have it, or it's too big) */
-export async function fileBytes(userId: string, fileId: string, revisionId: string): Promise<FlowformFile | null> {
+export async function fileBytes(userId: string, fileId: string, revisionId: string, roles: string[] = ROLES, max = MAX_FILE): Promise<FlowformFile | null> {
   if (!/^[\w.-]{1,128}$/.test(fileId) || !/^[\w.-]{1,160}$/.test(revisionId)) throw new HttpError(400, "not a Flowform file id");
   const token = sessionOf(userId);
   let url: string | null = null;
-  for (const role of ROLES.filter((r) => !unknownRoles.has(r))) {
+  for (const role of roles.filter((r) => !unknownRoles.has(r))) {
     let res: Response;
     try {
       res = await fetch(`${base()}/me/files/${encodeURIComponent(fileId)}/revisions/${encodeURIComponent(revisionId)}/url?role=${role}`, {
@@ -181,8 +181,32 @@ export async function fileBytes(userId: string, fileId: string, revisionId: stri
   const obj = await fetch(url, { signal: AbortSignal.timeout(10 * 60_000) }).catch(() => null);
   if (!obj?.ok) return null;
   const size = Number(obj.headers.get("content-length") ?? 0);
-  if (size > MAX_FILE) return null;
+  if (size > max) return null;
   const body = Buffer.from(await obj.arrayBuffer());
-  if (body.length > MAX_FILE) return null;
+  if (body.length > max) return null;
   return { body, mime: (obj.headers.get("content-type") ?? "application/octet-stream").split(";")[0].trim(), name: dispositionName(obj.headers.get("content-disposition")) };
+}
+
+// ---------- small pictures ----------
+
+/** the most a thumbnail may be: it's a picture for a list, not the file */
+const MAX_THUMB = 4 * 1024 * 1024;
+const THUMBS_KEPT = 400;
+/** thumbnails already fetched, per person (one person's never answers another's request); oldest out first */
+const thumbs = new Map<string, FlowformFile | null>();
+
+/**
+ * Flowform's own small picture of a file (its `thumbnail` rendition, else `display`), as this person.
+ * Null when Flowform has none, or it isn't a picture. Kept in memory so a list scrolled twice asks once.
+ */
+export async function fileThumb(userId: string, fileId: string, revisionId: string): Promise<FlowformFile | null> {
+  const k = `${userId}
+${fileId}
+${revisionId}`;
+  if (thumbs.has(k)) return thumbs.get(k) ?? null;
+  const got = await fileBytes(userId, fileId, revisionId, ["thumbnail", "display"], MAX_THUMB);
+  const pic = got && got.mime.startsWith("image/") ? got : null;
+  thumbs.set(k, pic);
+  if (thumbs.size > THUMBS_KEPT) thumbs.delete(thumbs.keys().next().value!);
+  return pic;
 }

@@ -82,6 +82,13 @@
   color: var(--color-dim);
   background: color-mix(in srgb, var(--color-dim) 12%, transparent);
 }
+/* the server needs a newer version and there's nothing to press yet: it waits on someone (amber) */
+.update-card[data-required] .update-card-glyph[data-phase="current"],
+.update-card[data-required] .update-card-glyph[data-phase="off"],
+.update-card[data-required] .update-card-glyph[data-phase="unreachable"] {
+  color: var(--color-warn);
+  background: color-mix(in srgb, var(--color-warn) 14%, transparent);
+}
 /* the mark's panels settle in while something is happening */
 .update-card-glyph[data-phase="downloading"] rect,
 .update-card-glyph[data-phase="installing"] rect,

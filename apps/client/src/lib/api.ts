@@ -20,6 +20,7 @@
  */
 
 import type { AgentEvent, SearchHit, UserInfo } from "@foundation/protocol";
+import { CLIENT_VERSION } from "./version";
 
 const SERVER_KEY = "foundation-server";
 /** the server this build was made for (empty: the page's own origin) */
@@ -96,9 +97,10 @@ export function wsUrl(path: string) {
  * could be had (offline, signed out): callers treat it like a dropped socket.
  */
 export async function openSocket(path: string, query = ""): Promise<WebSocket> {
-  const q = query ? `?${query}` : "";
+  // every socket says which client opens it: a server may refuse one older than it still works with (4426, or 426 for the ticket)
+  const q = `?${query ? `${query}&` : ""}client=${encodeURIComponent(CLIENT_VERSION)}`;
   if (!authHeaders().authorization) return new WebSocket(wsUrl(path + q));
-  const { ticket } = await api<{ ticket: string }>("/api/ws-ticket", { method: "POST", json: { path } });
+  const { ticket } = await api<{ ticket: string }>("/api/ws-ticket", { method: "POST", json: { path, client: CLIENT_VERSION } });
   return new WebSocket(wsUrl(`${path}${q ? `${q}&` : "?"}ticket=${encodeURIComponent(ticket)}`));
 }
 
@@ -145,12 +147,14 @@ export async function api<T = unknown>(path: string, init: RequestInit & { json?
     // not JSON: a proxy answering for a server that's down (Vite's 500/502), or a page from the wrong server
     throw new ApiError(res.ok ? 502 : res.status, res.ok ? `${SERVER_NAME} didn't answer as a Foundation server.` : `Can't reach the Foundation server (${SERVER_NAME}): it answered ${res.status}. It may not be running.`);
   }
+  // 426: this client is older than the server still works with. The update card takes it from here (update/updater.ts)
+  if (res.status === 426 && typeof window !== "undefined") window.dispatchEvent(new CustomEvent("foundation:client-too-old", { detail: body.error }));
   if (!res.ok) throw new ApiError(res.status, body.error ?? res.statusText);
   return body as T;
 }
 
 export const me = () => api<{ user: UserInfo | null }>("/api/me");
-export const authConfig = () => api<{ google: boolean; devLogin: boolean; flowform?: { url: string } }>("/auth/config");
+export const authConfig = () => api<{ google: boolean; devLogin: boolean; flowform?: { url: string }; version?: string; minClient?: string | null }>("/auth/config");
 /** desktop: Google through flowform in the system browser; the window polls with a secret only it holds */
 export const flowformBegin = () => api<{ url: string; poll: string; expiresIn: number }>("/auth/flowform/begin", { method: "POST" });
 export async function flowformPoll(poll: string) {

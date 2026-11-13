@@ -28,6 +28,8 @@ export const config = {
   publicUrl: env("FOUNDATION_PUBLIC_URL", `http://localhost:${port}`),
   clientUrl: env("FOUNDATION_CLIENT_URL", "http://localhost:1430"),
   /** more page origins that may call this server with credentials (comma-separated), beyond the client, localhost and the desktop app */
+  /** the oldest client this server still works with (x.y.z; unset: any). Older ones get no board socket and are told to update (clientversion.ts) */
+  minClient: env("FOUNDATION_MIN_CLIENT").trim(),
   corsOrigins: env("FOUNDATION_CORS_ORIGINS")
     .split(",")
     .map((s) => s.trim().replace(/\/$/, ""))
