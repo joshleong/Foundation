@@ -9,13 +9,14 @@
  */
 
 import { onNight } from "@foundation/ui";
-import { BEARER } from "../lib/api";
+import { workbook } from "../engine/workbook";
 import { camera, onCamera } from "../state/camera";
 import {
   CONTENT_PAD,
   SECTION_HEADER,
   addNote,
   createSectionAt,
+  createTable,
   getState,
   moveMap,
   moveMedia,
@@ -32,6 +33,7 @@ import {
 } from "../state/store";
 import { floorInsets, getUi } from "../state/ui";
 import { getRuneStatus, setRuneStatus, type RuneBuild } from "./engine";
+import { runeImageSrc } from "./imageSrc";
 import { SCENE_VERSION, TOKEN_VARS, buildScene, type Rgba, type SceneTokens } from "./scene";
 
 const BASE = `${import.meta.env.BASE_URL}rune/`;
@@ -138,8 +140,7 @@ export function mountRune(canvas: HTMLCanvasElement, opts: { transparent: boolea
       readOnly: ui.role === "viewer",
       tokens: readTokens(canvas.parentElement ?? document.body),
       paper: !opts.transparent,
-      // a server file behind a bearer can't be fetched by address, and a blob: is this page's own
-      imageSrc: (src) => (src.startsWith("/files/") && BEARER ? "" : src),
+      imageSrc: runeImageSrc,
     });
     const json = JSON.stringify(scene);
     if (json === last) return;
@@ -205,6 +206,8 @@ export function mountRune(canvas: HTMLCanvasElement, opts: { transparent: boolea
       offs.push(
         onCamera((c) => m.setCamera(c.x, c.y, c.scale)),
         subscribe(schedule),
+        // a table at rest is Rune's: its cells are the workbook's, which recalculates apart from the store
+        workbook.subscribeAll(schedule),
         // the night fade mixes every token over 1.4 s: Rune springs between what it's handed
         onNight(() => [0, 500, 1500].forEach((ms) => setTimeout(schedule, ms))),
       );
@@ -243,8 +246,9 @@ if ((import.meta.env?.DEV || import.meta.env?.VITE_E2E_HOOKS) && typeof window !
   (window as unknown as { __foundationRune: unknown }).__foundationRune = {
     camera,
     status: getRuneStatus,
-    scene: () => buildScene(getState(), { insets: floorInsets(getUi()), readOnly: getUi().role === "viewer", tokens: readTokens(), paper: false }),
+    scene: () => buildScene(getState(), { insets: floorInsets(getUi()), readOnly: getUi().role === "viewer", tokens: readTokens(), paper: false, imageSrc: runeImageSrc }),
     addNote,
+    createTable,
     events: () => seen,
   };
 }

@@ -47,6 +47,7 @@ import { useRuneDrawing } from "../rune/engine";
 import { runeHost } from "../rune/host";
 import { hitWorld } from "../rune/scene";
 import { RuneMark, RuneSurface } from "../rune/RuneSurface";
+import { RuneIslands } from "../rune/RuneIslands";
 import { toWorld } from "../state/camera";
 
 const MIN_SCALE = 0.12;
@@ -966,6 +967,8 @@ export function GridViewport({ boardName }: { boardName?: string } = {}) {
         })}
 
         </>)}
+        {/* the cards that are web content (apps, pages, machines, maps, video, the table in hand) stay the web's, over Rune's canvas */}
+        {rune && <RuneIslands sections={sections} grid={state.grid} getScale={getScale} zoomSpring={zoom} />}
 
         {/* data-flow wires above everything */}
         <WireLayer />

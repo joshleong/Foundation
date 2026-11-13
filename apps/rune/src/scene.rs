@@ -10,7 +10,7 @@ use rune::Color;
 use serde::Deserialize;
 
 /// Bumped when the shape changes; the client refuses a module that speaks another version.
-pub const SCENE_VERSION: u32 = 1;
+pub const SCENE_VERSION: u32 = 2;
 
 /// sRGB, straight alpha, 0..1: what CSS computes a token to.
 pub type Rgba = [f32; 4];
@@ -67,6 +67,7 @@ pub struct Tokens {
     pub pulse: Rgba,
     pub moss: Rgba,
     pub agent: Rgba,
+    pub bad: Rgba,
     pub line: Rgba,
     pub line_strong: Rgba,
 }
@@ -134,14 +135,24 @@ pub enum Kind {
     #[default]
     Note,
     Table,
-    Map,
     Image,
-    Video,
-    Panel,
 }
 
-/// A card at its resting place: `x`, `y` in world points, `w`, `h` its own size, drawn at `s`
-/// (its section's fit) from its top-left.
+/// A table cell that holds something: where it is, what it shows, and whether that is a number
+/// (right-aligned, tabular) or an error.
+#[derive(Deserialize, Clone, Default, PartialEq, Debug)]
+#[serde(default)]
+pub struct Cell {
+    pub c: u32,
+    pub r: u32,
+    pub t: String,
+    pub n: bool,
+    pub e: bool,
+}
+
+/// A card Rune draws, at its resting place: `x`, `y` in world points, `w`, `h` its own size,
+/// drawn at `s` (its section's fit) from its top-left. Cards that are web content (apps, maps,
+/// video, the table in hand) never arrive: the client places those over the canvas itself.
 #[derive(Deserialize, Clone, Default, PartialEq, Debug)]
 #[serde(default)]
 pub struct Card {
@@ -157,9 +168,11 @@ pub struct Card {
     pub text: String,
     /// An image's address (same origin: `/files/…`).
     pub src: String,
-    /// What a card Rune doesn't draw yet says under its name ("Map", "Machine"…).
-    pub what: String,
     /// The crew agent that made it, when one did.
     pub agent: String,
     pub active: bool,
+    /// A table's size, and the cells that hold something.
+    pub cols: u32,
+    pub rows: u32,
+    pub cells: Vec<Cell>,
 }

@@ -55,7 +55,7 @@ export function RendererTab() {
 
       <div className="rune-options" role="radiogroup" aria-label="Renderer">
         {option("web", "Web renderer", "Default", "React and the DOM. Everything works.")}
-        {option("rune", "Rune", "Experimental", "Sections, notes and images drawn on the GPU. The rest is in the list below.")}
+        {option("rune", "Rune", "Experimental", "Sections, notes, images and tables at rest drawn on the GPU; apps, maps and video stay live over it. The list below says where each part stands.")}
       </div>
 
       <div className="services-list rune-facts">

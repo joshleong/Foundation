@@ -7,7 +7,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { applyRemote, getState, objectWorldRect, sectionRestRect, setActiveObject, type NoteMeta, type PanelMeta, type Section, type TableMeta } from "../src/state/store";
-import { SCENE_VERSION, TOKEN_VARS, buildScene, hitWorld, type SceneTokens } from "../src/rune/scene";
+import { SCENE_VERSION, TOKEN_VARS, buildScene, hitWorld, isIsland, type SceneTokens } from "../src/rune/scene";
+import { workbook } from "../src/engine/workbook";
 import { PARITY, PARITY_WORD, parityCounts } from "../src/rune/parity";
 import { readFileSync } from "node:fs";
 
@@ -40,9 +41,10 @@ test("sections and cards sit exactly where the store's geometry puts them", () =
     const r = sectionRestRect(st.grid, st.sections[s.id]);
     assert.deepEqual({ x: s.x, y: s.y, w: s.w, h: s.h }, r);
   }
-  assert.equal(scene.cards.length, 5);
+  // the app is the web's (an island): Rune is handed the three notes and the table
+  assert.deepEqual(scene.cards.map((c) => c.id).sort(), ["a1", "a2", "b1", "t1"]);
   for (const c of scene.cards) {
-    const o = st.notes[c.id] ?? st.tables[c.id] ?? st.panels[c.id];
+    const o = st.notes[c.id] ?? st.tables[c.id];
     const r = objectWorldRect(o)!;
     assert.equal(c.x, r.x);
     assert.equal(c.y, r.y);
@@ -70,8 +72,44 @@ test("cards say what they are, who made them, and which is selected", () => {
   assert.equal(cards.a2.active, false);
   assert.equal(cards.a2.agent, "Wren");
   assert.equal(cards.t1.kind, "table");
-  assert.equal(cards.t1.what, "Table");
-  assert.equal(cards.p1.kind, "panel");
+  assert.equal(cards.p1, undefined);
+});
+
+test("every card is drawn by exactly one of them: web content is an island, and so is the table in hand", () => {
+  const st = () => getState();
+  setActiveObject("a1");
+  assert.equal(isIsland(st(), st().panels.p1), true);
+  assert.equal(isIsland(st(), st().notes.a1), false);
+  assert.equal(isIsland(st(), st().tables.t1), false);
+  // pressed, the live sheet takes the table's place; let go of, it's Rune's again
+  setActiveObject("t1");
+  assert.equal(isIsland(st(), st().tables.t1), true);
+  assert.equal(buildScene(st(), opts).cards.some((c) => c.id === "t1"), false);
+  setActiveObject("a1");
+  assert.equal(buildScene(st(), opts).cards.some((c) => c.id === "t1"), true);
+  // a video is the web's; an image is Rune's when it can fetch it, the web's when it can't
+  const media = (media: "image" | "video") => ({ id: "m", sectionId: "A", name: "m", x: 0, y: 0, float: false, bornAt: 9, w: 200, h: 100, src: "/files/abc", media, autoplay: false, muted: true });
+  assert.equal(isIsland(st(), media("video")), true);
+  assert.equal(isIsland(st(), media("image")), false);
+  assert.equal(isIsland(st(), media("image"), { imageSrc: () => "" }), true);
+});
+
+test("a table at rest is handed over with what each cell shows", () => {
+  workbook.addTable("t1", "t1", 3, 6);
+  workbook.setCell("t1", 0, 0, "Part");
+  workbook.setCell("t1", 1, 0, "1234.5");
+  workbook.setCell("t1", 1, 1, "=B1*2");
+  workbook.setCell("t1", 2, 2, "=1/0");
+  const t = buildScene(getState(), opts).cards.find((c) => c.id === "t1")!;
+  assert.equal(t.cols, 3);
+  assert.equal(t.rows, 6);
+  const at = (c: number, r: number) => t.cells.find((x) => x.c === c && x.r === r);
+  assert.deepEqual(at(0, 0), { c: 0, r: 0, t: "Part", n: false, e: false });
+  assert.deepEqual(at(1, 0), { c: 1, r: 0, t: "1,234.5", n: true, e: false });
+  assert.deepEqual(at(1, 1), { c: 1, r: 1, t: "2,469", n: true, e: false });
+  assert.equal(at(2, 2)?.e, true);
+  // empty cells aren't sent
+  assert.equal(t.cells.length, 4);
 });
 
 test("empty cells are offered where no section is", () => {
@@ -96,9 +134,10 @@ test("a point of the world is the topmost card, else the section's paper, else t
 test("a viewer's board is handed over read-only, and an image only by an address Rune can fetch", () => {
   assert.equal(buildScene(getState(), { ...opts, readOnly: true }).readOnly, true);
   applyRemote({ media: { m1: { id: "m1", sectionId: "A", name: "m1", x: 0, y: 0, float: false, bornAt: 9, w: 200, h: 100, src: "/files/abc", media: "image", autoplay: false, muted: true } } });
-  const src = (f?: (s: string) => string) => buildScene(getState(), { ...opts, imageSrc: f }).cards.find((c) => c.id === "m1")!.src;
-  assert.equal(src(), "/files/abc");
-  assert.equal(src(() => ""), "");
+  const card = (f?: (s: string) => string) => buildScene(getState(), { ...opts, imageSrc: f }).cards.find((c) => c.id === "m1");
+  assert.equal(card()?.src, "/files/abc");
+  // one Rune can't fetch isn't handed over at all: it's the web's
+  assert.equal(card(() => ""), undefined);
   applyRemote({ media: {} });
 });
 

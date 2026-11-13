@@ -1224,7 +1224,7 @@
       "milestone": "polish",
       "area": "grid",
       "status": "review",
-      "body": "Josh, 2026-11-12: a GPU-rendered interface (github.com/anomalyco/rune) side by side with the web UI, a toggle in Settings, boards marked as rendered by Rune, the web renderer untouched. Built as a first slice: `apps/rune` (Rust → wasm, WebGPU), `apps/client/src/rune` (the scene, the host, Settings → Renderer and its parity ledger, the mark in the bottom bar), `npm run rune:build`. Off by default. One camera and one store for both engines. Rune draws sections, notes (with its own text field for writing) and images; the rest is a named placeholder. Checked headed on the GPU in Edge (`e2e/rune.spec.ts`, 6) and in `test/rune-scene.test.ts` (8); evidence in `docs/evidence/2026-11-12_rune/`. To check by hand: Settings → Renderer → Rune, then the company board; and `npm run desktop` with Rune on, which is unrun.",
+      "body": "Josh, 2026-11-12: a GPU-rendered interface (github.com/anomalyco/rune) side by side with the web UI, a toggle in Settings, boards marked as rendered by Rune, the web renderer untouched. Built as a first slice: `apps/rune` (Rust → wasm, WebGPU), `apps/client/src/rune` (the scene, the host, Settings → Renderer and its parity ledger, the mark in the bottom bar), `npm run rune:build`. Off by default. One camera and one store for both engines. Rune draws sections, notes (with its own text field for writing) and images; web content stays live as islands (#129). Checked headed on the GPU in Edge (`e2e/rune.spec.ts`, 6) and in `test/rune-scene.test.ts` (8); evidence in `docs/evidence/2026-11-12_rune/`. To check by hand: Settings → Renderer → Rune, then the company board; and `npm run desktop` with Rune on, which is unrun.",
       "issue": 128
     },
     {
@@ -1253,8 +1253,8 @@
       "kind": "plan",
       "milestone": "polish",
       "area": "grid",
-      "status": "backlog",
-      "body": "The biggest gap in the parity ledger (Settings → Renderer). Apps, pages, machines, huddles, Slack, maps and video are web content: keep their React components and place them over Rune's canvas at the rect the scene gives (the one camera already moves both). Tables are Rune's to draw: cells from the workbook, with Rune's text field for a cell.",
+      "status": "review",
+      "body": "Built 2026-11-12 (second slice). Apps, pages, machines, huddles, Slack, connectors, files, maps and video are the web's own components, placed over Rune's canvas as islands in a shell of their section (`src/rune/RuneIslands.tsx`; `scene.ts` `isIsland` decides, so each card is one engine's). A table is Rune's at rest (header, heads, ruling, what each cell shows) and the web's live sheet while it's the card in hand. Checked in `e2e/rune.spec.ts` (islands within 1 px of the store's rects; a table Rune → web → a formula typed → Rune) and `test/rune-scene.test.ts`. Left for later: cells edited in Rune's own field (so the first press lands on a cell), a table's wire handle at rest, islands under Rune's cards, and use / full screen checked under Rune.",
       "issue": 129
     },
     {

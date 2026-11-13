@@ -6,9 +6,15 @@
  * functions the web renderer, the wires and the cursors read — so the two
  * engines can't disagree about where a section or a card is. Colours arrive
  * resolved from the design tokens. Rune decides neither.
+ *
+ * Not every card is Rune's. Live apps, pages, machines, huddles, Slack,
+ * connectors, maps and video are web content: they stay the web's own
+ * components, placed over Rune's canvas as **islands** (RuneIslands.tsx) at
+ * the same rects. A table is Rune's at rest and the web's while it's the card
+ * in hand, so cells, formulas, ranges and menus all work. `isIsland` is the
+ * one rule both sides read: a card is drawn by exactly one of them.
  */
 
-import { isHostable } from "@foundation/protocol";
 import {
   CONTENT_PAD,
   SECTION_HEADER,
@@ -27,9 +33,11 @@ import {
   type AnyObject,
   type AppState,
 } from "../state/store";
+import { workbook } from "../engine/workbook";
 import { colName, gutterRuns } from "../lib/gridLines";
+import { formatValue } from "../lib/cellText";
 
-export const SCENE_VERSION = 1;
+export const SCENE_VERSION = 2;
 
 /** sRGB, straight alpha, 0..1 */
 export type Rgba = [number, number, number, number];
@@ -46,12 +54,22 @@ export const TOKEN_VARS = {
   pulse: "--color-pulse",
   moss: "--color-moss",
   agent: "--color-agent",
+  bad: "--color-bad",
   line: "--color-line",
   lineStrong: "--color-line-strong",
 } as const;
 export type SceneTokens = Record<keyof typeof TOKEN_VARS, Rgba>;
 
-export type CardKind = "note" | "table" | "map" | "image" | "video" | "panel";
+export type CardKind = "note" | "table" | "image";
+
+/** a table cell that has something in it: column, row, what it shows, and whether that's a number or an error */
+export interface SceneCell {
+  c: number;
+  r: number;
+  t: string;
+  n: boolean;
+  e: boolean;
+}
 
 export interface SceneCard {
   id: string;
@@ -64,9 +82,12 @@ export interface SceneCard {
   name: string;
   text: string;
   src: string;
-  what: string;
   agent: string;
   active: boolean;
+  /** a table's size and the cells that hold something */
+  cols: number;
+  rows: number;
+  cells: SceneCell[];
 }
 
 export interface Scene {
@@ -97,19 +118,33 @@ export interface SceneOptions {
   imageSrc?(src: string): string;
 }
 
-const WHAT: Record<string, string> = {
-  table: "Table",
-  map: "Map",
-  video: "Video",
-  image: "Image",
-};
+const imageSrcOf = (o: AnyObject, opts: Pick<SceneOptions, "imageSrc">) => ("src" in o && "media" in o && o.media === "image" ? (opts.imageSrc ? opts.imageSrc(o.src) : o.src) : "");
 
-function kindOf(o: AnyObject): CardKind {
-  if (isPanel(o)) return "panel";
-  if ("cols" in o) return "table";
-  if ("sourceTableId" in o) return "map";
-  if ("media" in o) return o.media === "video" ? "video" : "image";
-  return "note";
+/**
+ * Is this card the web's to draw, over Rune's canvas? Everything Rune doesn't
+ * draw itself: panels (apps, pages, machines, huddles, Slack, connectors,
+ * files, asks), maps, video, an image Rune can't fetch, and the table that's
+ * the card in hand (the live sheet takes its place while it's being worked on).
+ */
+export function isIsland(st: AppState, o: AnyObject, opts: Pick<SceneOptions, "imageSrc"> = {}): boolean {
+  if (isPanel(o)) return true;
+  if ("sourceTableId" in o) return true;
+  if ("cols" in o) return st.focusLevel === "object" && st.activeObjectId === o.id;
+  if ("media" in o) return o.media === "video" || !imageSrcOf(o, opts);
+  return false;
+}
+
+function tableCells(id: string, cols: number, rows: number): SceneCell[] {
+  const out: SceneCell[] = [];
+  const data = workbook.getTable(id);
+  if (!data) return out;
+  for (const [coord, cell] of data.cells) {
+    const [c, r] = coord.split(",").map(Number);
+    if (c >= cols || r >= rows) continue;
+    const t = cell.error ? cell.error : formatValue(cell.value);
+    if (t) out.push({ c, r, t, n: typeof cell.value === "number" && !cell.error, e: !!cell.error });
+  }
+  return out.sort((a, b) => a.r - b.r || a.c - b.c);
 }
 
 /** what Rune should draw for the store as it stands */
@@ -146,30 +181,32 @@ export function buildScene(st: AppState, opts: SceneOptions): Scene {
     const bodyW = rect.w - 2;
     const bodyH = rect.h - 2 - SECTION_HEADER;
     for (const o of objects) {
+      if (isIsland(st, o, opts)) continue; // the web's, over the canvas
       const r = objectWorldRect(o);
       if (!r) continue;
-      const hosted = s.host === o.id;
       const px = objectPixelSize(o);
-      if (!hosted && flow.clipped) {
+      if (flow.clipped) {
         const p = flow.pos.get(o.id) ?? { x: o.x, y: o.y };
         if ((CONTENT_PAD + p.x + px.w) * flow.fit > bodyW + 1 || (CONTENT_PAD + p.y + px.h) * flow.fit > bodyH + 1) continue;
       }
-      const kind = kindOf(o);
+      const table = "cols" in o ? o : null;
       cards.push({
         id: o.id,
-        kind,
+        kind: table ? "table" : "media" in o ? "image" : "note",
         x: r.x,
         y: r.y,
-        // a hosted app is its section's body; any other card keeps its own size, drawn at the section's fit
-        w: hosted ? r.w : px.w,
-        h: hosted ? r.h : px.h,
-        s: hosted ? 1 : r.s,
+        // its own size, drawn at the section's fit
+        w: px.w,
+        h: px.h,
+        s: r.s,
         name: o.name,
         text: "text" in o && typeof o.text === "string" ? o.text : "",
-        src: kind === "image" && "src" in o ? (opts.imageSrc ? opts.imageSrc(o.src) : o.src) : "",
-        what: isPanel(o) ? (isHostable(o.panel) ? `App · ${o.panel}` : o.panel) : (WHAT[kind] ?? ""),
+        src: imageSrcOf(o, opts),
         agent: o.createdBy ?? "",
         active: st.focusLevel === "object" && st.activeObjectId === o.id,
+        cols: table?.cols ?? 0,
+        rows: table?.rows ?? 0,
+        cells: table ? tableCells(table.id, table.cols, table.rows) : [],
       });
     }
   }
@@ -200,7 +237,7 @@ export function buildScene(st: AppState, opts: SceneOptions): Scene {
  * What's under a point of the grid's world, by the same rects Rune draws:
  * the topmost card, else the section whose paper it's on. The camera and its
  * gestures stay in the client for both engines, and ask this where the web
- * renderer asks the DOM.
+ * renderer asks the DOM. (An island answers for itself: it's in the DOM.)
  */
 export function hitWorld(st: AppState, x: number, y: number): { section: string | null; object: string | null } {
   const inside = (r: { x: number; y: number; w: number; h: number }) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;

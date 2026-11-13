@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use rune::{Cursor, Cx, Drag, El, Family, Image, ImageCache, Key, KeyEvent, Live, Phase, TextCase, TextEdit, TextStyle, Tx, col, el, row, text, text_input};
+use rune::{Cursor, Cx, Drag, El, Family, Image, ImageCache, Key, KeyEvent, Live, Phase, TextEdit, TextStyle, Tx, col, el, row, text, text_input};
 
 use crate::bridge::{Event, emit};
 use crate::scene::{Card, Empty, Kind, Scene, Section, Tokens, color, tint};
@@ -29,7 +29,17 @@ const TRACK: TextStyle = TextStyle::new(15.0, 700.0).tracking(2.1).features("'tn
 const ADD: TextStyle = TextStyle::new(12.5, 600.0);
 const NOTE: TextStyle = TextStyle::new(13.5, 400.0).lh(13.5 * 1.55);
 const NOTE_EDIT: TextStyle = TextStyle::new(12.5, 400.0).family(Family::Mono).lh(12.5 * 1.6);
-const CAPTION: TextStyle = TextStyle::new(11.0, 500.0);
+const TABLE_NAME: TextStyle = TextStyle::new(15.0, 650.0).tracking(-0.15);
+const TABLE_HEAD: TextStyle = TextStyle::new(10.5, 600.0).tracking(0.84).features("'tnum' 1");
+const CELL: TextStyle = TextStyle::new(13.5, 400.0);
+const CELL_NUM: TextStyle = TextStyle::new(13.5, 400.0).features("'tnum' 1");
+const CELL_ERR: TextStyle = TextStyle::new(11.5, 600.0).tracking(0.35);
+// store.ts: a table's own measures
+const CELL_W: f32 = 148.0;
+const CELL_H: f32 = 40.0;
+const HEADER_H: f32 = 52.0;
+const ROWNUM_W: f32 = 44.0;
+const COLHEAD_H: f32 = 32.0;
 const AGENT: TextStyle = TextStyle::new(11.0, 600.0);
 
 /// A card following the pointer, and where it has got to (world points from its resting place).
@@ -177,7 +187,7 @@ fn section(s: &Section, t: &Tokens) -> El {
         .child(el().min_w(18.0).h(18.0).px(5.0).center().radius(R_PILL).fill(color(t.panel)).child(text(s.count.clone()).font(COUNT).color(color(t.mist))));
     el().key(format!("sec-{}", s.id)).absolute(s.x, s.y).size(s.w, s.h).radius(R_PANE)
         .fill(tint(t.raise, 72.0))
-        .border(1.0, if s.active { tint(t.frost, 26.0) } else { color(t.line_strong) })
+        .border(1.0, color(if s.active { t.dim } else { t.line_strong }))
         .shadow(1.0, 2.0, tint(t.frost, lift.0))
         .shadow(lift.2, lift.3, tint(t.frost, lift.1))
         .child(header)
@@ -209,8 +219,10 @@ fn card(c: &Card, b: &Board) -> El {
     frame = frame.child(match c.kind {
         Kind::Note if editing => note_field(b, t),
         Kind::Note => note(c, t),
+        Kind::Table => table(c, t),
         Kind::Image if bare_image => el().w_full().h_full().pixels(b.images[&c.src].pixels()),
-        _ => waiting(c, t),
+        // an image still on its way: its paper, until the pixels land
+        Kind::Image => el().w_full().h_full().fill(color(t.panel)),
     });
     if !c.agent.is_empty() {
         frame = frame.child(
@@ -277,10 +289,62 @@ fn note_field(b: &Board, t: &Tokens) -> El {
     el().w_full().h_full().px(18.0).pt(42.0).pb(14.0).child(field)
 }
 
-/// A card Rune doesn't draw yet says so (DESIGN.md §1.6: a stub says it's a stub).
-fn waiting(c: &Card, t: &Tokens) -> El {
-    col().w_full().h_full().center().gap(6.0).fill(color(t.panel))
-        .child(text(c.name.clone()).font(NAME).color(color(t.frost)).truncate())
-        .child(text(c.what.clone()).font(CAPTION).color(color(t.dim)).text_case(TextCase::Uppercase))
-        .child(text("Not drawn by Rune yet").font(CAPTION).color(color(t.dim)))
+/// A column's spreadsheet name: A, B … Z, AA …
+fn col_name(mut n: u32) -> String {
+    let mut s = String::new();
+    loop {
+        s.insert(0, (b'A' + (n % 26) as u8) as char);
+        if n < 26 {
+            return s;
+        }
+        n = n / 26 - 1;
+    }
+}
+
+/// A table at rest: its header, the column and row heads, the ruling and what each cell shows.
+/// Pressed, it becomes the card in hand and the web's live sheet takes its place (cells,
+/// formulas, ranges and menus are the web's until Rune has them).
+fn table(c: &Card, t: &Tokens) -> El {
+    let (cols, rows) = (c.cols as f32, c.rows as f32);
+    let sheet_w = ROWNUM_W + cols * CELL_W;
+    let top = HEADER_H + COLHEAD_H;
+    let grip = col().gap(3.0).px(4.0).py(6.0).opacity(0.5)
+        .children((0..3).map(|_| el().size(14.0, 2.0).radius(2.0).fill(color(t.dim))));
+    let header = row().absolute(0.0, 0.0).size(sheet_w, HEADER_H).center_y().gap(10.0).pl(10.0).pr(14.0)
+        .gradient(color(t.abyss), color(t.void))
+        .child(grip)
+        .child(el().px(6.0).py(4.0).child(text(c.name.clone()).font(TABLE_NAME).color(color(t.frost)).truncate()));
+    let mut sheet = el().w_full().h_full().fill(color(t.raise)).child(header)
+        // the heads' wells, then the ruling over them: one line a track, not a border a cell
+        .child(el().absolute(0.0, HEADER_H).size(sheet_w, COLHEAD_H).fill(color(t.panel)))
+        .child(el().absolute(0.0, top).size(ROWNUM_W, rows * CELL_H).fill(color(t.panel)))
+        .child(el().absolute(0.0, HEADER_H - 1.0).size(sheet_w, 1.0).fill(color(t.line)))
+        .child(el().absolute(0.0, top - 1.0).size(sheet_w, 1.0).fill(color(t.line_strong)))
+        .child(el().absolute(ROWNUM_W - 1.0, HEADER_H).size(1.0, COLHEAD_H + rows * CELL_H).fill(color(t.line_strong)));
+    for i in 0..c.cols {
+        let x = ROWNUM_W + i as f32 * CELL_W;
+        sheet = sheet
+            .child(el().key(format!("ch-{i}")).absolute(x, HEADER_H).size(CELL_W, COLHEAD_H).center().child(text(col_name(i)).font(TABLE_HEAD).color(color(t.dim))))
+            .child(el().key(format!("cl-{i}")).absolute(x + CELL_W - 1.0, HEADER_H).size(1.0, COLHEAD_H + rows * CELL_H).fill(color(t.line)));
+    }
+    for i in 0..c.rows {
+        let y = top + i as f32 * CELL_H;
+        sheet = sheet
+            .child(el().key(format!("rn-{i}")).absolute(0.0, y).size(ROWNUM_W, CELL_H).center().child(text((i + 1).to_string()).font(TABLE_HEAD).color(color(t.dim))))
+            .child(el().key(format!("rl-{i}")).absolute(0.0, y + CELL_H - 1.0).size(sheet_w, 1.0).fill(color(t.line)));
+    }
+    for cell in &c.cells {
+        let (x, y) = (ROWNUM_W + cell.c as f32 * CELL_W, top + cell.r as f32 * CELL_H);
+        let label = text(cell.t.clone()).truncate();
+        let label = if cell.e {
+            label.font(CELL_ERR).color(color(t.bad))
+        } else {
+            label.font(if cell.n { CELL_NUM } else { CELL }).color(color(t.frost))
+        };
+        // numbers sit at the left like text, in tabular figures: what the web table draws (its
+        // `.cell.num` asks for the right, but the text's own box fills the cell)
+        let slot = row().key(format!("c-{}-{}", cell.c, cell.r)).absolute(x, y).size(CELL_W - 1.0, CELL_H - 1.0).center_y().px(12.0);
+        sheet = sheet.child(slot.child(label));
+    }
+    sheet
 }

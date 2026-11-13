@@ -229,3 +229,25 @@
   align-items: center;
   gap: var(--space-4);
 }
+
+/* Web islands (RuneIslands.tsx): a section's box with nothing of its own drawn — Rune draws the paper and
+   the header — holding the cards that are web content. It takes no pointer: a press between islands is Rune's. */
+.section-card.is-rune-shell {
+  background: none;
+  border-color: transparent;
+  box-shadow: none;
+  transition: none;
+  pointer-events: none;
+}
+.section-card.is-rune-shell::after {
+  content: none;
+}
+.section-card.is-rune-shell > .section-body {
+  background-image: none;
+  pointer-events: none;
+}
+.section-card.is-rune-shell .obj-slot,
+.section-card.is-rune-shell > .panel-anchor,
+.section-card.is-rune-shell > .hosted-app {
+  pointer-events: auto;
+}

@@ -45,8 +45,12 @@ camera.ts (one camera, both engines) ──▶ setCamera ──▶ two Live valu
 - **One camera.** The grid's springs, wheel, pinch, throw, framing and keys are the same code
   for both engines (`GridViewport.tsx`); it asks `hitWorld` what's under the pointer where the
   web renderer asks the DOM.
-- **Web layers stay web.** Wires, cursors and the chrome draw over the canvas. Live apps, pages
-  and terminals are web content and will be placed over it too.
+- **Web layers stay web.** Wires, cursors and the chrome draw over the canvas.
+- **Web content stays web, as islands.** Apps, pages, machines, maps and video are the web
+  renderer's own components, placed over the canvas in a shell of their section
+  (`apps/client/src/rune/RuneIslands.tsx`). `isIsland` in `scene.ts` is the one rule: a card is
+  drawn by exactly one engine, and Rune is never handed an island. A table is Rune's at rest
+  and an island while it's the card in hand.
 
 ## Adding a part
 

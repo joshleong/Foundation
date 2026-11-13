@@ -32,9 +32,9 @@ type Scene = {
   cards: Array<{ id: string; kind: string; x: number; y: number; w: number; h: number; s: number; text: string }>;
 };
 type Camera = { x: number; y: number; scale: number; left: number; top: number };
-type Hook = { camera: Camera; status(): { state: string; reason?: string }; scene(): Scene; addNote(section: string, text: string): { id: string } };
+type Hook = { camera: Camera; status(): { state: string; reason?: string }; scene(): Scene; addNote(section: string, text: string): { id: string }; createTable(section: string): { id: string } };
 type Note = { id: string; x: number; y: number; float: boolean; text: string };
-type Store = { getState(): { activeSectionId: string; activeObjectId: string | null; notes: Record<string, Note> } };
+type Store = { workbook: { setCell(t: string, c: number, r: number, raw: string): void; getCell(t: string, c: number, r: number): { value: unknown } | undefined }; getState(): { activeSectionId: string; activeObjectId: string | null; notes: Record<string, Note> } };
 
 async function open(page: Page, engine: "rune" | "web", night = true) {
   const res = await page.context().request.post(`${CLIENT}/auth/dev`, { data: { name: "Ada", email: "ada@normal.dev" } });
@@ -91,7 +91,7 @@ test("Rune draws the board, marked as Rune's, and its pictures sit beside the we
     await page.screenshot({ path: `${OUT}/board-web-${night ? "night" : "day"}.png` });
     await open(page, "rune", night);
     // the web renderer's sections are gone: Rune's canvas is the board
-    expect(await page.locator(".section-card").count()).toBe(0);
+    expect(await page.locator(".section-card:not(.is-rune-shell)").count()).toBe(0);
     expect(await page.locator("#foundation-rune").count()).toBe(1);
     await expect(page.locator(".rune-mark")).toHaveText("Rune");
     await page.keyboard.press("0");
@@ -194,7 +194,7 @@ test("Settings → Renderer switches engines on this device and shows where Rune
   await page.goto("/?board=company");
   await waitLive(page);
   await page.waitForSelector(".rune-mark.is-ready", { timeout: 30_000 });
-  expect(await page.locator(".section-card").count()).toBe(0);
+  expect(await page.locator(".section-card:not(.is-rune-shell)").count()).toBe(0);
   // and back again: the web renderer, with nothing of Rune left on the page
   await page.locator(".rune-mark").click();
   await page.locator(".rune-option", { hasText: "Default" }).click();
@@ -216,4 +216,70 @@ test("the design page shows the mark and the ledger, day and night", async ({ pa
     await settle(page, 1600);
     await section.screenshot({ path: `${OUT}/design-rune-${night ? "night" : "day"}.png` });
   }
+});
+
+test("web content stays live as islands over Rune; a table is Rune's at rest and the web's in hand", async ({ page }) => {
+  mkdirSync(OUT, { recursive: true });
+  await open(page, "rune");
+  await page.keyboard.press("0");
+  await settle(page, 1400);
+  // the seeded board's apps and connectors are the web's own components, in the sections Rune drew
+  const panels = await page.evaluate(() => Object.keys((window as unknown as { __foundation: { getState(): { panels: object } } }).__foundation.getState().panels).length);
+  expect(panels).toBeGreaterThan(0);
+  expect(await page.locator(".is-rune-shell .panel-card").count()).toBe(panels);
+  // and Rune is handed none of them: each card is drawn by exactly one engine
+  const drawn = (await scene(page)).cards.map((c) => c.kind);
+  expect(drawn.every((k) => k === "note" || k === "table" || k === "image")).toBe(true);
+  // an island sits where the store says: its box on screen is the rect the wires land on
+  const off = await page.evaluate(() => {
+    const st = (window as unknown as { __foundation: { getState(): { sections: Record<string, { id: string }> }; sectionCardRect(g: unknown, s: unknown): { x: number; y: number; w: number; h: number } } }).__foundation;
+    const cam = (window as unknown as { __foundationRune: { camera: { x: number; y: number; scale: number; left: number; top: number } } }).__foundationRune.camera;
+    const s = st.getState() as unknown as { grid: unknown; sections: Record<string, { id: string }> };
+    let worst = 0;
+    for (const el of document.querySelectorAll<HTMLElement>(".section-card.is-rune-shell")) {
+      const r = el.getBoundingClientRect();
+      const want = st.sectionCardRect(s.grid, s.sections[el.dataset.sectionId!]);
+      worst = Math.max(worst, Math.abs(r.left - (cam.left + cam.x + want.x * cam.scale)), Math.abs(r.top - (cam.top + cam.y + want.y * cam.scale)), Math.abs(r.width - want.w * cam.scale));
+    }
+    return worst;
+  });
+  expect(off).toBeLessThan(1);
+  await page.screenshot({ path: `${OUT}/islands-rune-night.png` });
+
+  // a table: Rune draws it at rest, with what its cells show
+  const sec = (await scene(page)).sections.find((s) => s.name === "Apps")!;
+  const id = await page.evaluate((s) => (window as unknown as { __foundationRune: Hook }).__foundationRune.createTable(s).id, sec.id);
+  await page.evaluate((t) => {
+    const wb = (window as unknown as { __foundation: Store }).__foundation.workbook;
+    wb.setCell(t, 0, 0, "Part");
+    wb.setCell(t, 1, 0, "Qty");
+    wb.setCell(t, 0, 1, "Rim drive");
+    wb.setCell(t, 1, 1, "12");
+    wb.setCell(t, 1, 2, "=B2*2");
+  }, id);
+  await settle(page, 1600);
+  const card = (await scene(page)).cards.find((c) => c.id === id)!;
+  expect(card.kind).toBe("table");
+  expect(await page.locator(`.obj-slot[data-obj-id="${id}"]`).count()).toBe(0);
+  await page.screenshot({ path: `${OUT}/table-rune-at-rest.png` });
+
+  // pressed, it's the card in hand: the web's live sheet takes its place, and a cell takes typing
+  const at = await cardPoint(page, id);
+  await page.mouse.click(at.x, at.y);
+  await page.waitForSelector(`.obj-slot[data-obj-id="${id}"] .cell`);
+  expect((await scene(page)).cards.some((c) => c.id === id)).toBe(false);
+  const cell = page.locator(`.obj-slot[data-obj-id="${id}"] .cell`).nth(4 * 3 + 2); // C4
+  await cell.click();
+  await page.keyboard.type("=B3+1");
+  await page.keyboard.press("Enter");
+  await expect.poll(() => page.evaluate((t) => (window as unknown as { __foundation: Store }).__foundation.workbook.getCell(t, 2, 3)?.value, id)).toBe(25);
+  await settle(page, 400);
+  await page.screenshot({ path: `${OUT}/table-web-in-hand.png` });
+
+  // a press on the section's paper lets go of it: Rune draws it again, with the new cell
+  const box = (await page.locator(`.obj-slot[data-obj-id="${id}"] .sheet`).boundingBox())!;
+  await page.mouse.click(box.x + box.width + 120, box.y + 40);
+  await expect.poll(() => page.locator(`.obj-slot[data-obj-id="${id}"]`).count()).toBe(0);
+  const back = (await scene(page)).cards.find((c) => c.id === id) as unknown as { cells: Array<{ c: number; r: number; t: string }> };
+  expect(back.cells.find((x) => x.c === 2 && x.r === 3)?.t).toBe("25");
 });
