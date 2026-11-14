@@ -7,7 +7,7 @@
 import { keys } from "../lib/keys";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
-import { askAgent, setUi } from "../state/ui";
+import { setUi } from "../state/ui";
 import { openUrlAsPanel } from "../shell/CommandBar";
 
 interface AppRow {
@@ -28,7 +28,7 @@ function loadShelf() {
   return shelfPromise;
 }
 
-export function SectionEmpty({ name, onUpload, onNote, onFocus }: { name: string; onUpload(): void; onNote(): void; onFocus(): void }) {
+export function SectionEmpty({ name, onUpload, onNote, onText, onAsk, onFocus }: { name: string; onUpload(): void; onNote(): void; onText(): void; onAsk(): void; onFocus(): void }) {
   const [apps, setApps] = useState<AppRow[]>(shelfCache ?? []);
   useEffect(() => {
     if (!shelfCache) void loadShelf().then(setApps);
@@ -63,19 +63,32 @@ export function SectionEmpty({ name, onUpload, onNote, onFocus }: { name: string
             </span>
             <span className="f-kbd">{keys("mod+U")}</span>
           </button>
-          <button className="empty-action is-agent" data-tip={`Ask the agent to build it (${keys("mod+J")})`} onClick={() => askAgent(`Set up the “${name}” section: `)}>
+          <button className="empty-action is-agent" data-tip="Ask an agent to build it here, where you can watch" onClick={onAsk}>
             <span className="empty-glyph">✦</span>
             <span>
-              <b>Ask the agent to build it</b>
-              <small>It can organize, open apps and chase people for CAD</small>
+              <b>Ask an agent to build it</b>
+              <small>It works here under its own name, with you</small>
             </span>
-            <span className="f-kbd">{keys("mod+J")}</span>
           </button>
-          <button className="empty-action" data-tip="Write a note" onClick={onNote}>
-            <span className="empty-glyph">▤</span>
+          <button className="empty-action" data-tip="Write in a text box: formatted as you type" onClick={onText}>
+            <span className="empty-glyph">¶</span>
             <span>
-              <b>Write a note</b>
-              <small>Markdown, searchable by everyone</small>
+              <b>Write</b>
+              <small>
+                A text box, formatted as you type · or a{" "}
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="empty-inline"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onNote();
+                  }}
+                  onKeyDown={(e) => e.key === "Enter" && (e.stopPropagation(), onNote())}
+                >
+                  markdown note
+                </span>
+              </small>
             </span>
           </button>
         </div>

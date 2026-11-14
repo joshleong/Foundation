@@ -41,7 +41,7 @@ export const PARITY: ParityGroup[] = [
     name: "Sections",
     rows: [
       { what: "Paper, hairline, shadow, the selected look", status: "same" },
-      { what: "Header: name, coordinates, count", status: "partial", note: "No Slack mark, no crew chip, and an app section has no glyph or app buttons (repo, MCP, open)" },
+      { what: "Header: name, coordinates, count", status: "partial", note: "No Slack mark, no ✦ Agents chip or ⤢ at rest (the toolbar's ✦ and the menu open the section's agents), and an app section has no glyph or app buttons (repo, MCP, open)" },
       { what: "Rename in place", status: "partial", note: "Rune's own field: a press on the name, Enter or a press elsewhere names it, Esc leaves it. The name isn't selected when it opens" },
       { what: "Select by pressing", status: "same" },
       { what: "Tools on call (add, split, open, agent, remove)", status: "partial", note: "Rune draws them, with its own line icons. They show while the pointer is on the section's paper, not while it's on a card, and have no roll-over labels" },
@@ -66,6 +66,7 @@ export const PARITY: ParityGroup[] = [
       { what: "A note's bar, an image's buttons, and the resize corner", status: "partial", note: "Title, float or dock, remove, and the corner. No full screen, no mute or invert on an image, whose button sits inside its edge; the whole note is its handle, where the web's is the bar" },
       { what: "Table", status: "partial", note: "Rune draws it at rest: header, heads, ruling and what each cell shows. Pressed, the web's live sheet takes its place (cells, formulas, ranges, menus), so the first press picks the table up, not a cell" },
       { what: "Live apps, web pages, machines, huddles, Slack, connectors, files, asks", status: "web", note: "Web content, and it stays web: the same components, as islands over Rune's canvas in the section Rune drew" },
+      { what: "Text box; the agents card; a section's agents panel", status: "web", note: "A text box is written in the page's own editing surface and the agents card is a panel, so both are islands; the panel stands over the canvas at screen size. Not checked under Rune in a browser yet" },
       { what: "Map, video, CAD", status: "web", note: "Islands, like the apps" },
       { what: "Use a card (Ctrl+click), full screen", status: "web", note: "The islands' own; not checked under Rune yet" },
       { what: "Stacking", status: "partial", note: "An island is always over what Rune draws: a note can't float over an app or a map" },

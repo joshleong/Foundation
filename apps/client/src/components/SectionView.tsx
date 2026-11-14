@@ -7,6 +7,7 @@ import {
   SECTION_HEADER,
   Section,
   addNote,
+  addTextBox,
   addSectionAdjacent,
   getState,
   cellAtWorld,
@@ -46,6 +47,7 @@ import { MediaView } from "./MediaView";
 import { PANEL_GLYPH, PanelActions, PanelView } from "../panels/PanelView";
 import { SlackMark } from "./SlackMark";
 import { SectionCrew } from "./SectionCrew";
+import { SectionAgentsChip, openSectionAgents } from "./SectionAgents";
 import { FullscreenButton } from "./Fullscreen";
 import { isHostable } from "@foundation/protocol";
 import { isPanel } from "../state/store";
@@ -416,6 +418,24 @@ export const SectionView = memo(function SectionView({
         {/* a section that follows a Slack channel says how that connection stands */}
         <SlackMark sectionId={section.id} />
 
+        {/* at rest, what a section is: somewhere agents build with you, and a grid of its own to open */}
+        {!mini && (
+          <span className="section-rest">
+            <SectionAgentsChip sectionId={section.id} sectionName={section.name} />
+            {!host && (
+              <button
+                type="button"
+                className="sec-rest-open"
+                data-tip={isOpen ? "Back up a level" : isGrid ? "Open its grid" : "Open as its own grid: every section is one"}
+                aria-label={isOpen ? "Back up a level" : isGrid ? "Open its grid" : "Open as its own grid"}
+                onClick={() => (isOpen ? levelUp() : openLevel(section.id))}
+              >
+                {isOpen ? "⤡" : "⤢"}
+              </button>
+            )}
+          </span>
+        )}
+
         {/* tools wait in the top-right corner until the pointer is on the section */}
         {!mini && (
         <div className="section-tools" role="toolbar" aria-label={`${section.name} tools`}>
@@ -450,7 +470,7 @@ export const SectionView = memo(function SectionView({
           <div className="sec-group">
             {host
               ? tool(`Ask the agent about ${host.name}`, "✦", () => askAgent(`About “${host.name}”: `), "sec-agent", keys("mod+J"))
-              : tool("Ask the agent about this section", "✦", () => askAgent(`In the “${section.name}” section: `), "sec-agent", keys("mod+J"))}
+              : tool("Agents in this section: ask one, see who's at work", "✦", () => openSectionAgents(section.id, true), "sec-agent")}
             {canRemove && !isOpen && tool("Remove this section…", "✕", () => setConfirming(true), "sec-remove")}
           </div>
         </div>
@@ -559,6 +579,8 @@ export const SectionView = memo(function SectionView({
             name={section.name}
             onUpload={() => fileRef.current?.click()}
             onNote={() => addNote(section.id)}
+            onText={() => addTextBox(section.id)}
+            onAsk={() => openSectionAgents(section.id, true)}
             onFocus={() => setActiveSection(section.id)}
           />
         )}

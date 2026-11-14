@@ -12,6 +12,7 @@ import {
   SECTION_HEADER,
   addNote,
   addPanel,
+  addTextBox,
   addSectionAdjacent,
   createMap,
   createTable,
@@ -22,12 +23,15 @@ import {
   requestSnap,
   sectionCardRect,
   sectionFit,
+  setActiveSection,
   setSectionHost,
   splitSection,
   type PanelMeta,
   type Section,
 } from "../state/store";
 import { openAgentsPane } from "./SectionCrew";
+import { keepAgentsCard, openSectionAgents } from "./SectionAgents";
+import { setUi } from "../state/ui";
 import type { MenuItem } from "./ContextMenu";
 
 export interface SectionMenuContext {
@@ -68,22 +72,43 @@ export function sectionMenuItems(section: Section, pt: { x: number; y: number } 
         .catch((err) => toast((err as Error).message, "bad")),
   }));
   return [
-    { icon: "⊞", label: "Add table", action: () => createTable(section.id) },
-    { icon: "◍", label: "Add map", action: () => createMap(section.id) },
-    { icon: "▤", label: "Add note", action: () => addNote(section.id) },
-    { icon: "⇪", label: "Add image / video…", action: () => upload() },
+    // an agent first: the section is somewhere agents build with you
+    { icon: "✦", label: "Ask an agent to build here…", agent: true, action: () => openSectionAgents(section.id, true) },
     { divider: true },
-    { icon: "◐", label: "Start a huddle here", action: () => addPanel(section.id, { panel: "huddle", name: "Huddle", ...at(560, 420) }) },
-    { icon: "#", label: "Add a Slack channel", action: () => addPanel(section.id, { panel: "slack", name: "Slack", ...at(420, 520) }) },
-    { icon: "▤", label: "Start a machine here", action: () => addPanel(section.id, { panel: "machine", name: "Machine", machine: { name: `box-${Math.random().toString(16).slice(2, 6)}`, state: "absent" }, ...at(760, 520) }) },
+    { heading: "Add" },
+    { icon: "¶", label: "Text box", action: () => addTextBox(section.id, at(480, 320)) },
+    { icon: "▤", label: "Markdown note", action: () => addNote(section.id) },
+    { icon: "⊞", label: "Table", action: () => createTable(section.id) },
+    { icon: "◍", label: "Map", action: () => createMap(section.id) },
+    { icon: "⇪", label: "Image, video or file…", action: () => upload() },
+    {
+      icon: "◳",
+      label: "App or web page…",
+      action: () => {
+        setActiveSection(section.id);
+        setUi({ command: true });
+      },
+    },
+    { divider: true },
+    { heading: "Live" },
+    { icon: "✦", label: "Agents card", agent: true, action: () => keepAgentsCard(section.id, at(380, 440)) },
+    { icon: "◐", label: "Huddle", action: () => addPanel(section.id, { panel: "huddle", name: "Huddle", ...at(560, 420) }) },
+    { icon: "#", label: "Slack channel", action: () => addPanel(section.id, { panel: "slack", name: "Slack", ...at(420, 520) }) },
+    { icon: "▤", label: "Machine", action: () => addPanel(section.id, { panel: "machine", name: "Machine", machine: { name: `box-${Math.random().toString(16).slice(2, 6)}`, state: "absent" }, ...at(760, 520) }) },
     ...tellSlack,
-    { icon: "✦", label: "Agents in this section", action: () => openAgentsPane(section.id) },
+    { icon: "◨", label: "All agents on this board", action: () => openAgentsPane(section.id) },
     ...(host
       ? [{ icon: "◱", label: `Show ${host.name} as a card`, action: () => setSectionHost(section.id, null) }]
       : hostable
         ? [{ icon: "◳", label: `Let ${hostable.name} fill the section`, action: () => setSectionHost(section.id, hostable.id) }]
         : []),
     { divider: true },
+    { heading: "Sections" },
+    ...(host
+      ? [{ icon: "⤢", label: "Fill the screen with it", action: () => requestSnap({ kind: "section" as const, id: section.id }) }]
+      : isOpen
+        ? [{ icon: "⤡", label: "Back up a level", action: () => levelUp() }]
+        : [{ icon: "⤢", label: isGrid ? "Open its grid" : "Open as its own grid", action: () => openLevel(section.id) }]),
     { icon: "←", label: "Insert section left", action: () => addSectionAdjacent(section.id, "left") },
     { icon: "→", label: "Insert section right", action: () => addSectionAdjacent(section.id, "right") },
     { icon: "↑", label: "Insert section above", action: () => addSectionAdjacent(section.id, "above") },
@@ -92,11 +117,6 @@ export function sectionMenuItems(section: Section, pt: { x: number; y: number } 
     { icon: "◫", label: "Split column", action: () => splitSection(section.id, "h") },
     { icon: "⬓", label: "Split row", action: () => splitSection(section.id, "v") },
     { divider: true },
-    ...(host
-      ? [{ icon: "⤢", label: "Fill the screen with it", action: () => requestSnap({ kind: "section", id: section.id }) }]
-      : isOpen
-        ? [{ icon: "⤡", label: "Back up a level", action: () => levelUp() }]
-        : [{ icon: "⤢", label: isGrid ? "Open its grid" : "Open as its own grid", action: () => openLevel(section.id) }]),
     {
       icon: "🗑",
       label: "Remove section…",

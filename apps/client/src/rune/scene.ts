@@ -155,6 +155,8 @@ export function isIsland(st: AppState, o: AnyObject, opts: Pick<SceneOptions, "i
   if ("sourceTableId" in o) return true;
   if ("cols" in o) return st.focusLevel === "object" && st.activeObjectId === o.id;
   if ("media" in o) return o.media === "video" || !imageSrcOf(o, opts);
+  // a text box is written in the page's own editing surface
+  if ("text" in o) return !!o.rich;
   return false;
 }
 

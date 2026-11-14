@@ -1,7 +1,7 @@
 {
   "about": "Foundation's plan as a kanban. GitHub issues are where the team moves cards; this file is the local copy the app shows in Settings → Plan. `npm run plan:push` writes it to GitHub, `npm run plan:pull` reads the issues back. Columns: needs-you (waits on a person: a key, an install, a decision), backlog, next, doing, review (built, waiting to merge or to be checked by a person), done.",
   "repo": "joshleong/Foundation",
-  "syncedAt": "2026-11-14T01:22:42.378Z",
+  "syncedAt": "2026-11-14T05:24:52.635Z",
   "columns": [
     {
       "id": "needs-you",
@@ -249,12 +249,12 @@
     },
     {
       "id": "publish-first-release",
-      "title": "Desktop releases publish themselves on every push to main",
+      "title": "Publish the first desktop release to the org repo",
       "kind": "hookup",
       "milestone": "ship",
       "area": "desktop",
-      "status": "doing",
-      "body": "Decided 2026-11-13 (Josh): every push to `main` on `joshleong/Foundation` that passes tests and typecheck becomes a signed Windows release (`.github/workflows/desktop-release.yml`, `npm run release -- ci`, version 0.3.<run>), and the feed is the fork again (the org repo's main stopped on 2026-10-04). The signing key and password are the repo's Actions secrets. The installed 0.3.0 was uninstalled. Left: (1) watch the first CI run go green and its release appear; (2) install from that release, then see the next push arrive as an update card; (3) keep a copy of `~/.tauri/foundation-updater.key` and `.password` that isn't this PC. Also unrun: macOS, Linux, the MSI path; the Windows installer isn't code-signed.",
+      "status": "needs-you",
+      "body": "The update feed is a 404: no release was ever published, so an installed copy has nothing to update to. Decided 2026-11-12 (Josh): the feed lives on `Normal-AI-Vibe-Code/Foundation`; builds from here on ask it and `npm run release -- publish` targets it. What's left, and needs a person: (1) write access to that repo for whoever publishes (the `gh` account on Josh's PC has read only), and the release tag pushed there; (2) `npm run release -- bump <v>`, `build`, push the tag, `publish`; (3) install from that release on a second computer and watch it take the next one; (4) installed 0.3.0 copies still ask the fork: reinstall them once, or publish the first release to the fork too; (5) back up `~/.tauri/foundation-updater.key` and `.password` somewhere that isn't this PC. Also unrun: macOS, Linux, the MSI path; the Windows installer isn't code-signed.",
       "issue": 116
     },
     {
@@ -1178,6 +1178,16 @@
       "issue": 121
     },
     {
+      "id": "agents-in-sections",
+      "title": "Agents in the section, a text box, and a fuller right-click menu",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "agent",
+      "status": "review",
+      "body": "Built 2026-11-13 (Josh: \"bring the agent view into the sections … make apparent the ability to have agents collaborate and build things in the interface with the user … a formatted word text box that is a WYSIWYG editor\"). At rest every section's header carries ✦ Agents (it counts the agents at work) and ⤢, the way into its own grid. The chip opens the section's agents in its corner: who is at work, what agents made there, and a composer that asks an agent to build in that section; Keep here puts it on the board as a card (`panel: \"crew\"`). A text box is a note written as formatted text with a toolbar, kept as the note's markdown in the same shared text (`NoteDoc.rich`; `add_note` takes `text_box`). The right-click menu leads with asking an agent and groups Add / Live / Sections. `components/SectionAgents.tsx`, `components/RichText.tsx`, `components/sectionMenu.ts`. `e2e/section-agents.spec.ts` (5, two people, script runtime), `docs/evidence/2026-11-13_agents-in-sections/`. To check: a real model turn asked from the panel; a viewer; under Rune (no chip at rest there); whether the marks at rest are the right weight (Josh).",
+      "issue": 134
+    },
+    {
       "id": "agent-consent-and-tokens",
       "title": "Decide: what lets a posted agent keep working (sign-in is decided)",
       "kind": "hookup",
@@ -1296,6 +1306,86 @@
       "status": "review",
       "body": "Built 2026-11-13: each ask has its own folder with a tool file (Foundation's tool server as that ask's crew member, board and an agent session for the asker); Foundation puts `--mcp-config .foundation-mcp.json --allowedTools mcp__foundation --strict-mcp-config` on each Claude-driven agent's launch line in its T3; the brief gives the agent the board and tells it to work on cards in its section; the pass ends with the thread. `test/t3threads.test.ts` (12); the real t3.exe took the launch line and kept Claude ready; in the browser a stand-in T3 used the pass and its card landed in the section as Claude's. To check (Josh): ask Claude through T3 on the real server for a card in a section (one turn on the Team plan). Left: approvals answered on the card (`thread.approval.respond`), presence across a restart of Foundation's server, moving the crew's own Claude runs onto T3 so there's one list, tools for Codex.",
       "issue": 132
+    },
+    {
+      "id": "today-mention-index",
+      "title": "A mention and owner index, so Today doesn't read every board",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "perf",
+      "status": "backlog",
+      "body": "Today reads every board on each load to find mentions, stages and changes. Fine for a handful of boards; past a few dozen it wants an index kept as boards change.",
+      "issue": 115
+    },
+    {
+      "id": "today-voice",
+      "title": "The Shiba speaks its replies",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "voice",
+      "status": "backlog",
+      "body": "Replies are type only. The browser's speech synthesis (local on macOS) or Vision's `@pacific/voice` (paid, consented per talk, as in HomeForm).",
+      "issue": 114
+    },
+    {
+      "id": "today-profile",
+      "title": "A profile form and the Shiba's first-run walkthrough",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "today",
+      "status": "backlog",
+      "body": "Title, team and the words for \"your work\" are set only by telling the Shiba today. A small form on Today, and the Shiba asking a new person's role on their first visit.",
+      "issue": 113
+    },
+    {
+      "id": "dataroom-goals",
+      "title": "People's projects and goals from the Data Room on Today",
+      "kind": "hookup",
+      "milestone": "polish",
+      "area": "company",
+      "status": "needs-you",
+      "body": "Needs a read endpoint in AirformDataRoom (proposed: `GET /api/foundation/goals?email=`, bearer `FOUNDATION_READ_TOKEN`, like the BomForm digest), then `DATAROOM_GOALS_URL` here (SPEC §6 #19).",
+      "issue": 112
+    },
+    {
+      "id": "app-addresses",
+      "title": "Set BomForm's, HyperForm's and FleetForm's addresses",
+      "kind": "hookup",
+      "milestone": "polish",
+      "area": "apps",
+      "status": "needs-you",
+      "body": "Today shows them as not linked until `BOMFORM_URL`, `HYPERFORM_URL`, `FLEETFORM_URL` are set (SPEC §6 #18). What is HyperForm's app? Only the Data Room's diligence video mentions it.",
+      "issue": 111
+    },
+    {
+      "id": "chrome-publish",
+      "title": "Publish Foundation for Chrome to everyone",
+      "kind": "hookup",
+      "milestone": "polish",
+      "area": "today",
+      "status": "needs-you",
+      "body": "The package, listing, images and policies are ready (`apps/extension/README.md`, `STORE.md`, `store/`, `npm run release -w @foundation/extension`). Needs a person: confirm the placeholders in `apps/extension/release.json` (hosted address, domains, support email, privacy URL), register a Chrome Web Store developer account under a company Google account (one-time fee), upload as Private to the Workspace domain, then a Workspace admin force-installs it by id with `dist/policy/admin-console-policy.json` (SPEC §6 #17).",
+      "issue": 110
+    },
+    {
+      "id": "chrome-real-check",
+      "title": "Load Foundation for Chrome in a real Chrome",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "today",
+      "status": "done",
+      "body": "Checked in a real Chromium on 2026-11-11 (`apps/client/e2e/extension.spec.ts`): a new tab goes through the extension to Today, signed in; the popup reads `/api/today` from the extension's origin with Foundation's cookie; signed out it says so. Evidence: `docs/evidence/2026-11-11_chrome-extension/`. Branded Chrome with a hosted Foundation comes with the rollout (#110).",
+      "issue": 109
+    },
+    {
+      "id": "today-shiba",
+      "title": "Today and the Shiba: home before the boards",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "today",
+      "status": "done",
+      "body": "Signed in, a person lands on Today: the Shiba (Vision's ethereal shiba as the agent's face) answers about their day and changes their goals; beside it what wants them (asks, @mentions, stages they own, files and changes on their boards, work matching their job), their goals and every company app. Evidence: `docs/evidence/2026-11-11_today-shiba/` (SPEC §0.2).",
+      "issue": 108
     }
   ]
 }

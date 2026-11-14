@@ -15,6 +15,7 @@
 import { Suspense, lazy, memo, useCallback, useMemo } from "react";
 import { PanelView } from "../panels/PanelView";
 import { MediaView } from "../components/MediaView";
+import { NoteView } from "../components/NoteView";
 import { TableView } from "../components/TableView";
 import { CONTENT_PAD, effectivePos, getState, isPanel, sectionRestRect, useSection, type GridTracks, type Section } from "../state/store";
 import type { Spring } from "../physics/spring";
@@ -56,6 +57,8 @@ const IslandSection = memo(function IslandSection({ section, grid, getScale, zoo
                   </Suspense>
                 ) : "media" in o ? (
                   <MediaView item={o} pos={pos} isActive={active} getScale={getContentScale} />
+                ) : "text" in o ? (
+                  <NoteView note={o} pos={pos} isActive={active} getScale={getContentScale} />
                 ) : null}
               </div>
             );

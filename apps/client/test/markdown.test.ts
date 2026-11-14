@@ -21,6 +21,20 @@ test("pipes without a rule line stay text, and a rule alone is still a rule", ()
   assert.equal(renderMarkdown("---"), "<hr>");
 });
 
+test("what a text box writes: _italic_, ~~struck~~ and <u>underlined</u>, alone and together", () => {
+  assert.equal(renderMarkdown("an _italic_ word"), "<p>an <em>italic</em> word</p>");
+  assert.equal(renderMarkdown("~~gone~~"), "<p><s>gone</s></p>");
+  assert.equal(renderMarkdown("<u>under</u>"), "<p><u>under</u></p>");
+  assert.equal(renderMarkdown("- <u>_both_</u>"), "<ul>\n<li><u><em>both</em></u></li>\n</ul>");
+  assert.equal(renderMarkdown("**_bold italic_**"), "<p><strong><em>bold italic</em></strong></p>");
+});
+
+test("an underscore inside a word is not italic, and <u> is the only tag let back in", () => {
+  assert.equal(renderMarkdown("snake_case_name and file_name.ts"), "<p>snake_case_name and file_name.ts</p>");
+  const html = renderMarkdown('<u onclick="x()">a</u> <b>b</b> <img src=x>');
+  assert.doesNotMatch(html, /<u onclick|<b>|<img/);
+});
+
 test("cells are escaped like everything else", () => {
   const html = renderMarkdown("| a |\n|---|\n| <script>x</script> |");
   assert.match(html, /&lt;script&gt;/);

@@ -23,7 +23,9 @@ import type { Plan } from "../settings/plan";
 import { SectionEmpty } from "../panels/SectionEmpty";
 import { SlackMarkView } from "../components/SlackMark";
 import { SectionCrewView, type CrewFace } from "../components/SectionCrew";
-import { AgentsPaneBody, T3AddForm, T3BlockView, type AgentRowData, type AgentsPlace, type T3Host, type T3Preset } from "../shell/AgentsPane";
+import { SectionAgentsChipView, SectionAgentsView } from "../components/SectionAgents";
+import { RichToolbar } from "../components/RichText";
+import { AgentRow, AgentsPaneBody, T3AddForm, T3BlockView, type AgentRowData, type AgentsPlace, type T3Host, type T3Preset } from "../shell/AgentsPane";
 import { MachineAskList } from "../panels/MachineView";
 import type { MachineAsk, SlackSectionState } from "@foundation/protocol";
 import { COMMANDS_GLYPH, IS_MAC, keys } from "../lib/keys";
@@ -203,7 +205,7 @@ export function DesignPage() {
           <div key={h} className="adapt-row keys-sections">
             {[260, 400, 560].map((w) => (
               <div key={w} className="keys-section" style={{ width: w, height: h }}>
-                <SectionEmpty name={`Section · ${w} × ${h}`} onUpload={() => {}} onNote={() => {}} onFocus={() => {}} />
+                <SectionEmpty name={`Section · ${w} × ${h}`} onUpload={() => {}} onNote={() => {}} onText={() => {}} onAsk={() => {}} onFocus={() => {}} />
               </div>
             ))}
           </div>
@@ -924,6 +926,14 @@ export function DesignPage() {
         <SectionCrewDemo />
       </Section>
 
+      <Section title="Agents in the section" note="A section says it can be worked in by agents before anyone has asked. At rest its header carries two quiet marks at the right, in dim 11/600 on 22 px pills: ✦ Agents (the ✦ in violet) and ⤢, the way into the section's own grid; the tools take that corner while the pointer is on the section, and carry the same two. With agents at work the chip turns violet on the agent wash and counts them behind a breathing dot. Pressed, it opens the section's agents as a panel in the section's top-right corner, under its header: raised paper, pane radius, a hairline tinted violet, 340 wide, drawn at screen size and moving with the section. It lists who is at work there (a lead and its helpers as one team, with Follow, Open and Stop), the last three things agents made there, and a composer ringed violet in focus: three starters as violet chips, and Ask as the violet pill, because an agent will act. An ask from here brings an agent into this section under its own name and cursor. Keep here puts the same view on the board as a card, for everyone; the right-click menu adds it too (Agents card).">
+        <SectionAgentsDemo />
+      </Section>
+
+      <Section title="Text box" note={`A note written as formatted text: what you see is what's kept. Click in it to write; a toolbar rides the card's foot while it has the caret (raised paper, card radius, 34 tall): the style (Body, Title, Heading, Subheading), bold, italic, underline, strikethrough, bulleted and numbered lists, quote, link, clear. A mark that's on is the pulse tint. ${keys("mod+B")}, ${keys("mod+I")} and ${keys("mod+U")} work as in any word processor. Under it, it is the note's own markdown in the note's shared text, so search, agents and the other renderer read it as they read any note; underline is kept as <u>. From the right-click menu (Text box), and from an empty section's Write.`}>
+        <TextBoxDemo />
+      </Section>
+
       <Section title="Writing together" note={`A note at rest is its markdown, tables included. Double-click and it opens as a CodeMirror editor on the note's shared text: monospace, the markdown's own marks dimmed, headings and strong text in weight, links blue — no colour of its own. Every keystroke is shared as it's typed, so two people can write in one note, even in one word, and both keep their words whole. Each person keeps their own colour: someone else's caret is a 2 px bar in it, named while it moves and quiet once it rests; their selection is a 22 % tint. A note at rest names whoever is writing in it with a breathing chip at the bottom right, clear of the bar that drops in at the top. ${keys("mod+Z")} takes back only your own words. The two editors below share one text: type in either.`}>
         <NoteEditorDemo />
       </Section>
@@ -1015,6 +1025,129 @@ function MachineAsksDemo() {
       {card(560, 400, [...answered, waiting])}
       {card(400, 360, [{ id: "ask_demo4", command: "python3 -m pip list", by: "Wren", for: "Kai", state: "running", at: now - 4_000, decidedBy: "Kai" }, waiting], true)}
       {card(260, 300, [waiting])}
+    </div>
+  );
+}
+
+/** a section at rest and at work, and its agents panel: empty, and with a team and what it made */
+function SectionAgentsDemo() {
+  const face = (id: string, hue: number, doing: string, extra: Partial<CrewFace> = {}): AgentRowData => ({ id, name: id, hue, status: "working", doing, askerName: "Ada Okafor", task: "", mine: true, ...extra });
+  const wren = { ...face("Wren", 0, "writing the parts table"), task: "Build the parts table from the STEP export" };
+  const tern = { ...face("Tern", 1, "reading the STEP export", { lead: "Wren", leadName: "Wren" }), task: "Read the STEP header and list its parts" };
+  const team = { id: "Wren", members: [wren, tern], together: true };
+  const now = Date.now();
+  const header = (name: string, working: number, on = false) => (
+    <div className="section-card oncall-static oncall-section" style={{ width: 340, height: 64 }}>
+      <div className="section-header" style={{ height: 42 }}>
+        <span className="section-name">{name}</span>
+        <span className="section-coords">A1</span>
+        <span className="section-rest">
+          <SectionAgentsChipView working={working} on={on} sectionName={name} />
+          <button type="button" className="sec-rest-open" aria-label="Open as its own grid">
+            ⤢
+          </button>
+        </span>
+      </div>
+    </div>
+  );
+  return (
+    <div className="sec-crew-demo sec-agents-demo">
+      <div className="oncall-row">
+        <div className="oncall-cell">
+          {header("Suppliers", 0)}
+          <div className="effect-label">At rest: agents can build here</div>
+        </div>
+        <div className="oncall-cell">
+          {header("Parts", 2)}
+          <div className="effect-label">Two at work</div>
+        </div>
+        <div className="oncall-cell">
+          {header("Parts", 0, true)}
+          <div className="effect-label">Its panel is open</div>
+        </div>
+      </div>
+      <div className="adapt-row">
+        <div className="sa-panel sa-specimen" style={{ width: 340 }}>
+          <header className="sa-head">
+            <span className="sa-title">
+              <span className="sa-spark">✦</span>Agents in <b>Suppliers</b>
+            </span>
+            <button className="crew-row-btn">Keep here</button>
+            <button className="crew-row-btn">All agents</button>
+            <button className="sa-close">✕</button>
+          </header>
+          <SectionAgentsView sectionName="Suppliers" teams={null} recent={[]} canAsk />
+        </div>
+        <div className="sa-panel sa-specimen" style={{ width: 340 }}>
+          <header className="sa-head">
+            <span className="sa-title">
+              <span className="sa-spark">✦</span>Agents in <b>Parts</b>
+            </span>
+            <button className="crew-row-btn">Keep here</button>
+            <button className="crew-row-btn">All agents</button>
+            <button className="sa-close">✕</button>
+          </header>
+          <SectionAgentsView
+            sectionName="Parts"
+            canAsk
+            now={now}
+            recent={[
+              { at: now - 20_000, who: "Wren", text: "made table “Parts”" },
+              { at: now - 240_000, who: "Lark", text: "wrote “Suppliers to call”", for: "Ada Okafor" },
+            ]}
+            teams={
+              <div className="sa-teams">
+                <ul className="agents-team is-together" style={{ ["--crew" as string]: "var(--color-crew-0)" }}>
+                  <li className="agents-team-label">
+                    Working together <span>· one ask, for Ada</span>
+                  </li>
+                  {team.members.map((m) => (
+                    <AgentRow key={m.id} row={m} team={team} acts={<><button className="crew-row-btn">Follow</button>{!m.lead && <><button className="crew-row-btn">Open</button><button className="crew-row-btn is-stop">Stop</button></>}</>} />
+                  ))}
+                </ul>
+              </div>
+            }
+          />
+        </div>
+        <div className="sa-panel sa-specimen" style={{ width: 300 }}>
+          <header className="sa-head">
+            <span className="sa-title">
+              <span className="sa-spark">✦</span>Agents in <b>Review</b>
+            </span>
+            <button className="sa-close">✕</button>
+          </header>
+          <SectionAgentsView sectionName="Review" teams={null} recent={[]} canAsk={false} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** a text box at rest and while it's written in (the toolbar's marks on) */
+function TextBoxDemo() {
+  const html = renderMarkdown("# Launch plan\n\nShip the **desktop app** this week, _signed_ and <u>notarised</u>.\n\n- Sign the build\n- ~~Email the list~~ post in #launch\n\n> Nothing ships on a Friday.");
+  const box = (writing: boolean) => (
+    <div className="frame-card oncall-static" style={{ position: "relative", width: 400, height: 300 }}>
+      <div className="note-inner" style={{ height: 300 }}>
+        <div className={`note-rendered rich-text${writing ? " is-writing" : ""}`} style={writing ? { paddingTop: 14 } : undefined} dangerouslySetInnerHTML={{ __html: html }} />
+        {writing && (
+          <div className="rich-bar-slot">
+            <RichToolbar marks={{ bold: true, italic: false, underline: false, strike: false, ul: false, ol: false, quote: false, style: "p" }} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+  return (
+    <div className="adapt-row text-box-demo">
+      <div className="oncall-cell">
+        {box(false)}
+        <div className="effect-label">At rest</div>
+      </div>
+      <div className="oncall-cell">
+        {box(true)}
+        <div className="effect-label">Writing: the caret is in bold text</div>
+      </div>
     </div>
   );
 }

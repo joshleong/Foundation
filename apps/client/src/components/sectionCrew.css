@@ -330,6 +330,181 @@ body.is-connecting .sec-crew,
   display: none;
 }
 
+/* ---------- the agents of a section, in the section: the panel in its corner, and the card ---------- */
+
+.sa-panel {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 60;
+  max-height: min(560px, calc(100vh - 140px));
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-pane);
+  border: 1px solid color-mix(in srgb, var(--color-agent) 34%, var(--color-line));
+  background: var(--color-raise);
+  box-shadow: var(--shadow-lift);
+  animation: sa-in var(--dur-pane) var(--ease-out-soft);
+  will-change: transform;
+}
+@keyframes sa-in {
+  from {
+    opacity: 0;
+  }
+}
+.sa-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 40px;
+  padding: 0 var(--space-2) 0 var(--space-4);
+  border-bottom: 1px solid var(--color-line);
+}
+.sa-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-mist);
+  font: 500 var(--text-13) / 1 var(--font-sans);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sa-title b,
+.sa-card-head b {
+  color: var(--color-frost);
+  font-weight: 600;
+}
+.sa-spark {
+  margin-right: var(--space-2);
+  color: var(--color-agent);
+}
+.sa-close {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--radius-card);
+  background: transparent;
+  color: var(--color-dim);
+  font-size: var(--text-12);
+  cursor: pointer;
+}
+.sa-close:hover {
+  color: var(--color-frost);
+  background: color-mix(in srgb, var(--color-frost) 7%, transparent);
+}
+.sa-body {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  overflow-y: auto;
+}
+.sa-none {
+  margin: var(--space-2) 0 0;
+  color: var(--color-mist);
+  font: 400 var(--text-12) / 1.5 var(--font-sans);
+}
+.sa-none b {
+  color: var(--color-frost);
+  font-weight: 600;
+}
+.sa-label {
+  color: var(--color-dim);
+  font: 600 var(--text-11) / 1.6 var(--font-sans);
+}
+.sa-teams .agents-team:last-child {
+  margin-bottom: 0;
+}
+.sa-recent {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-line);
+}
+.sa-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--color-mist);
+  font: 400 var(--text-12) / 1.7 var(--font-sans);
+}
+.sa-who {
+  flex-shrink: 0;
+  color: var(--color-agent);
+  font-weight: 600;
+}
+.sa-what {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sa-when {
+  flex-shrink: 0;
+  color: var(--color-dim);
+  font-size: var(--text-11);
+  font-variant-numeric: tabular-nums;
+}
+.sa-ask {
+  flex-shrink: 0;
+  margin-top: 0;
+}
+.sa-ask .t3-ask-text {
+  resize: none;
+}
+.sa-starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+.sa-starter {
+  height: 22px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-agent-dim);
+  color: var(--color-agent);
+  font: 500 var(--text-11) / 1 var(--font-sans);
+  cursor: pointer;
+}
+.sa-starter:hover {
+  box-shadow: 0 0 0 1px var(--color-agent);
+}
+.sa-ask .f-pill:disabled {
+  opacity: 0.45;
+}
+/* on the design page: in the flow, not standing over the board */
+.sa-panel.sa-specimen {
+  position: relative;
+  animation: none;
+  align-self: flex-start;
+}
+/* the card: the same view, kept on the board */
+.sa-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-raise);
+}
+.sa-card-head {
+  flex-shrink: 0;
+  padding: var(--space-5) var(--space-4) var(--space-1);
+  color: var(--color-mist);
+  font: 500 var(--text-14) / 1.3 var(--font-sans);
+}
+.sa-card .sa-body {
+  flex: 1;
+}
+.sa-card .sa-ask {
+  margin-top: auto;
+}
+.panel-card.kind-crew {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-agent) 30%, transparent), var(--shadow-sheet);
+}
+
 /* ---------- this computer's agents: Foundation's T3 instance, at the foot of the pane ---------- */
 
 .t3-block {

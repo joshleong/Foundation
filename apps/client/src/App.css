@@ -1107,6 +1107,214 @@ body.rewiring {
   margin: 4px 8px;
 }
 
+/* a long menu on a short window scrolls inside itself */
+.context-menu {
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+.menu-heading {
+  height: 24px;
+  padding: 6px 10px 0;
+  color: var(--color-dim);
+  font: 600 var(--text-11) / 18px var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+/* violet: an agent will act */
+.menu-item.is-agent,
+.menu-item.is-agent .menu-icon {
+  color: var(--color-agent);
+  opacity: 1;
+}
+.menu-item.is-agent:hover {
+  background: var(--color-agent);
+  color: var(--color-on-fill);
+}
+.menu-item.is-agent:hover .menu-icon {
+  color: var(--color-on-fill);
+}
+
+/* ---------- a section at rest: its agents chip, and the way into its own grid ---------- */
+
+.section-rest {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  translate: 0 -50%;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  transition: opacity var(--dur-quick) var(--ease-out-soft) 180ms;
+}
+/* the tools take this corner while the pointer is on the section; they carry the same two */
+.section-card:hover .section-rest,
+.section-card.confirming .section-rest,
+.section-header:focus-within .section-tools ~ .section-rest {
+  opacity: 0;
+  pointer-events: none;
+  transition-delay: 0ms;
+}
+.sec-agents-chip,
+.sec-rest-open {
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-dim);
+  font: 600 var(--text-11) / 1 var(--font-sans);
+  cursor: pointer;
+}
+.sec-agents-chip > span[aria-hidden] {
+  color: var(--color-agent);
+}
+.sec-agents-chip.is-working,
+.sec-agents-chip.is-on {
+  color: var(--color-agent);
+  background: var(--color-agent-dim);
+}
+.sec-agents-chip .f-dot {
+  width: 6px;
+  height: 6px;
+  color: var(--color-agent);
+}
+.sec-rest-open {
+  padding: 0 6px;
+  font-size: var(--text-13);
+}
+.sec-agents-chip:hover,
+.sec-rest-open:hover {
+  color: var(--color-frost);
+  background: color-mix(in srgb, var(--color-frost) 7%, transparent);
+}
+
+/* ---------- a text box: a note written as formatted text ---------- */
+
+.rich-text {
+  outline: none;
+  overflow: hidden;
+}
+.rich-text.is-writing {
+  /* below the card's bar, which sits over the top edge while it has focus (as the note editor does),
+     and room for the toolbar along the foot */
+  padding-top: 42px;
+  padding-bottom: 52px;
+  overflow-y: auto;
+}
+.rich-text:empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-dim);
+  pointer-events: none;
+}
+.rich-text u {
+  text-underline-offset: 2px;
+}
+.note-rendered s {
+  color: var(--ink-soft);
+}
+.rich-bar-slot {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.rich-bar {
+  pointer-events: auto;
+  max-width: 100%;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0 4px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--line);
+  background: var(--color-raise);
+  box-shadow: var(--shadow-sheet);
+  overflow: hidden;
+}
+.rich-btn {
+  flex-shrink: 0;
+  min-width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-paper);
+  background: transparent;
+  color: var(--color-mist);
+  font: 500 var(--text-13) / 1 var(--font-sans);
+  cursor: pointer;
+}
+.rich-btn b {
+  font-weight: 700;
+}
+.rich-btn.is-word {
+  padding: 0 8px;
+  font-size: var(--text-12);
+  font-weight: 600;
+}
+.rich-btn:hover {
+  color: var(--color-frost);
+  background: color-mix(in srgb, var(--color-frost) 7%, transparent);
+}
+.rich-btn.is-on {
+  color: var(--color-pulse);
+  background: color-mix(in srgb, var(--color-pulse) 12%, transparent);
+}
+.rich-sep {
+  flex-shrink: 0;
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--line);
+}
+.rich-style {
+  flex-shrink: 0;
+  height: 26px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius-paper);
+  background: var(--color-panel);
+  color: var(--color-frost);
+  font: 500 var(--text-12) / 1 var(--font-sans);
+  outline: none;
+}
+.rich-style:focus-visible,
+.rich-link-field:focus {
+  box-shadow: 0 0 0 1px var(--color-pulse);
+}
+.rich-link {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.rich-link-field {
+  width: 220px;
+  max-width: 50cqw;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-paper);
+  background: var(--color-panel);
+  color: var(--color-frost);
+  font: 400 var(--text-12) / 1 var(--font-sans);
+  outline: none;
+}
+.empty-inline {
+  color: var(--select);
+  cursor: pointer;
+}
+.empty-inline:hover {
+  text-decoration: underline;
+}
+
 /* add-section edge buttons */
 
 .add-section-right {

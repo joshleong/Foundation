@@ -8,6 +8,10 @@ import { AnimatePresence, motion } from "motion/react";
 
 export interface MenuItem {
   divider?: true;
+  /** a small caption over the group that follows */
+  heading?: string;
+  /** violet: an agent will act */
+  agent?: boolean;
   label?: string;
   icon?: string;
   danger?: boolean;
@@ -67,11 +71,12 @@ export function ContextMenuView() {
 
   // keep the menu inside the window
   const itemH = 30;
+  // a long menu on a short window scrolls inside itself (App.css), so it's never taller than the window
   const estH = menu
-    ? menu.items.reduce((h, it) => h + (it.divider ? 9 : itemH), 12)
+    ? Math.min(window.innerHeight - 24, menu.items.reduce((h, it) => h + (it.divider ? 9 : it.heading ? 24 : itemH), 12))
     : 0;
-  const x = menu ? Math.min(menu.x, window.innerWidth - 232) : 0;
-  const y = menu ? Math.min(menu.y, window.innerHeight - estH - 12) : 0;
+  const x = menu ? Math.min(menu.x, window.innerWidth - 248) : 0;
+  const y = menu ? Math.max(12, Math.min(menu.y, window.innerHeight - estH - 12)) : 0;
 
   return (
     <AnimatePresence>
@@ -89,11 +94,15 @@ export function ContextMenuView() {
             {menu.items.map((item, i) =>
               item.divider ? (
                 <div key={i} className="menu-divider" />
+              ) : item.heading ? (
+                <div key={i} className="menu-heading">
+                  {item.heading}
+                </div>
               ) : (
                 <button
                   key={i}
                   className={
-                    "menu-item" + (item.danger ? " danger" : "") + (item.disabled ? " disabled" : "")
+                    "menu-item" + (item.danger ? " danger" : "") + (item.agent ? " is-agent" : "") + (item.disabled ? " disabled" : "")
                   }
                   disabled={item.disabled}
                   onClick={() => {

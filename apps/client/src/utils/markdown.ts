@@ -18,6 +18,11 @@ function inline(s: string): string {
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+    // what a text box adds. _italic_ only at a word's edges, so snake_case stays as typed;
+    // <u> is the one tag let back in after escaping, with nothing on it
+    .replace(/&lt;u&gt;(.+?)&lt;\/u&gt;/g, "<u>$1</u>")
+    .replace(/~~([^~]+)~~/g, "<s>$1</s>")
+    .replace(/(^|[\s(>*~])_([^_\n]+)_(?=$|[\s).,;:!?<*~])/g, "$1<em>$2</em>")
     .replace(
       /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
       '<a href="$2" data-ext="1">$1</a>',

@@ -63,7 +63,7 @@ function askSection(at: string | null, sections: Record<string, { id: string; na
   return s ? { id: s.id, name: s.name } : null;
 }
 
-const rowOf = (p: CrewPeer, me: string | undefined): AgentRowData => ({
+export const rowOf = (p: CrewPeer, me: string | undefined): AgentRowData => ({
   id: p.crew.id,
   name: p.user.name,
   hue: p.crew.hue,
@@ -692,7 +692,7 @@ export function AgentRow({ row, team, acts }: { row: AgentRowData; team: CrewTea
   );
 }
 
-function LiveAgentRow({ row, team }: { row: AgentRowData; team: CrewTeam<AgentRowData> }) {
+export function LiveAgentRow({ row, team }: { row: AgentRowData; team: CrewTeam<AgentRowData> }) {
   const ask = crewAsk(row.id);
   const run = useSession(ask?.session ?? null);
   const busy = run.busy && row.status === "working";

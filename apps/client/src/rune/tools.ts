@@ -31,6 +31,7 @@ import {
   type Section,
 } from "../state/store";
 import { askAgent, setUi } from "../state/ui";
+import { openSectionAgents } from "../lib/sectionAgentsOpen";
 import type { SectionMenuContext } from "../components/sectionMenu";
 
 /** `icon`: a name apps/rune/src/view.rs draws · `gap`: starts a new group */
@@ -106,7 +107,7 @@ export function runSectionTool(id: string, which: string) {
     frame: () => requestSnap({ kind: "section", id }),
     up: () => levelUp(),
     open: () => openLevel(id),
-    ask: () => askAgent(host ? `About “${host.name}”: ` : `In the “${s.name}” section: `),
+    ask: () => (host ? askAgent(`About “${host.name}”: `) : openSectionAgents(s.id, true)),
     remove: () => requestRemoveSection(id),
   };
   acts[which]?.();

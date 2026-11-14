@@ -40,6 +40,7 @@ import { CrewCursors, CrewFollow, CrewGuide } from "../shell/Crew";
 import { LevelBar } from "../shell/LevelBar";
 import { PortWires } from "../shell/AgentLayer";
 import { openContextMenu } from "./ContextMenu";
+import { openSectionAgents } from "./SectionAgents";
 import { countRender } from "../state/renders";
 import { gridViewSlice, useStoreSlice } from "../state/slices";
 import { colName, gutterRuns } from "../lib/gridLines";
@@ -870,6 +871,17 @@ export function GridViewport({ boardName }: { boardName?: string } = {}) {
                     icon: "+",
                     label: `Create section at ${colName(c)}${r + 1}`,
                     action: () => createSectionAt(c, r),
+                  },
+                  {
+                    icon: "✦",
+                    label: "Create it and ask an agent to build it…",
+                    agent: true,
+                    action: () => {
+                      createSectionAt(c, r);
+                      // the section just made is the one in use
+                      const id = getState().activeSectionId;
+                      if (id) openSectionAgents(id, true);
+                    },
                   },
                 ]);
               }}

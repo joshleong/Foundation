@@ -112,6 +112,11 @@ export interface NoteDoc extends ObjectBaseDoc {
    * overwriting each other; read it with noteTextOf, write it with setNoteText.
    */
   text?: string;
+  /**
+   * A text box: the same markdown in the same Y.Text, written as formatted
+   * text (a toolbar, no markup on screen) instead of as markdown source.
+   */
+  rich?: boolean;
 }
 export interface MediaDoc extends ObjectBaseDoc {
   kind: "media";
@@ -142,7 +147,8 @@ export type PanelKind =
   | "ask" // a Hermes request to a person (e.g. "upload the latest CAD")
   | "stage" // one step of a design pipeline (brief → concept → CAD → simulate → review → release)
   | "huddle" // a video portal: people on the board talk face to face, transcribed and archived
-  | "slack"; // a Slack channel on the board: read it, post to it, send it board links, invite it to a huddle
+  | "slack" // a Slack channel on the board: read it, post to it, send it board links, invite it to a huddle
+  | "crew"; // the agents of the section it sits in: who is at work there, what each is doing, and a place to ask one
 
 export interface Port {
   id: string;
