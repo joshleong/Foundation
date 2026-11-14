@@ -1102,6 +1102,15 @@
       "body": "Josh, 2026-11-13: \"an option button at the bottom right to start the local server or connect to the flowform server for local testing. have it expand to show both options\". A glass pill bottom right (the server in use and whether it answers) opens into This computer (Start runs Foundation's server from a checkout, C:\\Dev\\Foundation by default, on :4410; Stop; it goes when the app quits) and Remote server (an address, Flowform's server to begin with; Connect reloads onto it). Checked in the browser and on `#/design` day and night; on the installed 0.3.3 (taken as an update from CI's release): Start, Stop, and quitting the app stops a server it started. Flowform's server isn't a Foundation server, so Connect there signs nobody in until a hosted Foundation exists."
     },
     {
+      "id": "machine-in-section-tools",
+      "title": "Start a machine from a section's tools, not only its right-click menu",
+      "kind": "bug",
+      "milestone": "polish",
+      "area": "board",
+      "status": "done",
+      "body": "Josh, 2026-11-13: \"I don't see the ability also to create vms using Kiri or docker in the sections\". Machines were on main all along, but only on a section's right-click menu. Now ▣ in the section's tools and ⌘K too. Checked on a throwaway server: the tool made a card in an empty section, alpine started on Kiri (woken from asleep), the shared terminal answered (Alpine Linux, WSL2 kernel), Stop kept the disk, Remove (pressed twice) took it from Kiri."
+    },
+    {
       "id": "desktop-starts-server",
       "title": "The desktop app starts its own server",
       "kind": "plan",

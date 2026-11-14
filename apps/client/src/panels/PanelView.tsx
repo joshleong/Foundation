@@ -50,7 +50,7 @@ const GLYPH: Record<PanelMeta["panel"], string> = {
   app: "◳",
   link: "↗",
   file: "▣",
-  machine: "▤",
+  machine: "▣",
   agent: "✦",
   connector: "◉",
   ask: "✉",

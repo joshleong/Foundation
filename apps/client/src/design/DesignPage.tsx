@@ -546,7 +546,7 @@ export function DesignPage() {
             <div className="effect-label">Video, hovered: a ghost rail carries the pointer out to mute and remove</div>
           </div>
           <div className="oncall-cell">
-            <div className="section-card oncall-static oncall-section is-hover" style={{ width: 420, height: 120 }}>
+            <div className="section-card oncall-static oncall-section is-hover" style={{ width: 460, height: 120 }}>
               <div className="section-header" style={{ height: 42 }}>
                 <span className="section-name">Design</span>
                 <span className="section-coords">B1</span>
@@ -558,6 +558,7 @@ export function DesignPage() {
                     <span className="sec-tool">◍</span>
                     <span className="sec-tool">▤</span>
                     <span className="sec-tool">⇪</span>
+                    <span className="sec-tool">▣</span>
                   </div>
                   <div className="sec-group">
                     <span className="sec-tool">◫</span>

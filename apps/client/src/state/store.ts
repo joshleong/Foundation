@@ -2054,6 +2054,12 @@ export function addPanel(
   return meta;
 }
 
+/** A machine card in a section, not started yet (SPEC §3 Machines): a person picks an image and presses Start on it.
+ *  One way in for the section's tools, its right-click menu and ⌘K. `at` places it where the person pointed. */
+export function startMachine(sectionId: string, at: Partial<Pick<PanelMeta, "float" | "x" | "y">> = {}): PanelMeta {
+  return addPanel(sectionId, { panel: "machine", name: "Machine", machine: { name: `box-${Math.random().toString(16).slice(2, 6)}`, state: "absent" }, ...at });
+}
+
 export function updatePanel(id: string, patch: Partial<PanelMeta>) {
   const p = state.panels[id];
   if (!p) return;

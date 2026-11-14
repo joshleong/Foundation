@@ -8,6 +8,7 @@ import {
   Section,
   addNote,
   addPanel,
+  startMachine,
   addSectionAdjacent,
   getState,
   cellAtWorld,
@@ -327,7 +328,7 @@ export const SectionView = memo(function SectionView({
         { divider: true },
         { icon: "◐", label: "Start a huddle here", action: () => addPanel(section.id, { panel: "huddle", name: "Huddle", ...at(560, 420) }) },
         { icon: "#", label: "Add a Slack channel", action: () => addPanel(section.id, { panel: "slack", name: "Slack", ...at(420, 520) }) },
-        { icon: "▤", label: "Start a machine here", action: () => addPanel(section.id, { panel: "machine", name: "Machine", machine: { name: `box-${Math.random().toString(16).slice(2, 6)}`, state: "absent" }, ...at(760, 520) }) },
+        { icon: "▣", label: "Start a machine here", action: () => startMachine(section.id, at(760, 520)) },
         ...tellSlack,
         ...(host
           ? [{ icon: "◱", label: `Show ${host.name} as a card`, action: () => setSectionHost(section.id, null) }]
@@ -494,6 +495,7 @@ export const SectionView = memo(function SectionView({
             {tool("Add a map", "◍", () => createMap(section.id))}
             {tool("Add a note", "▤", () => addNote(section.id))}
             {tool("Upload an image or video", "⇪", () => fileRef.current?.click(), "", keys("mod+U"))}
+            {tool("Start a machine here: Linux on Kiri or Docker", "▣", () => startMachine(section.id))}
           </div>
           <div className="sec-group">
             {tool("Split into two columns", "◫", () => splitSection(section.id, "h"))}
