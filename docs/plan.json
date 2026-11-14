@@ -1,7 +1,7 @@
 {
   "about": "Foundation's plan as a kanban. GitHub issues are where the team moves cards; this file is the local copy the app shows in Settings → Plan. `npm run plan:push` writes it to GitHub, `npm run plan:pull` reads the issues back. Columns: needs-you (waits on a person: a key, an install, a decision), backlog, next, doing, review (built, waiting to merge or to be checked by a person), done.",
   "repo": "joshleong/Foundation",
-  "syncedAt": "2026-11-13T01:34:04.994Z",
+  "syncedAt": "2026-11-14T00:23:10.059Z",
   "columns": [
     {
       "id": "needs-you",
@@ -1241,6 +1241,136 @@
       "status": "review",
       "body": "From reading Flowform's updater (2026-11-12): its server refuses clients under a minimum. `FOUNDATION_MIN_CLIENT=x.y.z`: `/auth/config` carries it; an older client's socket ticket is refused (426) and its sync socket closed (4426); its update card stays up as needed, with Update and restart alone. `apps/server/src/clientversion.ts`, `packages/protocol/src/version.ts`, `update/updater.ts` (`learnMinimum`). `test/clientversion.test.ts` (5, real sockets), `test/update.test.ts` (8). Seen in the browser against a server set to 0.9.0. The installed-app path (meet a minimum, update through it) is unrun until a release is published (publish-first-release).",
       "issue": 119
+    },
+    {
+      "id": "t3-threads-write-the-board",
+      "title": "An agent asked through T3 can read and write the board",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "agent",
+      "status": "review",
+      "body": "Built 2026-11-13: each ask has its own folder with a tool file (Foundation's tool server as that ask's crew member, board and an agent session for the asker); Foundation puts `--mcp-config .foundation-mcp.json --allowedTools mcp__foundation --strict-mcp-config` on each Claude-driven agent's launch line in its T3; the brief gives the agent the board and tells it to work on cards in its section; the pass ends with the thread. `test/t3threads.test.ts` (12); the real t3.exe took the launch line and kept Claude ready; in the browser a stand-in T3 used the pass and its card landed in the section as Claude's. To check (Josh): ask Claude through T3 on the real server for a card in a section (one turn on the Team plan). Left: approvals answered on the card (`thread.approval.respond`), presence across a restart of Foundation's server, moving the crew's own Claude runs onto T3 so there's one list, tools for Codex.",
+      "issue": 132
+    },
+    {
+      "id": "rune-type-paper-desktop",
+      "title": "Rune: Hanken Grotesk, the paper's dots and grain, markdown, frame times, and the desktop build",
+      "kind": "plan",
+      "milestone": "ship",
+      "area": "design",
+      "status": "backlog",
+      "body": "Hand Rune the app's own face (convert the bundled WOFF2 to TrueType at build; `App::font_url`), draw the paper's dot grid, grain and pointer light in Rune (its compositor hook) or get a see-through web canvas from Rune, render a note's markdown, measure frame times against the web renderer on the heavy board (`e2e/frames.spec.ts`), and have `build:desktop` run `rune:build` so an installed app carries it; check it in the Windows app, on macOS and on Linux (which has no WebGPU and must fall back).",
+      "issue": 131
+    },
+    {
+      "id": "rune-sections-parity",
+      "title": "Rune: section tools, menu, drag, rename and Open; a card's hover bar, resize and carry",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "sections",
+      "status": "review",
+      "body": "Built 2026-11-13 (third slice). In Rune: a section's toolbar on hover (the web's list, `src/rune/tools.ts`, with line icons Rune draws), rename in Rune's own field, drag by the header to a cell or past an edge (its cards and islands travel with it; the landing cell rings), remove behind its confirmation, n more · Expand, Open as its own grid; the right-click menu is the web section's list, now shared (`components/sectionMenu.ts`); a note's bar (float or dock, remove) and resize corner, an image's remove and corner. Checked in `e2e/rune.spec.ts` (the eighth check) and `test/rune-scene.test.ts`. Left: carrying a card to another section or tab (lib/carry.ts's rules, with the lean), the gutters, + in the gaps, the empty section's welcome and file drops, a grid section's miniature, roll-over labels, tools that stay while the pointer is on a card, the settle ease after a drag.",
+      "issue": 130
+    },
+    {
+      "id": "rune-web-islands",
+      "title": "Rune: live cards as web islands over its canvas, and tables drawn by Rune",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "grid",
+      "status": "review",
+      "body": "Built 2026-11-12 (second slice). Apps, pages, machines, huddles, Slack, connectors, files, maps and video are the web's own components, placed over Rune's canvas as islands in a shell of their section (`src/rune/RuneIslands.tsx`; `scene.ts` `isIsland` decides, so each card is one engine's). A table is Rune's at rest (header, heads, ruling, what each cell shows) and the web's live sheet while it's the card in hand. Checked in `e2e/rune.spec.ts` (islands within 1 px of the store's rects; a table Rune → web → a formula typed → Rune) and `test/rune-scene.test.ts`. Left for later: cells edited in Rune's own field (so the first press lands on a cell), a table's wire handle at rest, islands under Rune's cards, and use / full screen checked under Rune.",
+      "issue": 129
+    },
+    {
+      "id": "rune-renderer",
+      "title": "A second renderer: Rune draws the board beside the web renderer",
+      "kind": "plan",
+      "milestone": "polish",
+      "area": "grid",
+      "status": "review",
+      "body": "Josh, 2026-11-12: a GPU-rendered interface (github.com/anomalyco/rune) side by side with the web UI, a toggle in Settings, boards marked as rendered by Rune, the web renderer untouched. Built as a first slice: `apps/rune` (Rust → wasm, WebGPU), `apps/client/src/rune` (the scene, the host, Settings → Renderer and its parity ledger, the mark in the bottom bar), `npm run rune:build`. Off by default. One camera and one store for both engines. Rune draws sections, notes (with its own text field for writing) and images; web content stays live as islands (#129). Checked headed on the GPU in Edge (`e2e/rune.spec.ts`, 6) and in `test/rune-scene.test.ts` (8); evidence in `docs/evidence/2026-11-12_rune/`. To check by hand: Settings → Renderer → Rune, then the company board; and `npm run desktop` with Rune on, which is unrun.",
+      "issue": 128
+    },
+    {
+      "id": "t3-threads-from-foundation",
+      "title": "Start a thread on a chosen agent from a section, and show it in that section's group",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "agent",
+      "status": "review",
+      "body": "Built 2026-11-12: Ask on a ready agent in the agents pane starts a supervised thread on it in Foundation's T3 for the section in use; the agent joins that section's group under its own name and follows its thread; Open (T3's own page) and Stop on its row. `apps/server/src/t3threads.ts`, `/api/t3host/threads`. `test/t3threads.test.ts` (10), `e2e/section-crew.spec.ts` against a stand-in T3. To check (Josh): Start T3, ask Claude something in a section on the real server. That spends a turn on the Team plan, so no agent has done it. Left: a thread can't write the board (t3-threads-write-the-board); approvals are answered in T3's page, not on the card.",
+      "issue": 127
+    },
+    {
+      "id": "t3-more-agents",
+      "title": "Kimi and DeepSeek in T3, cloud and local: built; needs keys and a local model server to prove",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "agent",
+      "status": "needs-you",
+      "body": "Built 2026-11-12: an admin adds Kimi or DeepSeek from the agents pane, in the cloud (the vendor's Anthropic-compatible address and an API key that goes straight to T3) or on this computer (a local model server, Ollama's address by default, no key); the pane keeps the two groups apart. Each is a Claude-driven T3 instance with its own Claude folder. Checked against a stand-in T3, and the real t3.exe took both instances with a made-up key. Needs Josh: (1) a Moonshot key and a DeepSeek key, typed into the form, then one ask to each: the default model ids (`kimi-k3`, `deepseek-v4-pro`) and addresses are from the vendors' pages and guides, not from a run. (2) For local: install Ollama 0.14 or newer and pull a model this PC can run (a DeepSeek R1 distill; Kimi's open weights are too large), then add it as local. (3) Codex (OpenAI): install `codex` and `codex login`; it then shows ready with no change here.",
+      "issue": 126
+    },
+    {
+      "id": "t3-instance",
+      "title": "Foundation's own T3 instance, and this computer's agents in the pane",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "agent",
+      "status": "review",
+      "body": "Built 2026-11-12 (Josh: build off Vision's T3, a T3 instance running in Foundation that the agent panel reads). `apps/server/src/t3host.ts` starts the unmodified `t3` 0.0.44 in `<data>/t3` the way Vision does (bootstrap on stdin, token exchange, socket ticket), person-started only, and keeps its providers and threads; `/api/t3host`; the agents pane's foot lists each agent with how it stands and its threads at work. `test/t3host.test.ts` (7, stand-in t3), the real `t3.exe` on this PC (Claude ready on the Team subscription, Codex not installed, four off), `e2e/section-crew.spec.ts` (+2). To check: Start T3 from the pane on the real server (the system Node can't run it yet: node-upgrade-windows).",
+      "issue": 125
+    },
+    {
+      "id": "agent-machines",
+      "title": "Claude Code agents that run inside a machine (Kiri or Docker)",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "machines",
+      "status": "backlog",
+      "body": "A machine image with Claude Code installed and a repo cloned inside; the server runs `claude -p --output-format stream-json` in it through the Engine API exec, with Foundation's MCP tools attached, and streams it into the session view. Each one is a new instance with its own disk, started by a person. Sign-in (decided 2026-11-12, #122): the machine's card offers both, a Claude folder signed in to a subscription (mounted) first, then a token or key; each is a separate Claude instance with its own folder. Settings → Services lists the instances. Kiri's containers share one small VM (WSL 2 on Windows): they separate our own agents, they don't contain hostile code. To find out first: whether Kiri and Docker Desktop both bind a Windows folder into a machine, and whether Claude Code in Linux reads a sign-in made on Windows. Posted agents (posted-agents) wait on the consent call in #122.",
+      "issue": 124
+    },
+    {
+      "id": "posted-agents",
+      "title": "Agents posted to a section: they stay in its group, with a brief and a subscription",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "agent",
+      "status": "backlog",
+      "body": "Today a section's group is whoever aims there now (section-agents). A person posts an agent to a section: a name, a brief, the Claude subscription or key it runs on, and what it's bound to (the section's cards, a machine, an app and its GitHub repo). Stored on the board, so its face stays in the group when idle, marked as resident, not visiting; free agents still come and go. Settings → Services lists the subscriptions. Needs agent-consent-and-tokens.",
+      "issue": 123
+    },
+    {
+      "id": "agent-consent-and-tokens",
+      "title": "Decide: what lets a posted agent keep working (sign-in is decided)",
+      "kind": "hookup",
+      "milestone": "crew",
+      "area": "agent",
+      "status": "needs-you",
+      "body": "**Sign-in inside a machine: decided (Josh, 2026-11-12).** Offer both, the subscription first, and keep them apart as separate instances of Claude. (a) A Claude folder on this computer, signed in to a subscription, mounted into the machine (\"Mount ~/.claude\"). (b) A token or key, passed in only when a run starts. A machine's agent uses (a) when there is one and (b) otherwise, unless a person picks. Each is its own Claude instance: its own folder, sign-in, history and name in Settings, never two sharing one folder. Found the same day: `~/.claude` here is 2.1 GB and holds every project's transcripts and history beside `.credentials.json`, so the default is a folder of its own per instance (`CLAUDE_CONFIG_DIR`), signed in once by a person; mounting the whole of `~/.claude` stays a choice a person makes on the card, said plainly. It breaks no-host-mounts for that one folder only. Untested: Docker and Kiri were both stopped, so no mount has been tried on either. **Still open:** the invariant says nothing that spends money or runs code starts without a person. Is posting an agent to a section, from a browser session, the consent for it to keep working inside that section and its machine until someone pauses it (recommended), or does every turn need a press?",
+      "issue": 122
+    },
+    {
+      "id": "section-agents",
+      "title": "An agent group on every section, and the agents pane",
+      "kind": "plan",
+      "milestone": "crew",
+      "area": "agent",
+      "status": "review",
+      "body": "Built 2026-11-12: a tab right above each section with a face per agent at work inside it (hover, or pinned on this device; at screen size at any zoom; it comes down with the view when the section fills it). A free agent joins the group of the section it aims into and leaves when it moves on. A lead and its helpers read as one team. It opens into the agents pane on the right (✦ in the top bar too): every agent by section, what it's doing, who works with whom, Follow / Open / Stop. `components/SectionCrew.tsx`, `shell/AgentsPane.tsx`, `lib/sectionCrew.ts`, `lib/crewWatch.ts`. `test/section-crew.test.ts` (8), `e2e/section-crew.spec.ts` (3, two people, script runtime), `docs/evidence/2026-11-12_section-agents/`. To check: with a real model turn; whether the tab's place and the pin feel right (Josh).",
+      "issue": 121
+    },
+    {
+      "id": "slack-board",
+      "title": "The Slack board: a section per channel, live, kept by agents",
+      "kind": "plan",
+      "milestone": "huddles",
+      "area": "slack",
+      "status": "review",
+      "body": "Josh, 2026-11-12: a board with a section for every Slack channel, each gathering the channel's latest images, top-level items and a summary, a live Slack mark on each section, and Foundation's agents pulling information, editing summaries and organizing images as they're posted. Built: slacklive.ts (the board, the `slack` server map, reading, images, the agent queue), POST /api/slack/events, apps/slack-agent (Slack's bolt-js-support-agent template plus foundation/bridge.js, `npm run slack`), the Slack mark on section headers and #/design, ⌘K → Open the Slack board. Agents are off until a person presses ✦. Checked against a stand-in Slack with the scripted agent: slacklive.test.ts, bridge.test.js, browser day and night (docs/evidence/2026-11-12_slack-board/). Waits on Josh: slack login and linking the project to app A0CGWUQ6WSK, FOUNDATION_SERVICE_TOKEN in .env, then a run against the real workspace and one real agent summary (SPEC, Waiting on a person).",
+      "issue": 120
     }
   ]
 }
