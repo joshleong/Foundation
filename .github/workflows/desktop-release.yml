@@ -37,11 +37,11 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 75
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0 # the tags, for "the commits since the last release"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "22" # 22.16+ for node:sqlite's FTS5
           cache: npm

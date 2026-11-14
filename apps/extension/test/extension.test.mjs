@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const out = join(here, "../dist/unpacked");
@@ -41,13 +41,13 @@ test("every file the manifest and pages name is in the package", () => {
 });
 
 test("the popup's fallback shelf is the company's apps", async () => {
-  const { FALLBACK_APPS } = await import(join(out, "apps.js"));
+  const { FALLBACK_APPS } = await import(pathToFileURL(join(out, "apps.js")).href);
   const names = FALLBACK_APPS.map((a) => a.name);
   for (const n of ["BomForm", "FactoryForm", "HyperForm", "Vision"]) assert.ok(names.includes(n), n);
 });
 
 test("addresses: http(s) only, tidied; Today is marked as from Chrome", async () => {
-  const { clean, todayUrl } = await import(join(out, "store.js"));
+  const { clean, todayUrl } = await import(pathToFileURL(join(out, "store.js")).href);
   assert.equal(clean(" https://foundation.example.test/ "), "https://foundation.example.test");
   assert.equal(clean("http://localhost:1430"), "http://localhost:1430");
   assert.throws(() => clean("javascript:alert(1)"), /http/);
