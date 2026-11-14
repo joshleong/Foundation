@@ -18,10 +18,12 @@ import { AnimatePresence, motion } from "motion/react";
 import type { UserInfo } from "@foundation/protocol";
 import { GridViewport } from "../components/GridViewport";
 import { ContextMenuView } from "../components/ContextMenu";
+import { SectionAgentsPanel } from "../components/SectionAgents";
 import { CommandBar } from "./CommandBar";
 import { TopBar } from "./TopBar";
 import { SessionView, TouchedRings } from "./SessionView";
 import { SearchPane } from "./SearchPane";
+import { AgentsPane } from "./AgentsPane";
 import { talkTyping, toggleTalk } from "./Talk";
 import { Present } from "./Present";
 import { RepoDrawer } from "./RepoDrawer";
@@ -179,13 +181,15 @@ export function Shell({ user }: { user: UserInfo }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
+      // in a text box, ⌘I and ⌘U are italic and underline, as in any word processor
+      const writing = !!(e.target as HTMLElement | null)?.closest?.(".rich-text");
       if (mod && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setUi({ command: !getUi().command });
       } else if (mod && e.key.toLowerCase() === "j") {
         e.preventDefault();
         toggleSession();
-      } else if (mod && e.key.toLowerCase() === "i" && !e.shiftKey) {
+      } else if (mod && e.key.toLowerCase() === "i" && !e.shiftKey && !writing) {
         e.preventDefault();
         const u = getUi();
         setUi(u.pane && u.paneView === "info" ? { pane: false } : { pane: true, paneView: "info" });
@@ -200,7 +204,7 @@ export function Shell({ user }: { user: UserInfo }) {
         e.preventDefault();
         const id = getUi().spaces[Number(e.key) - 1];
         if (id && id !== activeBoard()?.boardId) acts.current.switchBoard(id);
-      } else if (mod && e.key.toLowerCase() === "u") {
+      } else if (mod && e.key.toLowerCase() === "u" && !writing) {
         e.preventDefault();
         fileRef.current?.click();
       } else if (mod && e.key === "\\") {
@@ -247,7 +251,9 @@ export function Shell({ user }: { user: UserInfo }) {
       {!ui.presenting && ui.paneView === "info" && <SpaceInfo user={user} space={space} boards={boards} onUpdate={updateSpace} />}
       <SessionView />
       <SearchPane />
+      <AgentsPane />
       <TouchedRings />
+      <SectionAgentsPanel />
       <ContextMenuView />
       <CommandBar />
       <Present />

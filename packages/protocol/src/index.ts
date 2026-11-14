@@ -24,6 +24,7 @@ export const BOARD = {
   noteText: "noteText", // noteId → Y.Text (schema 3: typing merges character by character)
   huddles: "huddles", // huddle panel id → HuddleState (schema 6: kept by the server alone, off the card)
   machineAsks: "machineAsks", // machine panel id → MachineAsk[] (commands agents asked to run; kept by the server alone, off the card)
+  slack: "slack", // section id → SlackSectionState (a section kept for a Slack channel; kept by the server alone)
 } as const;
 
 export interface GridTracks {
@@ -111,6 +112,11 @@ export interface NoteDoc extends ObjectBaseDoc {
    * overwriting each other; read it with noteTextOf, write it with setNoteText.
    */
   text?: string;
+  /**
+   * A text box: the same markdown in the same Y.Text, written as formatted
+   * text (a toolbar, no markup on screen) instead of as markdown source.
+   */
+  rich?: boolean;
 }
 export interface MediaDoc extends ObjectBaseDoc {
   kind: "media";
@@ -141,7 +147,8 @@ export type PanelKind =
   | "ask" // a Hermes request to a person (e.g. "upload the latest CAD")
   | "stage" // one step of a design pipeline (brief → concept → CAD → simulate → review → release)
   | "huddle" // a video portal: people on the board talk face to face, transcribed and archived
-  | "slack"; // a Slack channel on the board: read it, post to it, send it board links, invite it to a huddle
+  | "slack" // a Slack channel on the board: read it, post to it, send it board links, invite it to a huddle
+  | "crew"; // the agents of the section it sits in: who is at work there, what each is doing, and a place to ask one
 
 export interface Port {
   id: string;
@@ -279,6 +286,52 @@ export interface MachineAsk {
 /** the commands agents asked to run in a machine, newest last */
 export function machineAsksOf(doc: Y.Doc, panelId: string): MachineAsk[] {
   return boardMaps(doc).machineAsks.get(panelId) ?? [];
+}
+
+// ---------- Slack sections: a section kept for a channel ----------
+
+/**
+ * A section that follows a Slack channel (the Slack board: one section per
+ * channel). The server alone writes this, in the board's `slack` map (off the
+ * section, so moving or renaming the section can't lose it): which channel,
+ * and how the connection to it stands right now, so everyone sees the same
+ * state on the section's Slack mark.
+ */
+export interface SlackSectionState {
+  /** Slack channel id */
+  channel: string;
+  /** the channel's name, without # */
+  name: string;
+  private?: boolean;
+  /**
+   * live: Slack sends what's posted as it's posted (the Slack app's socket) ·
+   * polling: read every so often while someone has the board open ·
+   * waiting: the Slack app isn't in the channel, so it can't be read ·
+   * offline: Slack isn't connected, or wouldn't answer
+   */
+  state: "live" | "polling" | "waiting" | "offline";
+  /** words for the state: why it's waiting or offline, how often it's read */
+  detail?: string;
+  /** when the channel was last read into the section */
+  syncedAt?: number;
+  /** when the newest top-level message was posted */
+  lastAt?: number;
+  /** top-level messages read last time, and images brought into the section so far */
+  messages?: number;
+  images?: number;
+  /** the note that holds the summary, and the one that lists the latest top-level messages */
+  summaryNote?: string;
+  latestNote?: string;
+  /** who wrote the summary: a crew agent's name, or unset while it's the server's own digest */
+  summaryBy?: string;
+  summaryAt?: number;
+  /** agents keep this section current: the person who turned that on (their agents, their runtime) */
+  agents?: { by: string; at: number };
+}
+
+/** A section's Slack channel and the state of its connection, when it follows one. */
+export function slackSectionOf(doc: Y.Doc, sectionId: string): SlackSectionState | undefined {
+  return boardMaps(doc).slack.get(sectionId);
 }
 
 // ---------- huddles: video portals on the board ----------
@@ -440,6 +493,7 @@ export function boardMaps(doc: Y.Doc) {
     noteText: doc.getMap<Y.Text>(BOARD.noteText),
     huddles: doc.getMap<HuddleState>(BOARD.huddles),
     machineAsks: doc.getMap<MachineAsk[]>(BOARD.machineAsks),
+    slack: doc.getMap<SlackSectionState>(BOARD.slack),
   };
 }
 

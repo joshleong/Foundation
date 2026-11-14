@@ -89,8 +89,13 @@ import type { ReleasePost } from "../settings/releases";
 import { syncSentence } from "../settings/plan";
 import type { Plan } from "../settings/plan";
 import { SectionEmpty } from "../panels/SectionEmpty";
+import { SlackMarkView } from "../components/SlackMark";
+import { SectionCrewView, type CrewFace } from "../components/SectionCrew";
+import { SectionAgentsChipView, SectionAgentsView } from "../components/SectionAgents";
+import { RichToolbar } from "../components/RichText";
+import { AgentRow, AgentsPaneBody, T3AddForm, T3BlockView, type AgentRowData, type AgentsPlace, type T3Host, type T3Preset } from "../shell/AgentsPane";
 import { MachineAskList } from "../panels/MachineView";
-import type { MachineAsk } from "@foundation/protocol";
+import type { MachineAsk, SlackSectionState } from "@foundation/protocol";
 import { COMMANDS_GLYPH, IS_MAC, keys } from "../lib/keys";
 import * as Y from "yjs";
 import { loadNoteEditor } from "../components/NoteView";
@@ -103,6 +108,7 @@ import { glyphOf } from "../lib/hits";
 import { fan } from "../lib/pickupMath";
 import type { UploadItem } from "../lib/uploads";
 import { snippetHtml } from "../lib/snippet";
+import { RuneDesign } from "../rune/RendererTab";
 
 const SURFACES = ["void", "abyss", "panel", "raise"];
 const INKS = ["frost", "mist", "dim"];
@@ -267,7 +273,7 @@ export function DesignPage() {
           <div key={h} className="adapt-row keys-sections">
             {[260, 400, 560].map((w) => (
               <div key={w} className="keys-section" style={{ width: w, height: h }}>
-                <SectionEmpty name={`Section · ${w} × ${h}`} onUpload={() => {}} onNote={() => {}} onFocus={() => {}} />
+                <SectionEmpty name={`Section · ${w} × ${h}`} onUpload={() => {}} onNote={() => {}} onText={() => {}} onAsk={() => {}} onFocus={() => {}} />
               </div>
             ))}
           </div>
@@ -805,6 +811,10 @@ export function DesignPage() {
         <TodayDemo />
       </Section>
 
+      <Section title="The Slack board" note="One space with a section for every Slack channel, each kept current with its channel: a Summary note, a Latest note (the newest top-level messages) and the channel's latest images, newest first; a new one takes the first place and the rest move along. Each section wears a live Slack mark beside its count: Slack's octothorpe in the ink (the brand's colours stay out of the chrome), a word and a state dot. Live breathes green: Slack sends what's posted as it's posted. Polling is a still amber dot: the Slack app isn't running, so channels are read in turn while someone looks. Join is a hollow amber dot: the app isn't in the channel, and a press has it join. Offline is red, and the roll-over says why. Beside it, ✦: violet while agents write and keep the summaries, which only a person turns on.">
+        <SlackMarks />
+      </Section>
+
       <Section title="Machines" note="A Linux machine or container in a section, on this computer's engine: Kiri or Docker (one wire, the Docker Engine API). The state pill leads: Running (green, breathing), Pulling and Starting (amber, with the engine's own progress), Stopped and Not started (grey), Error (red, in the engine's words), No engine (amber, a hatched well that says why). Kiri installed but asleep is not No engine: the tag says Kiri · asleep and Start wakes it first; a machine whose disk is on a sleeping Kiri is Out of reach (amber), never removed. Then the engine and its version, the image in code type, and published ports as pills that open the port as a page in the section. Start is the one blue action, and only a person presses it: an agent's proposal says so in violet. Running, the shared terminal fills the card (paper, ink, the tokens as its colours); viewers watch it under an amber View only tag. Remove asks twice. A page opened from a port follows its machine: while the machine isn't running the page's poster dims and the machine's state stands over it (the card's own pill, what happened in its words, Start it for a person and Show the machine), and it reloads by itself when the machine runs again; a removed machine, or a card taken off the board, says it's gone. An agent's command (machine_run) waits on the card under the head: violet, the agent's name, the command in code type, its why, and the time left; Run is a person's blue go-ahead beside Decline, and a viewer sees who can answer instead. Running and answered asks shrink to a line (amber running, green exit 0, red otherwise, struck through when declined or unanswered) for two minutes. Shown at 560, 400 and 260 px.">
         <div className="adapt-row">
           <div className="frame-card live-specimen" style={{ width: 560, height: 320 }}>
@@ -988,6 +998,18 @@ export function DesignPage() {
         <CrewDemo />
       </Section>
 
+      <Section title="Agents in a section" note="Every section has an agent group: a paper tab that stands right above it, on its top edge, while the pointer is on the section, or always once it's pinned (the pin turns violet; a pin is this device's own). A face is an agent's initial on its own crew colour, with a ring that breathes while it works; done, it keeps its colour and sets back, with no ring; stopped is amber. The tab is drawn at screen size at any zoom, and when its section fills the view it comes down with the view instead of hiding under the top bar. A free agent that comes into the section joins the group on a spring, and leaves it when it moves on. A lead and the helpers it called in stand shoulder to shoulder and the tab says working together; separate asks stand apart and it counts the teams. Press a face to follow that agent. The last button opens the agents pane on the right, where search goes: every agent by the section it's in, what it's doing and the ask it's on, with each team held by a rule in its lead's colour. The section it was opened from comes first, in violet. At the pane's foot, this computer's agents: Foundation's own T3 instance, off until a person presses Start T3 (it's a third-party program). Running, each agent T3 has is a face with how it stands (an ok dot and its plan, amber for needs sign-in, set back on the panel well when it isn't installed) and the threads it's working on under a rule in its colour; the ones turned off in T3 are one dim line. The agents stand in two groups under small caps: In the cloud (what you ask goes to a service, on a plan or a key) and On this computer (a local model server: no key, nothing leaves it). Ask on a ready agent opens a composer on paper, ringed violet while it has focus: the model, a note that it runs supervised and on what, and Ask in violet, because an agent will act; the agent then joins the section's group under its own name. Its threads carry Open (T3's own page, for approvals and the transcript) and Stop. An admin adds Kimi or DeepSeek with a form on paper: which, and where it runs (two segmented controls), then the key (cloud only), the model and the address, with a line that says what a local model server answered.">
+        <SectionCrewDemo />
+      </Section>
+
+      <Section title="Agents in the section" note="A section says it can be worked in by agents before anyone has asked. At rest its header carries two quiet marks at the right, in dim 11/600 on 22 px pills: ✦ Agents (the ✦ in violet) and ⤢, the way into the section's own grid; the tools take that corner while the pointer is on the section, and carry the same two. With agents at work the chip turns violet on the agent wash and counts them behind a breathing dot. Pressed, it opens the section's agents as a panel in the section's top-right corner, under its header: raised paper, pane radius, a hairline tinted violet, 340 wide, drawn at screen size and moving with the section. It lists who is at work there (a lead and its helpers as one team, with Follow, Open and Stop), the last three things agents made there, and a composer ringed violet in focus: three starters as violet chips, and Ask as the violet pill, because an agent will act. An ask from here brings an agent into this section under its own name and cursor. Keep here puts the same view on the board as a card, for everyone; the right-click menu adds it too (Agents card).">
+        <SectionAgentsDemo />
+      </Section>
+
+      <Section title="Text box" note={`A note written as formatted text: what you see is what's kept. Click in it to write; a toolbar rides the card's foot while it has the caret (raised paper, card radius, 34 tall): the style (Body, Title, Heading, Subheading), bold, italic, underline, strikethrough, bulleted and numbered lists, quote, link, clear. A mark that's on is the pulse tint. ${keys("mod+B")}, ${keys("mod+I")} and ${keys("mod+U")} work as in any word processor. Under it, it is the note's own markdown in the note's shared text, so search, agents and the other renderer read it as they read any note; underline is kept as <u>. From the right-click menu (Text box), and from an empty section's Write.`}>
+        <TextBoxDemo />
+      </Section>
+
       <Section title="Writing together" note={`A note at rest is its markdown, tables included. Double-click and it opens as a CodeMirror editor on the note's shared text: monospace, the markdown's own marks dimmed, headings and strong text in weight, links blue — no colour of its own. Every keystroke is shared as it's typed, so two people can write in one note, even in one word, and both keep their words whole. Each person keeps their own colour: someone else's caret is a 2 px bar in it, named while it moves and quiet once it rests; their selection is a 22 % tint. A note at rest names whoever is writing in it with a breathing chip at the bottom right, clear of the bar that drops in at the top. ${keys("mod+Z")} takes back only your own words. The two editors below share one text: type in either.`}>
         <NoteEditorDemo />
       </Section>
@@ -1012,6 +1034,10 @@ export function DesignPage() {
         <div className="design-releases">
           <ReleasesTab posts={DEMO_POSTS} route="" />
         </div>
+      </Section>
+
+      <Section title="Rune renderer" note="A second engine beside the web renderer (Settings → Renderer; it's this device's choice, and the web renderer is the default). While Rune draws the board, a quiet glass pill in the bottom bar says so, beside the zoom: a green dot when it's drawing, a breathing blue one while it starts, amber and Rune off when it was asked for and couldn't run (the label says why, and a toast says it once). A press opens the list of where Rune stands. In Settings the two engines are raised cards, the chosen one ringed blue; under them, whether WebGPU and the build are here, then the ledger: each part of the board with one of four words. Never violet: which engine draws is a person's choice.">
+        <RuneDesign />
       </Section>
 
       <Section title="Panels that adapt" note="Design for the narrowest width first; container queries, never the window. Check 260, 400 and 560 px.">
@@ -1079,6 +1105,233 @@ function MachineAsksDemo() {
       {card(560, 400, [...answered, waiting])}
       {card(400, 360, [{ id: "ask_demo4", command: "python3 -m pip list", by: "Wren", for: "Kai", state: "running", at: now - 4_000, decidedBy: "Kai" }, waiting], true)}
       {card(260, 300, [waiting])}
+    </div>
+  );
+}
+
+/** a section at rest and at work, and its agents panel: empty, and with a team and what it made */
+function SectionAgentsDemo() {
+  const face = (id: string, hue: number, doing: string, extra: Partial<CrewFace> = {}): AgentRowData => ({ id, name: id, hue, status: "working", doing, askerName: "Ada Okafor", task: "", mine: true, ...extra });
+  const wren = { ...face("Wren", 0, "writing the parts table"), task: "Build the parts table from the STEP export" };
+  const tern = { ...face("Tern", 1, "reading the STEP export", { lead: "Wren", leadName: "Wren" }), task: "Read the STEP header and list its parts" };
+  const team = { id: "Wren", members: [wren, tern], together: true };
+  const now = Date.now();
+  const header = (name: string, working: number, on = false) => (
+    <div className="section-card oncall-static oncall-section" style={{ width: 340, height: 64 }}>
+      <div className="section-header" style={{ height: 42 }}>
+        <span className="section-name">{name}</span>
+        <span className="section-coords">A1</span>
+        <span className="section-rest">
+          <SectionAgentsChipView working={working} on={on} sectionName={name} />
+          <button type="button" className="sec-rest-open" aria-label="Open as its own grid">
+            ⤢
+          </button>
+        </span>
+      </div>
+    </div>
+  );
+  return (
+    <div className="sec-crew-demo sec-agents-demo">
+      <div className="oncall-row">
+        <div className="oncall-cell">
+          {header("Suppliers", 0)}
+          <div className="effect-label">At rest: agents can build here</div>
+        </div>
+        <div className="oncall-cell">
+          {header("Parts", 2)}
+          <div className="effect-label">Two at work</div>
+        </div>
+        <div className="oncall-cell">
+          {header("Parts", 0, true)}
+          <div className="effect-label">Its panel is open</div>
+        </div>
+      </div>
+      <div className="adapt-row">
+        <div className="sa-panel sa-specimen" style={{ width: 340 }}>
+          <header className="sa-head">
+            <span className="sa-title">
+              <span className="sa-spark">✦</span>Agents in <b>Suppliers</b>
+            </span>
+            <button className="crew-row-btn">Keep here</button>
+            <button className="crew-row-btn">All agents</button>
+            <button className="sa-close">✕</button>
+          </header>
+          <SectionAgentsView sectionName="Suppliers" teams={null} recent={[]} canAsk />
+        </div>
+        <div className="sa-panel sa-specimen" style={{ width: 340 }}>
+          <header className="sa-head">
+            <span className="sa-title">
+              <span className="sa-spark">✦</span>Agents in <b>Parts</b>
+            </span>
+            <button className="crew-row-btn">Keep here</button>
+            <button className="crew-row-btn">All agents</button>
+            <button className="sa-close">✕</button>
+          </header>
+          <SectionAgentsView
+            sectionName="Parts"
+            canAsk
+            now={now}
+            recent={[
+              { at: now - 20_000, who: "Wren", text: "made table “Parts”" },
+              { at: now - 240_000, who: "Lark", text: "wrote “Suppliers to call”", for: "Ada Okafor" },
+            ]}
+            teams={
+              <div className="sa-teams">
+                <ul className="agents-team is-together" style={{ ["--crew" as string]: "var(--color-crew-0)" }}>
+                  <li className="agents-team-label">
+                    Working together <span>· one ask, for Ada</span>
+                  </li>
+                  {team.members.map((m) => (
+                    <AgentRow key={m.id} row={m} team={team} acts={<><button className="crew-row-btn">Follow</button>{!m.lead && <><button className="crew-row-btn">Open</button><button className="crew-row-btn is-stop">Stop</button></>}</>} />
+                  ))}
+                </ul>
+              </div>
+            }
+          />
+        </div>
+        <div className="sa-panel sa-specimen" style={{ width: 300 }}>
+          <header className="sa-head">
+            <span className="sa-title">
+              <span className="sa-spark">✦</span>Agents in <b>Review</b>
+            </span>
+            <button className="sa-close">✕</button>
+          </header>
+          <SectionAgentsView sectionName="Review" teams={null} recent={[]} canAsk={false} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** a text box at rest and while it's written in (the toolbar's marks on) */
+function TextBoxDemo() {
+  const html = renderMarkdown("# Launch plan\n\nShip the **desktop app** this week, _signed_ and <u>notarised</u>.\n\n- Sign the build\n- ~~Email the list~~ post in #launch\n\n> Nothing ships on a Friday.");
+  const box = (writing: boolean) => (
+    <div className="frame-card oncall-static" style={{ position: "relative", width: 400, height: 300 }}>
+      <div className="note-inner" style={{ height: 300 }}>
+        <div className={`note-rendered rich-text${writing ? " is-writing" : ""}`} style={writing ? { paddingTop: 14 } : undefined} dangerouslySetInnerHTML={{ __html: html }} />
+        {writing && (
+          <div className="rich-bar-slot">
+            <RichToolbar marks={{ bold: true, italic: false, underline: false, strike: false, ul: false, ol: false, quote: false, style: "p" }} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+  return (
+    <div className="adapt-row text-box-demo">
+      <div className="oncall-cell">
+        {box(false)}
+        <div className="effect-label">At rest</div>
+      </div>
+      <div className="oncall-cell">
+        {box(true)}
+        <div className="effect-label">Writing: the caret is in bold text</div>
+      </div>
+    </div>
+  );
+}
+
+/** the agent group above a section (one agent, one team, teams side by side, pinned and empty) and the agents pane */
+function SectionCrewDemo() {
+  const face = (id: string, hue: number, doing: string, extra: Partial<CrewFace> = {}): CrewFace => ({ id, name: id, hue, status: "working", doing, askerName: "Ada Okafor", ...extra });
+  const wren = face("Wren", 0, "writing the parts table");
+  const tern = face("Tern", 1, "reading the STEP export", { lead: "Wren", leadName: "Wren" });
+  const lark = face("Lark", 2, "listing suppliers to call", { lead: "Wren", leadName: "Wren" });
+  const basalt = face("Basalt", 3, "checking web-box's port", { askerName: "Kai Ito" });
+  const onyx = face("Onyx", 4, "", { status: "done", askerName: "Kai Ito" });
+  const specimens: Array<{ label: string; name: string; faces: CrewFace[]; pinned?: boolean }> = [
+    { label: "One agent, pointer on the section", name: "Parts", faces: [wren] },
+    { label: "A lead and two helpers: one team", name: "Parts", faces: [wren, tern, lark] },
+    { label: "Pinned · two asks side by side, one done", name: "Shop floor", faces: [wren, tern, basalt, onyx], pinned: true },
+    { label: "Pinned, nobody here", name: "Suppliers", faces: [], pinned: true },
+  ];
+  const row = (f: CrewFace, task: string, mine = true): AgentRowData => ({ ...f, task, mine });
+  const team = (members: AgentRowData[]) => ({ id: members[0].id, members, together: members.length > 1 });
+  const places: AgentsPlace[] = [
+    { id: "parts", name: "Parts", at: true, teams: [team([row(wren, "Build the parts table from the STEP export"), row(tern, "Read the STEP header and list its parts"), row(lark, "Find a supplier for each part")])] },
+    { id: "shop", name: "Shop floor", at: false, teams: [team([row(basalt, "Is web-box serving on port 80?", false)]), team([row(onyx, "Summarise yesterday's huddle", false)])] },
+  ];
+  const claudeModels = [
+    { slug: "claude-opus-5-5", name: "Claude Opus 5.5" },
+    { slug: "claude-haiku-4-5", name: "Claude Haiku 4.5" },
+  ];
+  const t3Running: T3Host = {
+    state: "running",
+    version: "0.0.44",
+    port: 15783,
+    since: 0,
+    agents: [
+      { id: "claudeAgent", driver: "claudeAgent", name: "Claude", enabled: true, installed: true, version: "2.1.319", state: "ready", account: "Claude Team Subscription", models: 12, modelList: claudeModels, where: "cloud" },
+      { id: "codex", driver: "codex", name: "Codex", enabled: true, installed: true, version: "0.98.0", state: "sign-in", models: 0, modelList: [], where: "cloud" },
+      { id: "kimi-cloud", driver: "claudeAgent", name: "Kimi", enabled: true, installed: true, version: "2.1.319", state: "ready", models: 1, modelList: [{ slug: "kimi-k3", name: "Kimi · kimi-k3" }], model: "kimi-k3", where: "cloud", added: { preset: "kimi", baseUrl: "https://api.moonshot.ai/anthropic" } },
+      { id: "deepseek-local", driver: "claudeAgent", name: "DeepSeek (local)", enabled: true, installed: true, version: "2.1.319", state: "ready", models: 1, modelList: [{ slug: "deepseek-r1:14b", name: "DeepSeek · deepseek-r1:14b" }], model: "deepseek-r1:14b", where: "local", added: { preset: "deepseek", baseUrl: "http://127.0.0.1:11434" } },
+      { id: "cursor", driver: "cursor", name: "Cursor", enabled: false, installed: false, version: null, state: "off", models: 0, modelList: [], where: "cloud" },
+      { id: "grok", driver: "grok", name: "Grok", enabled: false, installed: false, version: null, state: "off", models: 0, modelList: [], where: "cloud" },
+    ],
+    work: [
+      { id: "t1", title: "Build the parts table from the STEP export", project: "Foundation", agent: "claudeAgent", model: "claude-opus-5-5", state: "working", updatedAt: "" },
+      { id: "t2", title: "Rim drive: tolerance stack", project: "Fans", agent: "kimi-cloud", model: "kimi-k3", state: "waiting", updatedAt: "" },
+    ],
+  };
+  const t3Presets: Record<string, T3Preset> = {
+    kimi: { name: "Kimi", cloud: { baseUrl: "https://api.moonshot.ai/anthropic", model: "kimi-k3" }, local: { baseUrl: "http://127.0.0.1:11434", model: "" } },
+    deepseek: { name: "DeepSeek", cloud: { baseUrl: "https://api.deepseek.com/anthropic", model: "deepseek-v4-pro" }, local: { baseUrl: "http://127.0.0.1:11434", model: "" } },
+  };
+  return (
+    <div className="sec-crew-demo">
+      <div className="oncall-row">
+        {specimens.map((sp) => (
+          <div className="oncall-cell" key={sp.label}>
+            <div className="section-card oncall-static oncall-section" style={{ width: 300, height: 84 }}>
+              <SectionCrewView faces={sp.faces} pinned={!!sp.pinned} shown sectionName={sp.name} />
+              <div className="section-header" style={{ height: 42 }}>
+                <span className="section-name">{sp.name}</span>
+                <span className="section-coords">A1</span>
+              </div>
+            </div>
+            <div className="effect-label">{sp.label}</div>
+          </div>
+        ))}
+      </div>
+      <div className="adapt-row">
+        <div className="agents-pane-specimen" style={{ width: 360 }}>
+          <AgentsPaneBody places={places} count={5} />
+        </div>
+        <div className="agents-pane-specimen" style={{ width: 300 }}>
+          <AgentsPaneBody places={[{ id: "suppliers", name: "Suppliers", at: true, teams: [] }]} count={0} />
+        </div>
+        <div className="agents-pane-specimen" style={{ width: 300 }}>
+          <AgentsPaneBody places={[]} count={0} foot={<T3BlockView host={null} viewer={false} />} />
+        </div>
+      </div>
+      <div className="adapt-row">
+        <div className="agents-pane-specimen is-tall" style={{ width: 360 }}>
+          <div className="agents-scroll">
+            <T3BlockView host={t3Running} viewer={false} admin section={{ id: "parts", name: "Parts" }} askingStart="claudeAgent" />
+          </div>
+        </div>
+        <div className="agents-pane-specimen is-tall" style={{ width: 340 }}>
+          <div className="agents-scroll">
+            <T3AddForm presets={t3Presets} local={null} start={{ preset: "kimi", where: "cloud" }} />
+          </div>
+        </div>
+        <div className="agents-pane-specimen is-tall" style={{ width: 340 }}>
+          <div className="agents-scroll">
+            <T3AddForm presets={t3Presets} local={{ baseUrl: "http://127.0.0.1:11434", up: true, models: ["deepseek-r1:14b", "qwen3-coder:30b"] }} start={{ preset: "deepseek", where: "local" }} />
+          </div>
+        </div>
+        <div className="agents-pane-specimen is-short" style={{ width: 300 }}>
+          <div className="agents-scroll">
+            <T3BlockView host={{ state: "starting", detail: "Starting T3 on port 15783", since: 0, agents: [], work: [] }} viewer={false} />
+          </div>
+        </div>
+        <div className="agents-pane-specimen is-short" style={{ width: 300 }}>
+          <div className="agents-scroll">
+            <T3BlockView host={{ state: "error", detail: "The T3 program isn't on this computer. Install Vision Code, or set T3_CLI to a t3 program where Foundation's server starts.", since: 0, agents: [], work: [] }} viewer={false} />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1326,6 +1579,34 @@ function NoteEditorDemo() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** the live Slack mark in each of its states, on a section's header */
+function SlackMarks() {
+  const now = Date.now();
+  const rows: Array<[SlackSectionState, string, string, string]> = [
+    [{ channel: "C1", name: "design", state: "live", detail: "Slack sends what's posted here as it's posted", lastAt: now - 4 * 60_000, agents: { by: "Ada", at: now }, summaryBy: "Wren", summaryAt: now - 3 * 60_000 }, "#design", "7", "Live, and agents keep its summary: a breathing green dot, ✦ in violet"],
+    [{ channel: "C2", name: "general", state: "polling", detail: "Read about every 40 s while someone has this board open", lastAt: now - 2 * 3600_000 }, "#general", "5", "Polling: a still amber dot; agents off"],
+    [{ channel: "C3", name: "random", state: "waiting", detail: "The Slack app isn't in this channel. Press to have it join" }, "#random", "2", "Not in the channel: a hollow amber dot, and Join"],
+    [{ channel: "C4", name: "launch", state: "offline", detail: "Slack isn't connected: run the Slack app (npm run slack)" }, "#launch", "2", "Offline: red, and the roll-over says why"],
+  ];
+  return (
+    <div className="oncall-row">
+      {rows.map(([st, name, count, label]) => (
+        <div className="oncall-cell" key={name}>
+          <div className="section-card oncall-static oncall-section" style={{ width: 300, height: 84 }}>
+            <div className="section-header" style={{ height: 42 }}>
+              <span className="section-name">{name}</span>
+              <span className="section-coords">A1</span>
+              <span className="section-count">{count}</span>
+              <SlackMarkView st={st} viewer={false} />
+            </div>
+          </div>
+          <div className="effect-label">{label}</div>
+        </div>
+      ))}
     </div>
   );
 }

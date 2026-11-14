@@ -138,6 +138,7 @@ const PANEL_SIZES: Record<PanelKind, [number, number]> = {
   stage: [460, 440],
   huddle: [560, 420],
   slack: [420, 520],
+  crew: [380, 440],
 };
 
 function sectionOrCreate(doc: Y.Doc, section?: string) {
@@ -380,13 +381,13 @@ export const TOOLS: BoardTool[] = [
   }),
   def({
     name: "add_note",
-    description: "Add a markdown note card to a section (created if missing).",
-    schema: z.object({ section: z.string().optional(), title: z.string(), markdown: z.string(), request_id: z.string().optional() }),
+    description: "Add a markdown note card to a section (created if missing). text_box: true makes it a text box: the same markdown, which people then edit as formatted text with a toolbar instead of as markdown source (use it for prose a person will keep writing in).",
+    schema: z.object({ section: z.string().optional(), title: z.string(), markdown: z.string(), text_box: z.boolean().optional(), request_id: z.string().optional() }),
     write: true,
-    run: (ctx, { section, title, markdown }) => {
+    run: (ctx, { section, title, markdown, text_box }) => {
       const note = editBoard(ctx.boardId, "agent", (doc) => {
         const sec = cardSection(doc, section);
-        const n: NoteDoc & { text: string } = { id: uid("note"), kind: "note", sectionId: sec.id, name: title, x: 0, y: 0, float: false, bornAt: Date.now(), w: 420, h: 300, text: markdown, ...(madeBy(ctx) ? { createdBy: madeBy(ctx) } : {}) };
+        const n: NoteDoc & { text: string } = { id: uid("note"), kind: "note", sectionId: sec.id, name: title, x: 0, y: 0, float: false, bornAt: Date.now(), w: text_box ? 480 : 420, h: text_box ? 320 : 300, text: markdown, ...(text_box ? { rich: true } : {}), ...(madeBy(ctx) ? { createdBy: madeBy(ctx) } : {}) };
         putNote(doc, n);
         return n;
       });

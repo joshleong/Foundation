@@ -7,8 +7,8 @@ import {
   SECTION_HEADER,
   Section,
   addNote,
-  addPanel,
   startMachine,
+  addTextBox,
   addSectionAdjacent,
   getState,
   cellAtWorld,
@@ -31,10 +31,8 @@ import {
   requestRemoveSection,
   releaseSectionFit,
   requestSnap,
-  sectionCardRect,
   sectionRestRect,
   startSectionEase,
-  sectionFit,
   setActiveSection,
   setSectionDragTarget,
   setSectionHost,
@@ -48,16 +46,17 @@ const MapView = lazy(() => import("./MapView").then((m) => ({ default: m.MapView
 import { NoteView } from "./NoteView";
 import { MediaView } from "./MediaView";
 import { PANEL_GLYPH, PanelActions, PanelView } from "../panels/PanelView";
+import { SlackMark } from "./SlackMark";
+import { SectionCrew } from "./SectionCrew";
+import { SectionAgentsChip, openSectionAgents } from "./SectionAgents";
 import { FullscreenButton } from "./Fullscreen";
 import { isHostable } from "@foundation/protocol";
 import { isPanel } from "../state/store";
 import { ingest, ingestDrop } from "../lib/ingest";
 import { SectionEmpty } from "../panels/SectionEmpty";
 import { askAgent, setUi } from "../state/ui";
-import { openContextMenu, type MenuItem } from "./ContextMenu";
-import { api } from "../lib/api";
-import { activeBoard } from "../sync/board";
-import { toast } from "../state/ui";
+import { openContextMenu } from "./ContextMenu";
+import { sectionMenuItems } from "./sectionMenu";
 import { countRender } from "../state/renders";
 
 interface Props {
@@ -297,66 +296,7 @@ export const SectionView = memo(function SectionView({
       e.preventDefault();
       e.stopPropagation();
       setActiveSection(section.id);
-      // live things land where you clicked, not in the flow
-      const at = (w: number, h: number) => {
-        const pt = worldPoint(e.clientX, e.clientY);
-        const st = getState();
-        if (!pt) return {};
-        const card = sectionCardRect(st.grid, section);
-        const f = sectionFit(section.id);
-        // centred on the click (in the section's fitted content), kept inside what's visible of the section
-        const roomW = (card.w - 2) / f - CONTENT_PAD * 2;
-        const roomH = (card.h - 2 - SECTION_HEADER) / f - CONTENT_PAD * 2;
-        const x = Math.min((pt.x - card.x - 1) / f - CONTENT_PAD - w / 2, roomW - w);
-        const y = Math.min((pt.y - card.y - 1 - SECTION_HEADER) / f - CONTENT_PAD - h / 3, roomH - h);
-        return { float: true, x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)) };
-      };
-      const channels = Object.values(getState().panels).filter((p) => p.panel === "slack" && p.channel);
-      const tellSlack: MenuItem[] = channels.slice(0, 3).map((c) => ({
-        icon: "↗",
-        label: `Send ${c.name} a link here`,
-        action: () =>
-          void api(`/api/slack/channels/${c.channel}/share`, { method: "POST", json: { board: activeBoard()?.boardId ?? "company", objectId: section.host ?? section.id, title: section.name } })
-            .then(() => toast(`Sent ${c.name} a link to ${section.name}`, "ok"))
-            .catch((err) => toast((err as Error).message, "bad")),
-      }));
-      openContextMenu(e.clientX, e.clientY, [
-        { icon: "⊞", label: "Add table", action: () => createTable(section.id) },
-        { icon: "◍", label: "Add map", action: () => createMap(section.id) },
-        { icon: "▤", label: "Add note", action: () => addNote(section.id) },
-        { icon: "⇪", label: "Add image / video…", action: () => fileRef.current?.click() },
-        { divider: true },
-        { icon: "◐", label: "Start a huddle here", action: () => addPanel(section.id, { panel: "huddle", name: "Huddle", ...at(560, 420) }) },
-        { icon: "#", label: "Add a Slack channel", action: () => addPanel(section.id, { panel: "slack", name: "Slack", ...at(420, 520) }) },
-        { icon: "▣", label: "Start a machine here", action: () => startMachine(section.id, at(760, 520)) },
-        ...tellSlack,
-        ...(host
-          ? [{ icon: "◱", label: `Show ${host.name} as a card`, action: () => setSectionHost(section.id, null) }]
-          : hostable
-            ? [{ icon: "◳", label: `Let ${hostable.name} fill the section`, action: () => setSectionHost(section.id, hostable.id) }]
-            : []),
-        { divider: true },
-        { icon: "←", label: "Insert section left", action: () => addSectionAdjacent(section.id, "left") },
-        { icon: "→", label: "Insert section right", action: () => addSectionAdjacent(section.id, "right") },
-        { icon: "↑", label: "Insert section above", action: () => addSectionAdjacent(section.id, "above") },
-        { icon: "↓", label: "Insert section below", action: () => addSectionAdjacent(section.id, "below") },
-        { divider: true },
-        { icon: "◫", label: "Split column", action: () => splitSection(section.id, "h") },
-        { icon: "⬓", label: "Split row", action: () => splitSection(section.id, "v") },
-        { divider: true },
-        ...(host
-          ? [{ icon: "⤢", label: "Fill the screen with it", action: () => requestSnap({ kind: "section", id: section.id }) }]
-          : isOpen
-            ? [{ icon: "⤡", label: "Back up a level", action: () => levelUp() }]
-            : [{ icon: "⤢", label: isGrid ? "Open its grid" : "Open as its own grid", action: () => openLevel(section.id) }]),
-        {
-          icon: "🗑",
-          label: "Remove section…",
-          danger: true,
-          disabled: !canRemove,
-          action: () => requestRemoveSection(section.id),
-        },
-      ]);
+      openContextMenu(e.clientX, e.clientY, sectionMenuItems(section, worldPoint(e.clientX, e.clientY), { host, hostable, isOpen, isGrid, canRemove, upload: () => fileRef.current?.click() }));
     },
     [section.id, canRemove, host, hostable, worldPoint, section, isOpen, isGrid],
   );
@@ -423,6 +363,9 @@ export const SectionView = memo(function SectionView({
       }}
       onDrop={onDrop}
     >
+      {/* the agents at work in here, right above the section: up while the pointer is on it, or pinned */}
+      {!mini && <SectionCrew sectionId={section.id} sectionName={section.name} />}
+
       {/* header — drag it to move the section to another grid cell */}
       <div
         className="section-header"
@@ -473,6 +416,26 @@ export const SectionView = memo(function SectionView({
         ) : (
           objects.length > 0 && <span className="section-count">{objects.length}</span>
         )}
+        {/* a section that follows a Slack channel says how that connection stands */}
+        <SlackMark sectionId={section.id} />
+
+        {/* at rest, what a section is: somewhere agents build with you, and a grid of its own to open */}
+        {!mini && (
+          <span className="section-rest">
+            <SectionAgentsChip sectionId={section.id} sectionName={section.name} />
+            {!host && (
+              <button
+                type="button"
+                className="sec-rest-open"
+                data-tip={isOpen ? "Back up a level" : isGrid ? "Open its grid" : "Open as its own grid: every section is one"}
+                aria-label={isOpen ? "Back up a level" : isGrid ? "Open its grid" : "Open as its own grid"}
+                onClick={() => (isOpen ? levelUp() : openLevel(section.id))}
+              >
+                {isOpen ? "⤡" : "⤢"}
+              </button>
+            )}
+          </span>
+        )}
 
         {/* tools wait in the top-right corner until the pointer is on the section */}
         {!mini && (
@@ -509,7 +472,7 @@ export const SectionView = memo(function SectionView({
           <div className="sec-group">
             {host
               ? tool(`Ask the agent about ${host.name}`, "✦", () => askAgent(`About “${host.name}”: `), "sec-agent", keys("mod+J"))
-              : tool("Ask the agent about this section", "✦", () => askAgent(`In the “${section.name}” section: `), "sec-agent", keys("mod+J"))}
+              : tool("Agents in this section: ask one, see who's at work", "✦", () => openSectionAgents(section.id, true), "sec-agent")}
             {canRemove && !isOpen && tool("Remove this section…", "✕", () => setConfirming(true), "sec-remove")}
           </div>
         </div>
@@ -618,6 +581,8 @@ export const SectionView = memo(function SectionView({
             name={section.name}
             onUpload={() => fileRef.current?.click()}
             onNote={() => addNote(section.id)}
+            onText={() => addTextBox(section.id)}
+            onAsk={() => openSectionAgents(section.id, true)}
             onFocus={() => setActiveSection(section.id)}
           />
         )}

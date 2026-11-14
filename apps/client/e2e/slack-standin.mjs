@@ -1,5 +1,8 @@
 // A stand-in Slack for checks (SLACK_API_BASE): search.files, files.info and
 // downloads, serving real PNGs — a few about the Airform PTHP, one not.
+// For the Slack board it also has channels with top-level messages (some with
+// those pictures), a channel the app isn't in, and POST /_post, which says
+// something in a channel (with a new picture when file=1), as a person would.
 import { createServer } from "node:http";
 import { deflateSync } from "node:zlib";
 
@@ -53,10 +56,79 @@ const FILES = [
 ];
 const meta = (f) => ({ id: f.id, name: f.name, title: f.title, mimetype: "image/png", timestamp: f.ts, username: f.who, channels: ["airform-pthp"], permalink: `https://slack.example/${f.id}`, url_private_download: `${base}/download/${f.id}` });
 
+// ---------- channels (the Slack board) ----------
+const PEOPLE = { U1: "Noa", U2: "Kai", U3: "Josh" };
+const CHANNELS = [
+  { id: "C0AIRFORM1", name: "airform-pthp", is_private: false, is_member: true, topic: { value: "The packaged terminal heat pump" } },
+  { id: "C0GENERAL1", name: "general", is_private: false, is_member: true, topic: { value: "" } },
+  { id: "C0FACTORY1", name: "factory-floor", is_private: false, is_member: true, topic: { value: "" } },
+  { id: "C0RANDOM01", name: "random", is_private: false, is_member: false, topic: { value: "" } },
+];
+const HISTORY = new Map(CHANNELS.map((c) => [c.id, []]));
+let clock = 1_794_400_000;
+const say = (channel, user, text, extra = {}) => {
+  clock += 420;
+  HISTORY.get(channel).unshift({ ts: `${clock}.000100`, user, text, ...extra });
+};
+const shared = (f) => ({ id: f.id, name: f.name, title: f.title, mimetype: "image/png", url_private_download: `${base}/download/${f.id}` });
+say("C0AIRFORM1", "U1", "Stack rev 3 is up. Thinner lip, same fan.", { subtype: "file_share", files: [shared(FILES[0])] });
+say("C0AIRFORM1", "U2", "Thermal map from last night's run: the hot spot moved to the manifold.", { subtype: "file_share", files: [shared(FILES[1])], reply_count: 5 });
+say("C0AIRFORM1", "U1", "Printed the manifold. Fits, but the gasket seat is tight.", { subtype: "file_share", files: [shared(FILES[2])] });
+say("C0AIRFORM1", "U3", "Airflow test Friday 2pm. Kai, can you bring the anemometer?", { reply_count: 2 });
+say("C0AIRFORM1", "U3", "Airflow rig is ready.", { subtype: "file_share", files: [shared(FILES[3])] });
+say("C0GENERAL1", "U3", "Office closed Monday.");
+say("C0GENERAL1", "U1", "Friday demo moved to 3pm so the Kapaʻa folks can dial in.", { reply_count: 4 });
+say("C0GENERAL1", "U2", "Lunch is on the lanai today.", { subtype: "file_share", files: [shared(FILES[4])] });
+say("C0FACTORY1", "U2", "Line 2 is back up after the bearing swap.");
+say("C0FACTORY1", "U1", "Vane stock arrives Thursday: 400 blanks.", { reply_count: 1 });
+say("C0RANDOM01", "U2", "Surf's up.");
+let made = 0;
+const TINTS = [[[143, 118, 238], [50, 91, 180]], [[228, 87, 78], [200, 122, 28]], [[42, 176, 190], [46, 125, 84]], [[84, 184, 238], [100, 116, 139]]];
+
 createServer((req, res) => {
   const url = new URL(req.url ?? "/", base);
+  // the stand-in's own door, for checks: someone says something in a channel
+  if (url.pathname === "/_post") {
+    const ch = CHANNELS.find((c) => c.id === url.searchParams.get("channel") || c.name === url.searchParams.get("channel"));
+    if (!ch) return res.writeHead(404).end("no such channel");
+    const extra = {};
+    if (url.searchParams.get("file")) {
+      const [a, b] = TINTS[made % TINTS.length];
+      const f = { id: `N${++made}`, name: `posted-${made}.png`, title: url.searchParams.get("title") ?? undefined, w: 360 + (made % 3) * 60, h: 260 + (made % 2) * 160, ts: clock, a, b, who: "kai" };
+      FILES.push(f);
+      Object.assign(extra, { subtype: "file_share", files: [shared(f)] });
+    }
+    say(ch.id, url.searchParams.get("user") ?? "U2", url.searchParams.get("text") ?? "", extra);
+    res.setHeader("content-type", "application/json");
+    return res.end(JSON.stringify({ ok: true, channel: ch.id, ts: HISTORY.get(ch.id)[0].ts }));
+  }
   if (!/^Bearer xox[bp]-/.test(req.headers.authorization ?? "")) return res.writeHead(401).end();
   res.setHeader("content-type", "application/json");
+  if (url.pathname === "/conversations.list") return res.end(JSON.stringify({ ok: true, channels: CHANNELS }));
+  if (url.pathname === "/conversations.info") {
+    const ch = CHANNELS.find((c) => c.id === url.searchParams.get("channel"));
+    return res.end(JSON.stringify(ch ? { ok: true, channel: ch } : { ok: false, error: "channel_not_found" }));
+  }
+  if (url.pathname === "/conversations.history") {
+    const ch = CHANNELS.find((c) => c.id === url.searchParams.get("channel"));
+    if (!ch) return res.end(JSON.stringify({ ok: false, error: "channel_not_found" }));
+    if (!ch.is_member) return res.end(JSON.stringify({ ok: false, error: "not_in_channel" }));
+    return res.end(JSON.stringify({ ok: true, messages: HISTORY.get(ch.id) }));
+  }
+  if (url.pathname === "/conversations.join") {
+    let body = "";
+    req.on("data", (d) => (body += d));
+    req.on("end", () => {
+      const ch = CHANNELS.find((c) => c.id === JSON.parse(body || "{}").channel);
+      if (ch) ch.is_member = true;
+      res.end(JSON.stringify(ch ? { ok: true } : { ok: false, error: "channel_not_found" }));
+    });
+    return;
+  }
+  if (url.pathname === "/users.info") {
+    const id = url.searchParams.get("user") ?? "";
+    return res.end(JSON.stringify(PEOPLE[id] ? { ok: true, user: { name: id, profile: { display_name: PEOPLE[id] } } } : { ok: false, error: "user_not_found" }));
+  }
   if (url.pathname === "/search.files") {
     const words = (url.searchParams.get("query") ?? "").toLowerCase().split(/\s+/).filter(Boolean);
     const hits = FILES.filter((f) => words.every((w) => `${f.name} ${f.title}`.toLowerCase().includes(w)));

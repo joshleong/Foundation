@@ -34,3 +34,6 @@ docs/evidence/e2e-results/
 # Rust / Tauri build output (anywhere, including a stray src-tauri/ from building at the root)
 target/
 **/gen/schemas/
+
+# The Rune renderer, built from apps/rune by `npm run rune:build` (12 MB of wasm: not checked in)
+apps/client/public/rune/

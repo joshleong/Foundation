@@ -68,6 +68,19 @@ test("deletes need confirm; request_id makes writes idempotent", async () => {
   assert.ok(!boardMaps(board.doc).objects.has(a.id));
 });
 
+test("add_note can make a text box: the same markdown in the note's text, marked rich on the card", async () => {
+  const board = getBoard("test-board");
+  const ctx = { boardId: "test-board", actor: "test", userId: "u" };
+  const box = (await runTool(ctx, "add_note", { title: "Plan", markdown: "# Plan\n\n**Ship** it", text_box: true })) as { id: string };
+  const plain = (await runTool(ctx, "add_note", { title: "Plain", markdown: "x" })) as { id: string };
+  const m = boardMaps(board.doc);
+  const card = m.objects.get(box.id) as { kind: string; rich?: boolean };
+  assert.equal(card.kind, "note");
+  assert.equal(card.rich, true);
+  assert.equal(m.noteText.get(box.id)?.toString(), "# Plan\n\n**Ship** it");
+  assert.equal((m.objects.get(plain.id) as { rich?: boolean }).rich, undefined);
+});
+
 test("repo search stays inside the company's repos: every word, name hits first", () => {
   const repo = (fullName: string, description: string | null = null) => ({ fullName, url: "", description, homepage: null, defaultBranch: "main", pushedAt: "", language: null, private: true });
   const mine = [repo("formindustries/bomform", "BOMs and the supply chain"), repo("formindustries/supply-chain"), repo("joshleong/Foundation", "The company brain")];

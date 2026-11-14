@@ -30,8 +30,21 @@ function base() {
   return (process.env.SLACK_API_BASE || "https://slack.com/api").replace(/\/$/, "");
 }
 
+/**
+ * A bot token the Slack app's own process handed over (apps/slack-agent, run
+ * by `slack run`, which is given the token by the Slack CLI). Kept in memory
+ * only, never stored or logged, and only used when .env has none.
+ */
+let lent = "";
+export function lendToken(t: string) {
+  if (/^xoxb-[A-Za-z0-9-]{10,}$/.test(t) && t !== lent) {
+    lent = t;
+    statusCache = null;
+  }
+}
+
 function token() {
-  return process.env.SLACK_BOT_TOKEN ?? "";
+  return process.env.SLACK_BOT_TOKEN || lent;
 }
 
 export function slackConfigured() {
@@ -259,4 +272,86 @@ export function shareText(p: { by: string; board: string; objectId?: string; tit
 export function inviteText(p: { by: string; board: string; huddleId: string; huddleName: string; live: string[] }) {
   const who = p.live.length ? ` — ${p.live.join(", ")} ${p.live.length === 1 ? "is" : "are"} there now` : "";
   return `:movie_camera: ${p.by} invited this channel to a huddle on Foundation${who}.\n<${boardLink(p.board, p.huddleId)}|Join ${label(p.huddleName)}>`;
+}
+
+// ---------- a channel as a section reads it (slacklive.ts) ----------
+
+export interface SlackFileRef {
+  id: string;
+  name: string;
+  title?: string;
+  mime: string;
+  /** Slack's private link: fetched with the bot token, never handed to a browser */
+  url?: string;
+}
+
+/** a top-level message with what was attached to it */
+export interface ChannelItem extends SlackMessage {
+  files: SlackFileRef[];
+}
+
+interface RawFile {
+  id: string;
+  name?: string;
+  title?: string;
+  mimetype?: string;
+  url_private?: string;
+  url_private_download?: string;
+  mode?: string;
+}
+
+/**
+ * A channel's latest top-level messages, newest first, with their files.
+ * Replies stay in their threads (a count on the message); joins, leaves and
+ * other housekeeping are left out. Not cached: the caller decides how often.
+ */
+export async function channelItems(channel: string, limit = 60): Promise<ChannelItem[]> {
+  const r = await call<{ messages: Array<{ ts: string; thread_ts?: string; user?: string; bot_id?: string; username?: string; text?: string; subtype?: string; reply_count?: number; files?: RawFile[]; metadata?: { event_type?: string } }> }>(
+    "conversations.history",
+    { channel, limit, include_all_metadata: true },
+  );
+  const top = r.messages.filter((m) => (!m.subtype || m.subtype === "bot_message" || m.subtype === "file_share") && (!m.thread_ts || m.thread_ts === m.ts));
+  return Promise.all(
+    top.map(async (m) => ({
+      ts: m.ts,
+      at: Math.round(Number(m.ts) * 1000),
+      user: m.user ?? m.bot_id ?? "",
+      name: m.username ?? (m.user ? await userName(m.user) : "app"),
+      text: await plainText(m.text ?? ""),
+      replies: m.reply_count || undefined,
+      viaFoundation: m.metadata?.event_type === "foundation_post" || /via Foundation$/.test(m.username ?? ""),
+      files: (m.files ?? [])
+        .filter((f) => f.mode !== "tombstone" && f.id)
+        .map((f) => ({ id: f.id, name: f.name ?? f.id, title: f.title || undefined, mime: f.mimetype ?? "application/octet-stream", url: f.url_private_download ?? f.url_private })),
+    })),
+  );
+}
+
+/** a file's bytes, fetched as the app (Slack's file links are private) */
+export async function downloadFile(f: SlackFileRef, max = 40 * 1024 * 1024): Promise<Buffer> {
+  if (!token()) throw new SlackError("not_configured", "Slack isn't connected");
+  let url = f.url;
+  if (!url) {
+    const r = await call<{ file: RawFile }>("files.info", { file: f.id });
+    url = r.file.url_private_download ?? r.file.url_private;
+  }
+  if (!url) throw new SlackError("file_not_found", `Slack has no link for ${f.name}`);
+  const res = await fetch(url, { headers: { authorization: `Bearer ${token()}` }, signal: AbortSignal.timeout(30_000) });
+  if (!res.ok) throw new SlackError("download_failed", `Slack wouldn't hand over ${f.name} (${res.status})`);
+  // a sign-in page instead of the file means the app lacks files:read
+  if (/^text\/html/.test(res.headers.get("content-type") ?? "")) throw new SlackError("missing_scope", explain("missing_scope"));
+  const body = Buffer.from(await res.arrayBuffer());
+  if (body.length > max) throw new SlackError("too_large", `${f.name} is over ${Math.round(max / 1048576)} MB`);
+  return body;
+}
+
+/** the app joins a public channel (channels:join). People press this; it shows in the channel. */
+export async function joinChannel(channel: string) {
+  await call("conversations.join", { channel }, true);
+  channelCache.delete(channel);
+}
+
+/** forget what was cached about channels (a channel was made, renamed, joined or left) */
+export function forgetChannels() {
+  channelCache.clear();
 }

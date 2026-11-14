@@ -51,6 +51,8 @@ export interface NoteMeta extends ObjectBase {
   w: number;
   h: number;
   text: string;
+  /** a text box: written as formatted text, not markdown source (protocol NoteDoc.rich) */
+  rich?: boolean;
 }
 
 export interface MediaMeta extends ObjectBase {
@@ -1722,6 +1724,46 @@ export function addNote(sectionId: string, text?: string, opts: { focus?: boolea
   return meta;
 }
 
+let textCount = 0;
+/** the text box this window just made: its maker's caret goes in it (nobody else's does) */
+let freshTextBox: string | null = null;
+export function takeFreshTextBox(id: string): boolean {
+  if (freshTextBox !== id) return false;
+  freshTextBox = null;
+  return true;
+}
+
+/**
+ * A text box: a note you write as formatted text (bold, headings, lists: a
+ * toolbar, as in a word processor) instead of as markdown source. It starts
+ * empty and `at` puts it where it was asked for.
+ */
+export function addTextBox(sectionId: string, at: { float?: boolean; x?: number; y?: number } = {}, opts: { focus?: boolean } = {}): NoteMeta {
+  sectionId = leafSection(sectionId);
+  textCount++;
+  const meta: NoteMeta = {
+    id: uid("note"),
+    sectionId,
+    name: `Text ${textCount}`,
+    x: at.x ?? 0,
+    y: at.y ?? 0,
+    w: 480,
+    h: 320,
+    text: "",
+    rich: true,
+    float: at.float ?? false,
+    bornAt: Date.now(),
+  };
+  freshTextBox = meta.id;
+  set({
+    notes: { ...state.notes, [meta.id]: meta },
+    ...unhostFor(sectionId),
+    activeSectionId: sectionId,
+    ...(opts.focus === false ? {} : { snapRequest: { kind: "object" as const, id: meta.id, nonce: Math.random() } }),
+  });
+  return meta;
+}
+
 export function updateNoteText(id: string, text: string) {
   const n = state.notes[id];
   if (!n) return;
@@ -2021,6 +2063,7 @@ const PANEL_SIZE: Record<PanelMeta["panel"], [number, number]> = {
   stage: [460, 440],
   huddle: [560, 420],
   slack: [420, 520],
+  crew: [380, 440],
 };
 
 export function addPanel(

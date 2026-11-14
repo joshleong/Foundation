@@ -22,8 +22,10 @@ import { parseRepo, repoCommits, repoInfo, repoReadme } from "./github.ts";
 import { companySnapshot, connectorEvents, readConnector, watchFactoryForm } from "./connectors.ts";
 import { createAsk, listAsks, resolveAsk, startHermes } from "./hermes.ts";
 import { getJob, listJobs, startJob } from "./jobs.ts";
-import { followRun, listSessions, runtimes, sessionTurns, settleOrphanRuns, startRun, stopAllRuns, stopRun } from "./agent.ts";
+import { followRun, listSessions, pickRuntime, runtimes, sessionTurns, settleOrphanRuns, startRun, stopAllRuns, stopRun } from "./agent.ts";
 import { t3Thread, t3Threads } from "./t3.ts";
+import { addT3Agent, localModels, removeT3Agent, startT3, stopT3, T3_PRESETS, t3Host, t3OpenLink, type AddAgentInput } from "./t3host.ts";
+import { askT3, stopT3Thread, t3Bindings } from "./t3threads.ts";
 import { pollHandoffs } from "./vision.ts";
 import { boardPeople, boardRole, canWrite, requireWriter, setBoardRole } from "./roles.ts";
 import { handleUpgrade, issueTicket } from "./sockets.ts";
@@ -48,12 +50,16 @@ import { startGridLog } from "./gridlog.ts";
 import { answerAsk, startMachineAsks } from "./machineasks.ts";
 import { createPlanCard, movePlanCard, readPlan, syncPlan, type NewCard } from "./plan.ts";
 import { startDigest } from "./digest.ts";
+import { buildSlackBoard, fromBridge, joinFor, setAgents, setCurator, slackLiveStatus, startSlackLive, syncChannel, type BridgeMessage } from "./slacklive.ts";
 import { engineImages, engineStatus, loadImage, reconcileMachine, removeMachine, restartMachine, startMachine, stopMachine } from "./machines.ts";
 
 // people's grid edits go in the activity log, from the first board loaded
 startGridLog();
 startFlowformSync();
 startMachineAsks();
+// the Slack board: read in turn while the Slack app is quiet; its agents are ordinary crew runs
+startSlackLive();
+setCurator((o) => startRun(o));
 
 const r = new Router();
 
@@ -530,6 +536,59 @@ r.post("/api/slack/channels/:id/huddle-notes", async (req) => {
   return slackDo(() => postMessage(req.params.id, text, u, { board, huddle: h.id, session: s.id }));
 });
 
+// ---------- the Slack board: a section per channel, kept live (slacklive.ts) ----------
+
+r.get("/api/slack/live", async (req) => {
+  requireUser(req);
+  return slackLiveStatus();
+});
+/** make the Slack board (or bring the one there is up to date) and say where it is */
+r.post("/api/slack/board", async (req) => {
+  const u = requireUser(req);
+  requireWriter(u);
+  return slackDo(() => buildSlackBoard(u));
+});
+/** read one channel into its section now */
+r.post("/api/slack/board/sync", async (req) => {
+  const u = requireUser(req);
+  const board = req.query.get("board") ?? "";
+  requireBoard(u, board);
+  const { channel } = await readJson<{ channel?: string }>(req);
+  if (!channel) throw new HttpError(400, "which channel?");
+  await slackDo(() => syncChannel(board, channel));
+  return { ok: true };
+});
+/** the Slack app joins a public channel so its section can be read: the channel sees it join, so a person presses this */
+r.post("/api/slack/board/join", async (req) => {
+  const u = requirePerson(req, "Having the Slack app join a channel");
+  const board = req.query.get("board") ?? "";
+  requireBoard(u, board);
+  const { channel } = await readJson<{ channel?: string }>(req);
+  if (!channel) throw new HttpError(400, "which channel?");
+  await slackDo(() => joinFor(board, channel, u));
+  return { ok: true };
+});
+/** agents write and keep each section's summary: every one is an agent turn, so a person turns it on (and off) */
+r.post("/api/slack/board/agents", async (req) => {
+  const u = requirePerson(req, "Turning agents on for the Slack board");
+  const board = req.query.get("board") ?? "";
+  requireBoard(u, board);
+  const { on } = await readJson<{ on?: boolean }>(req);
+  if (on && !pickRuntime()) throw new HttpError(503, "No agent runtime: sign in to Claude Code (`claude`) to use your subscription, or set ANTHROPIC_API_KEY");
+  return slackDo(async () => setAgents(board, u, on === true));
+});
+/**
+ * What Slack sends, forwarded by the Slack app's own process (apps/slack-agent):
+ * that it's there, and each event as it happens. The service token only.
+ */
+r.post("/api/slack/events", async (req) => {
+  const u = requireUser(req);
+  if (u.id !== "agent") throw new HttpError(403, "Only the Slack app's process (the service token) reports Slack events");
+  const addr = req.socket.remoteAddress ?? "";
+  const loopback = addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
+  return fromBridge(await readJson<BridgeMessage>(req), { loopback });
+});
+
 // ---------- jobs ----------
 
 r.get("/api/jobs", (req) => {
@@ -648,6 +707,70 @@ r.get("/api/t3/threads/:id", async (req) => {
   const t = await t3Thread(req.params.id);
   if (!t) throw new HttpError(404, "no such Vision Code thread");
   return t;
+});
+
+// ---------- Foundation's own T3 instance: the agents this computer has (t3host.ts) ----------
+
+r.get("/api/t3host", (req) => {
+  requireUser(req);
+  return t3Host();
+});
+// starting it runs a third-party program on this computer: a person's press, and not a viewer's
+r.post("/api/t3host/start", async (req) => {
+  const u = requirePerson(req, "Starting T3");
+  if (u.role === "viewer") throw new HttpError(403, "Viewers can't start T3.");
+  return startT3(u.name);
+});
+r.post("/api/t3host/stop", (req) => {
+  const u = requirePerson(req, "Stopping T3");
+  if (u.role === "viewer") throw new HttpError(403, "Viewers can't stop T3.");
+  return stopT3();
+});
+
+// a thread runs a model on someone's plan or key: a person's press, by someone who can write the board
+r.post("/api/t3host/threads", async (req) => {
+  const u = requirePerson(req, "Asking an agent");
+  const body = await readJson<{ board?: string; section?: string; agent?: string; model?: string; text?: string }>(req);
+  if (!body.board || !body.section || !body.agent) throw new HttpError(400, "board, section and agent required");
+  requireWriter(u, body.board);
+  return askT3(u, { board: body.board, section: body.section, agent: body.agent, model: body.model, text: body.text ?? "" });
+});
+r.post("/api/t3host/threads/:id/stop", (req) => {
+  const u = requirePerson(req, "Stopping an agent");
+  if (u.role === "viewer") throw new HttpError(403, "Viewers can't stop agents.");
+  return stopT3Thread(u, req.params.id);
+});
+r.get("/api/t3host/bindings", (req) => {
+  requireUser(req);
+  return t3Bindings(req.query.get("board") ?? "");
+});
+// T3's own page, for a supervised thread's approvals and its transcript: a one-time link, per press
+r.post("/api/t3host/open", async (req) => {
+  const u = requirePerson(req, "Opening T3");
+  if (u.role === "viewer") throw new HttpError(403, "Viewers can't open T3.");
+  const { thread } = await readJson<{ thread?: string }>(req);
+  return { url: await t3OpenLink(thread).catch((e) => { throw new HttpError(502, (e as Error).message); }) };
+});
+// adding an agent gives this computer something new to run, and may carry a key: an admin, in person.
+// The key goes straight to T3 (which keeps it); Foundation doesn't store it, log it or send it back
+r.post("/api/t3host/agents", async (req) => {
+  const u = requirePerson(req, "Adding an agent");
+  if (u.role !== "admin") throw new HttpError(403, "Only an admin can add an agent.");
+  const body = await readJson<AddAgentInput>(req);
+  return { agents: await addT3Agent(body).catch((e) => { throw new HttpError(400, (e as Error).message); }) };
+});
+r.delete("/api/t3host/agents/:id", async (req) => {
+  const u = requirePerson(req, "Removing an agent");
+  if (u.role !== "admin") throw new HttpError(403, "Only an admin can remove an agent.");
+  return { agents: await removeT3Agent(req.params.id).catch((e) => { throw new HttpError(400, (e as Error).message); }) };
+});
+r.get("/api/t3host/local", async (req) => {
+  requireUser(req);
+  return localModels(req.query.get("base") || undefined).catch((e) => { throw new HttpError(400, (e as Error).message); });
+});
+r.get("/api/t3host/presets", (req) => {
+  requireUser(req);
+  return T3_PRESETS;
 });
 
 r.post("/api/agent", async (req, res) => {

@@ -40,18 +40,16 @@ import { CrewCursors, CrewFollow, CrewGuide } from "../shell/Crew";
 import { LevelBar } from "../shell/LevelBar";
 import { PortWires } from "../shell/AgentLayer";
 import { openContextMenu } from "./ContextMenu";
+import { openSectionAgents } from "./SectionAgents";
 import { countRender } from "../state/renders";
 import { gridViewSlice, useStoreSlice } from "../state/slices";
-
-function colName(col: number): string {
-  let s = "";
-  let n = col;
-  do {
-    s = String.fromCharCode(65 + (n % 26)) + s;
-    n = Math.floor(n / 26) - 1;
-  } while (n >= 0);
-  return s;
-}
+import { colName, gutterRuns } from "../lib/gridLines";
+import { useRuneDrawing } from "../rune/engine";
+import { runeHost } from "../rune/host";
+import { hitWorld } from "../rune/scene";
+import { RuneMark, RuneSurface } from "../rune/RuneSurface";
+import { RuneIslands } from "../rune/RuneIslands";
+import { toWorld } from "../state/camera";
 
 const MIN_SCALE = 0.12;
 const MAX_SCALE = 1.6;
@@ -97,33 +95,6 @@ function sectionFocusRect(grid: Parameters<typeof sectionCardRect>[0], s: Parame
   return rect.w * rect.h < card.w * card.h * 0.7 ? rect : card;
 }
 
-/**
- * Each track boundary split into runs: where it divides two sections (or
- * empty cells) it is a real edge; where one merged section spans across it,
- * it is interior.
- */
-function gutterRuns(grid: { cols: number[]; rows: number[] }, sections: Array<{ c0: number; c1: number; r0: number; r1: number }>) {
-  const out: Array<{ axis: "col" | "row"; index: number; from: number; to: number; interior: boolean }> = [];
-  for (const axis of ["col", "row"] as const) {
-    const bounds = (axis === "col" ? grid.cols : grid.rows).length - 1;
-    const along = (axis === "col" ? grid.rows : grid.cols).length;
-    for (let i = 0; i < bounds; i++) {
-      let run: (typeof out)[number] | null = null;
-      for (let k = 0; k < along; k++) {
-        const interior = sections.some((s) =>
-          axis === "col" ? s.c0 <= i && s.c1 >= i + 1 && s.r0 <= k && k <= s.r1 : s.r0 <= i && s.r1 >= i + 1 && s.c0 <= k && k <= s.c1,
-        );
-        if (run && run.interior === interior) run.to = k;
-        else {
-          run = { axis, index: i, from: k, to: k, interior };
-          out.push(run);
-        }
-      }
-    }
-  }
-  return out;
-}
-
 interface Rect {
   x: number;
   y: number;
@@ -144,6 +115,17 @@ export function GridViewport({ boardName }: { boardName?: string } = {}) {
   const state = useStoreSlice(gridViewSlice);
   const ui = useUi();
   const insets = floorInsets(ui);
+  // Settings → Renderer: Rune draws the sections and cards on its own canvas (rune/); the camera, its
+  // gestures and keys, and the layers above stay here for both engines. The handlers read it through a ref
+  const rune = useRuneDrawing();
+  const runeRef = useRef(rune);
+  runeRef.current = rune;
+  /** what Rune drew under a pointer: where the web renderer asks the DOM, Rune's board is asked by its rects */
+  const runeHit = useCallback((clientX: number, clientY: number) => {
+    const r = containerRef.current?.getBoundingClientRect();
+    const w = toWorld(clientX - (r?.left ?? 0), clientY - (r?.top ?? 0));
+    return hitWorld(getState(), w.x, w.y);
+  }, []);
   const containerRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const bgRef = useRef<ShaderBackground | null>(null);
@@ -378,7 +360,8 @@ export function GridViewport({ boardName }: { boardName?: string } = {}) {
   // Escape: step up one level
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if (e.defaultPrevented) return; // a primitive already handled it
+      // a primitive already handled it (Rune's canvas claims every key's default: those still reach the grid)
+      if (e.defaultPrevented && !(runeRef.current && (e.target as HTMLElement | null)?.tagName === "CANVAS")) return;
       const el = document.activeElement as HTMLElement | null;
       const tag = el?.tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || el?.isContentEditable)
@@ -497,6 +480,8 @@ export function GridViewport({ boardName }: { boardName?: string } = {}) {
     // the middle and right buttons pan from anywhere, like Space; the left only from the paper
     const held = e.button === 1 || e.button === 2;
     if (!spaceHeld.current && !held && target.closest(".section-card, button, input, select, .viewport-toolbar, .gutter")) return;
+    // Rune's sections and cards take their own presses: only its paper pans
+    if (runeRef.current && !spaceHeld.current && !held && target.tagName === "CANVAS" && runeHit(e.clientX, e.clientY).section) return;
     if (e.button !== 0 && !held) return;
     if (!held) setFocusGrid(); // clicking the void addresses the grid level
     const d = panDrag.current;
@@ -517,7 +502,7 @@ export function GridViewport({ boardName }: { boardName?: string } = {}) {
     try {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     } catch { /* synthetic */ }
-  }, []);
+  }, [runeHit]);
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
@@ -699,8 +684,14 @@ export function GridViewport({ boardName }: { boardName?: string } = {}) {
       let target: SnapTarget | null = null;
       let rect: Rect | null = null;
       let cap = 1.05;
-      const obj = objEl?.dataset.objId ? getObject(objEl.dataset.objId) : null;
-      if (obj) {
+      // on Rune's canvas the same rule runs on what Rune drew there
+      const hit = runeRef.current && t.tagName === "CANVAS" ? runeHit(e.clientX, e.clientY) : null;
+      const obj = hit ? (hit.object ? getObject(hit.object) : null) : objEl?.dataset.objId ? getObject(objEl.dataset.objId) : null;
+      const hitSection = hit && !hit.object && hit.section ? st.sections[hit.section] : null;
+      if (hitSection) {
+        rect = sectionFocusRect(st.grid, hitSection);
+        target = { kind: "section", id: hitSection.id };
+      } else if (obj) {
         rect = objectWorldRect(obj);
         target = { kind: "object", id: obj.id };
         if ("sourceTableId" in obj) cap = 1;
@@ -717,6 +708,9 @@ export function GridViewport({ boardName }: { boardName?: string } = {}) {
           if (target.kind === "object") setActiveObject(target.id);
           else if (target.kind === "section") setActiveSection(target.id);
           requestSnap(target);
+        } else if (hit?.object && obj && "text" in obj && getUi().role !== "viewer") {
+          // already framed: the double-click goes through to the note, which opens for writing in Rune's own field
+          runeHost()?.beginEdit(hit.object);
         }
         return;
       }
@@ -724,7 +718,7 @@ export function GridViewport({ boardName }: { boardName?: string } = {}) {
       const r = containerRef.current?.getBoundingClientRect();
       if (r) zoomAt(e.clientX - r.left, e.clientY - r.top, 2);
     },
-    [frameOf, zoom, zoomAt],
+    [frameOf, zoom, zoomAt, runeHit],
   );
 
   // ----- track resize gutters -----
@@ -808,12 +802,14 @@ export function GridViewport({ boardName }: { boardName?: string } = {}) {
   return (
     <div
       ref={containerRef}
-      className={`grid-viewport ctx-${state.focusLevel}`}
+      className={`grid-viewport ctx-${state.focusLevel}${rune ? " is-rune" : ""}`}
       onPointerDown={onPointerDown}
       onPointerDownCapture={(e) => {
         // Space held, or the middle or right button: the grid takes the pointer before any card can
         if (spaceHeld.current || e.button === 1 || e.button === 2) {
-          e.stopPropagation();
+          // (Rune hears a right press on its canvas all the same: its sections answer a right-click themselves)
+          const runes = runeRef.current && e.button === 2 && (e.target as HTMLElement).tagName === "CANVAS";
+          if (!runes) e.stopPropagation();
           onPointerDown(e);
         }
       }}
@@ -826,8 +822,11 @@ export function GridViewport({ boardName }: { boardName?: string } = {}) {
       {/* the cards live above the paper but under the floor: masked out where the floor is.
           The floor's edges are set (and transition) on the mask alone: on the viewport, every card under
           it restyled on each frame of a pane opening */}
+      {rune && <RuneSurface />}
       <div className="world-mask" style={{ "--floor-l": `${insets.left}px`, "--floor-t": `${insets.top}px`, "--floor-r": `${insets.right}px` } as CSSProperties}>
       <div ref={worldRef} className={"world" + (state.expandedSection && state.sections[state.expandedSection] ? " has-expanded" : "")}>
+        {/* Rune draws the grid, its cells and sections on its own canvas; here the web renderer does */}
+        {!rune && (<>
         {/* ----- grid chrome: track lines + spreadsheet labels ----- */}
         <div className="grid-frame" style={{ width: size.w, height: size.h }} />
         {/* track lines only where they divide sections — never across a merged one */}
@@ -872,6 +871,17 @@ export function GridViewport({ boardName }: { boardName?: string } = {}) {
                     icon: "+",
                     label: `Create section at ${colName(c)}${r + 1}`,
                     action: () => createSectionAt(c, r),
+                  },
+                  {
+                    icon: "✦",
+                    label: "Create it and ask an agent to build it…",
+                    agent: true,
+                    action: () => {
+                      createSectionAt(c, r);
+                      // the section just made is the one in use
+                      const id = getState().activeSectionId;
+                      if (id) openSectionAgents(id, true);
+                    },
                   },
                 ]);
               }}
@@ -970,6 +980,10 @@ export function GridViewport({ boardName }: { boardName?: string } = {}) {
           );
         })}
 
+        </>)}
+        {/* the cards that are web content (apps, pages, machines, maps, video, the table in hand) stay the web's, over Rune's canvas */}
+        {rune && <RuneIslands sections={sections} grid={state.grid} getScale={getScale} zoomSpring={zoom} />}
+
         {/* data-flow wires above everything */}
         <WireLayer />
         {/* the meta layer: app port wires (shown with the agent layer) */}
@@ -1006,6 +1020,7 @@ export function GridViewport({ boardName }: { boardName?: string } = {}) {
           <span className="hud-label">Ask</span>
         </button>
         <TalkButton />
+        <RuneMark />
         <button
           className="hud-zoom f-glass"
           title="Zoom — click for 100% (1) · 0 fits all · F frames the focus · double-click zooms in"

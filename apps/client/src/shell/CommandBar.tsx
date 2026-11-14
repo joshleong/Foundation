@@ -6,6 +6,7 @@
  */
 
 import { keys } from "../lib/keys";
+import { openSlackBoard } from "../lib/slackBoard";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import type { SearchHit } from "@foundation/protocol";
@@ -156,6 +157,7 @@ export function CommandBar() {
       { id: "present", glyph: "▶", label: "Present this board", keys: "P", run: () => setUi({ presenting: true }) },
       { id: "layer", glyph: "◇", label: `${getUi().agentLayer ? "Hide" : "Show"} the agent layer`, hint: "who's working on what, and how apps are wired", keys: "A", run: () => setUi({ agentLayer: !getUi().agentLayer }) },
       { id: "company", glyph: "◉", label: "Go to the company board", hint: "every app we run, live", run: () => void window.dispatchEvent(new CustomEvent("foundation:board", { detail: "company" })) },
+      { id: "slack-board", glyph: "#", label: "Open the Slack board", hint: "a section for every channel, kept live", run: () => void openSlackBoard() },
       { id: "note", glyph: "▤", label: "Add a note", run: () => void addNote(sec) },
       { id: "table", glyph: "⊞", label: "Add a table", run: () => void createTable(sec) },
       { id: "machine", glyph: "▣", label: "Start a machine in this section", hint: "Linux on Kiri or Docker, with a shared terminal", run: () => void startMachine(sec) },

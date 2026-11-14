@@ -12,6 +12,7 @@ import { openExternal } from "../utils/media";
 import { ObjectFrame } from "./ObjectFrame";
 import type { CaretSource, NoteEditorHandle } from "./noteEditor";
 import { countRender } from "../state/renders";
+import { RichNote } from "./RichText";
 
 interface Props {
   note: NoteMeta;
@@ -55,10 +56,11 @@ export const NoteView = memo(function NoteView({ note, pos, isActive, getScale }
   const [editing, setEditing] = useState(false);
   const carets = useNoteCarets(note.id, note.text);
   useEffect(() => {
-    if (getUi().role !== "viewer") warmNoteEditor();
+    if (getUi().role !== "viewer" && !note.rich) warmNoteEditor();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const html = useMemo(() => (editing ? "" : renderMarkdown(note.text)), [note.text, editing]);
+  const html = useMemo(() => (editing || note.rich ? "" : renderMarkdown(note.text)), [note.text, editing, note.rich]);
 
   const onBodyClick = useCallback((e: React.MouseEvent) => {
     const a = (e.target as HTMLElement).closest("a[data-ext]");
@@ -80,7 +82,7 @@ export const NoteView = memo(function NoteView({ note, pos, isActive, getScale }
       onMove={(x, y) => moveNote(note.id, x, y)}
       onResize={(dw, dh) => resizeNote(note.id, note.w + dw, note.h + dh)}
       onRemove={() => removeNote(note.id)}
-      bodyClass="note-body"
+      bodyClass={note.rich ? "note-body is-rich" : "note-body"}
     >
       <div style={{ height: note.h }} className="note-inner">
         {note.createdBy && !editing && (
@@ -97,7 +99,10 @@ export const NoteView = memo(function NoteView({ note, pos, isActive, getScale }
             ))}
           </div>
         )}
-        {editing ? (
+        {note.rich ? (
+          // a text box: written as formatted text, in place (RichText.tsx)
+          <RichNote note={note} />
+        ) : editing ? (
           <NoteWriter noteId={note.id} text={note.text} onDone={() => setEditing(false)} />
         ) : (
           <div
