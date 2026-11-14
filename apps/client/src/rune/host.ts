@@ -8,7 +8,7 @@
  * invariants all live behind it, and Rune never touches them.
  */
 
-import { onNight } from "@foundation/ui";
+import { isNight, onNight } from "@foundation/ui";
 import { workbook } from "../engine/workbook";
 import { camera, onCamera, toWorld } from "../state/camera";
 import {
@@ -44,6 +44,7 @@ import {
 import { floorInsets, getUi } from "../state/ui";
 import { getRuneStatus, setRuneStatus, type RuneBuild } from "./engine";
 import { runeImageSrc } from "./imageSrc";
+import { openExternal } from "../utils/media";
 import { runCardTool, runSectionTool, sectionContext } from "./tools";
 import { openContextMenu } from "../components/ContextMenu";
 import { sectionMenuItems } from "../components/sectionMenu";
@@ -55,7 +56,14 @@ const BASE = `${import.meta.env.BASE_URL}rune/`;
 interface RuneModule {
   default(input: { module_or_path: string }): Promise<unknown>;
   sceneVersion(): number;
-  mount(canvasId: string, transparent: boolean, onEvent: (json: string) => void): void;
+  mount(canvasId: string, transparent: boolean, fonts: string, onEvent: (json: string) => void): void;
+  /** the paper's light: where the pointer is over the grid (canvas px), and whether it's there at all */
+  setPointer(x: number, y: number, inside: boolean): void;
+  setNight(night: boolean): void;
+  /** the page's clock, in seconds: the paper's grain steps with it */
+  tick(seconds: number): void;
+  /** the paper as the last frame drew it: [presence, night, pointer x, y, frames so far, view runs so far] */
+  paperDrew(): Float32Array;
   setScene(json: string): void;
   setCamera(x: number, y: number, scale: number): void;
   beginEdit(id: string): void;
@@ -76,7 +84,8 @@ type RuneEvent =
   | { t: "rename"; id: string; name: string }
   | { t: "section-drag"; id: string; x: number; y: number; dx: number; dy: number; phase: "move" | "drop" | "cancel" }
   | { t: "resize"; id: string; w: number; h: number }
-  | { t: "menu"; id: string | null; x: number; y: number };
+  | { t: "menu"; id: string | null; x: number; y: number }
+  | { t: "link"; url: string };
 
 /** dev and e2e builds keep the last events Rune reported, for checks */
 const seen: RuneEvent[] | null = import.meta.env?.DEV || import.meta.env?.VITE_E2E_HOOKS ? [] : null;
@@ -134,6 +143,8 @@ export interface RuneHost {
   editing(): string | null;
   /** something the scene reads outside the store changed (the floor's panes, my role): send the board again */
   refresh(): void;
+  /** the paper as Rune last drew it: [the pointer's presence, night, pointer x, y, frames drawn, view runs] */
+  paper(): number[] | null;
   dispose(): void;
 }
 
@@ -214,6 +225,10 @@ export function mountRune(canvas: HTMLCanvasElement, opts: { transparent: boolea
       }));
     }
     else if (e.t === "create-section") createSectionAt(e.c, e.r);
+    // a link in a note: http(s) only, opened as the web note opens one
+    else if (e.t === "link") {
+      if (/^https?:\/\//i.test(e.url)) void openExternal(e.url);
+    }
     else if (e.t === "section-tool") runSectionTool(e.id, e.tool);
     else if (e.t === "menu") {
       // a right press that travelled was a pan of the grid (GridViewport), not a menu: wait for the release to know
@@ -276,16 +291,51 @@ export function mountRune(canvas: HTMLCanvasElement, opts: { transparent: boolea
   load()
     .then((m) => {
       if (disposed) return;
-      m.mount(canvas.id, opts.transparent, onEvent);
+      m.mount(canvas.id, opts.transparent, `${BASE}fonts/`, onEvent);
       mod = m;
       m.setCamera(camera.x, camera.y, camera.scale);
+      m.setNight(isNight());
+      // the paper's light follows the pointer over the grid, as the web paper's does (GridViewport). Heard at the
+      // window, on the way down: Rune's canvas keeps its pointer events from bubbling
+      const grid = canvas.parentElement;
+      let at: { x: number; y: number; inside: boolean } | null = null;
+      let lit = 0;
+      const light = () => {
+        lit = 0;
+        if (at && !disposed) m.setPointer(at.x, at.y, at.inside);
+      };
+      const onMove = (ev: PointerEvent) => {
+        const inside = !!grid && ev.target instanceof Node && grid.contains(ev.target);
+        if (!inside && !at?.inside) return;
+        const r = canvas.getBoundingClientRect();
+        at = { x: ev.clientX - r.left, y: ev.clientY - r.top, inside };
+        lit ||= requestAnimationFrame(light);
+      };
+      const onLeave = () => {
+        if (!at?.inside) return;
+        at = { ...at, inside: false };
+        lit ||= requestAnimationFrame(light);
+      };
+      window.addEventListener("pointermove", onMove, true);
+      document.documentElement.addEventListener("pointerleave", onLeave);
+      // the grain steps twice a second; a hidden page draws nothing
+      const grain = window.setInterval(() => document.visibilityState === "visible" && m.tick(performance.now() / 1000), 500);
+      offs.push(
+        () => window.removeEventListener("pointermove", onMove, true),
+        () => document.documentElement.removeEventListener("pointerleave", onLeave),
+        () => cancelAnimationFrame(lit),
+        () => window.clearInterval(grain),
+      );
       offs.push(
         onCamera((c) => m.setCamera(c.x, c.y, c.scale)),
         subscribe(schedule),
         // a table at rest is Rune's: its cells are the workbook's, which recalculates apart from the store
         workbook.subscribeAll(schedule),
         // the night fade mixes every token over 1.4 s: Rune springs between what it's handed
-        onNight(() => [0, 500, 1500].forEach((ms) => setTimeout(schedule, ms))),
+        onNight((n) => {
+          m.setNight(n);
+          [0, 500, 1500].forEach((ms) => setTimeout(schedule, ms));
+        }),
       );
       const ro = new ResizeObserver(schedule);
       ro.observe(canvas);
@@ -301,6 +351,7 @@ export function mountRune(canvas: HTMLCanvasElement, opts: { transparent: boolea
 
   return {
     beginEdit: (id) => mod?.beginEdit(id),
+    paper: () => (mod ? Array.from(mod.paperDrew()) : null),
     editing: () => editing,
     refresh: schedule,
     dispose() {
@@ -326,6 +377,7 @@ if ((import.meta.env?.DEV || import.meta.env?.VITE_E2E_HOOKS) && typeof window !
     addNote,
     createTable,
     events: () => seen,
+    paper: () => (current as (RuneHost & { paper?(): number[] }) | null)?.paper?.() ?? null,
   };
 }
 

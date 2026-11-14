@@ -1273,9 +1273,18 @@
       "kind": "plan",
       "milestone": "ship",
       "area": "design",
-      "status": "backlog",
-      "body": "Hand Rune the app's own face (convert the bundled WOFF2 to TrueType at build; `App::font_url`), draw the paper's dot grid, grain and pointer light in Rune (its compositor hook) or get a see-through web canvas from Rune, render a note's markdown, measure frame times against the web renderer on the heavy board (`e2e/frames.spec.ts`), and have `build:desktop` run `rune:build` so an installed app carries it; check it in the Windows app, on macOS and on Linux (which has no WebGPU and must fall back).",
+      "status": "review",
+      "body": "Built 2026-11-13 (fourth slice). The paper is the web paper's own shader inside Rune's frame (`apps/rune/src/paper.rs`, the compositor hook: grain, dots, pointer light, vignette, night; a section's dots too), since Rune's web canvas can't be see-through. Hanken Grotesk is handed to Rune as TrueType (`apps/rune/fonts`, from `scripts/rune-fonts.py`). A note's markdown is rendered by Rune's kit with the web note's margins. `build:desktop` runs `rune:build` (and goes on without it where there's no Rust toolchain). Frame times are measured (`e2e/rune-frames.spec.ts`, `docs/evidence/2026-11-13_rune-frames/`): Rune is slower than the web renderer on 300 notes and level on the heavy board. Checked in `e2e/rune.spec.ts` (the ninth check). Left: the installed app with Rune on (Windows, macOS, Linux's fallback), Cyrillic and Vietnamese, and the speed itself (its own card).",
       "issue": 131
+    },
+    {
+      "id": "rune-frame-cost",
+      "title": "Rune: hold 60 fps on a board of notes (it is slower than the web renderer there)",
+      "kind": "plan",
+      "milestone": "ship",
+      "area": "design",
+      "status": "next",
+      "body": "Measured 2026-11-13 (`docs/evidence/2026-11-13_rune-frames/`): on 300 markdown notes the web renderer holds 60 fps and Rune runs long frames on a third to a half of them (p95 83 to 150 ms). Find what makes Rune's view run again on live-only frames (about one run per camera step and per grain tick: its `CommitWhy`), keep off-screen cards out of the frame (cull in `scene.ts`, or a cache that holds), and cut or throttle Rune's accessibility mirror (12 % of a pan). Done when `e2e/rune-frames.spec.ts` shows Rune at the web renderer's p95 on 300 notes, and then holds it there."
     },
     {
       "id": "t3-threads-write-the-board",

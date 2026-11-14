@@ -5,11 +5,17 @@
 //! is two live values the client drives (it owns the springs, framing and keys for both
 //! engines): a pan or zoom draws without re-running this view.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ops::Range;
+use std::rc::Rc;
 
-use rune::{Cursor, Cx, Drag, El, Family, Image, ImageCache, Key, KeyEvent, Live, Phase, PointerPress, Shape, TextEdit, TextStyle, Tx, canvas, col, el, row, text, text_input};
+use rune::{Cursor, Cx, Drag, El, Family, Image, ImageCache, Key, KeyEvent, Live, Phase, PointerPress, Shape, TextEdit, TextStyle, Tx, canvas, col, effect, el, row, text, text_input};
+use pulldown_cmark::{Event as MdEvent, HeadingLevel, Options, Parser, Tag};
+use rune_kit::markdown::{Markdown, MarkdownStyle};
 
 use crate::bridge::{Event, emit};
+use crate::paper::{MARK_DOTS, MARK_PAPER};
 use crate::scene::{Card, DropTarget, Empty, Kind, Rgba, Scene, Section, Tokens, Tool, color, tint};
 
 // DESIGN.md §4: radii, nothing in between
@@ -22,30 +28,39 @@ const SECTION_HEADER: f32 = 42.0;
 /// a held card lifts 2.5 % (DESIGN.md §1.5)
 const LIFT: f32 = 1.025;
 
-const NAME: TextStyle = TextStyle::new(14.0, 600.0).tracking(-0.07);
-const COORDS: TextStyle = TextStyle::new(10.0, 600.0).tracking(0.8).features("'tnum' 1");
-const COUNT: TextStyle = TextStyle::new(10.5, 600.0).features("'tnum' 1");
-const TRACK: TextStyle = TextStyle::new(15.0, 700.0).tracking(2.1).features("'tnum' 1");
-const ADD: TextStyle = TextStyle::new(12.5, 600.0);
-const NOTE: TextStyle = TextStyle::new(13.5, 400.0).lh(13.5 * 1.55);
+/// tokens.css --font-sans: Hanken Grotesk, handed to Rune as files (apps/rune/fonts). The Latin
+/// Extended file is its own family (Rune keeps one face per family, weight and style); past
+/// both, Rune's sans slot (Inter).
+pub const FACE_NAMES: &str = "Hanken Grotesk, Hanken Grotesk Ext";
+const FACE: Family = Family::Named(FACE_NAMES);
+const fn face(size: f32, weight: f32) -> TextStyle {
+    TextStyle::new(size, weight).family(FACE)
+}
+
+const NAME: TextStyle = face(14.0, 600.0).tracking(-0.07);
+const COORDS: TextStyle = face(10.0, 600.0).tracking(0.8).features("'tnum' 1");
+const COUNT: TextStyle = face(10.5, 600.0).features("'tnum' 1");
+const TRACK: TextStyle = face(15.0, 700.0).tracking(2.1).features("'tnum' 1");
+const ADD: TextStyle = face(12.5, 600.0);
+const NOTE: TextStyle = face(13.5, 400.0).lh(13.5 * 1.55);
 const NOTE_EDIT: TextStyle = TextStyle::new(12.5, 400.0).family(Family::Mono).lh(12.5 * 1.6);
-const TABLE_NAME: TextStyle = TextStyle::new(15.0, 650.0).tracking(-0.15);
-const TABLE_HEAD: TextStyle = TextStyle::new(10.5, 600.0).tracking(0.84).features("'tnum' 1");
-const CELL: TextStyle = TextStyle::new(13.5, 400.0);
-const CELL_NUM: TextStyle = TextStyle::new(13.5, 400.0).features("'tnum' 1");
-const CELL_ERR: TextStyle = TextStyle::new(11.5, 600.0).tracking(0.35);
+const TABLE_NAME: TextStyle = face(15.0, 650.0).tracking(-0.15);
+const TABLE_HEAD: TextStyle = face(10.5, 600.0).tracking(0.84).features("'tnum' 1");
+const CELL: TextStyle = face(13.5, 400.0);
+const CELL_NUM: TextStyle = face(13.5, 400.0).features("'tnum' 1");
+const CELL_ERR: TextStyle = face(11.5, 600.0).tracking(0.35);
 // store.ts: a table's own measures
 const CELL_W: f32 = 148.0;
 const CELL_H: f32 = 40.0;
 const HEADER_H: f32 = 52.0;
 const ROWNUM_W: f32 = 44.0;
 const COLHEAD_H: f32 = 32.0;
-const AGENT: TextStyle = TextStyle::new(11.0, 600.0);
-const RENAME: TextStyle = TextStyle::new(13.0, 700.0);
-const CONFIRM: TextStyle = TextStyle::new(12.5, 400.0);
-const BUTTON: TextStyle = TextStyle::new(12.0, 600.0);
-const BAR_TITLE: TextStyle = TextStyle::new(12.0, 650.0);
-const DROP: TextStyle = TextStyle::new(13.0, 600.0);
+const AGENT: TextStyle = face(11.0, 600.0);
+const RENAME: TextStyle = face(13.0, 700.0);
+const CONFIRM: TextStyle = face(12.5, 400.0);
+const BUTTON: TextStyle = face(12.0, 600.0);
+const BAR_TITLE: TextStyle = face(12.0, 650.0);
+const DROP: TextStyle = face(13.0, 600.0);
 
 /// A card following the pointer, and where it has got to (world points from its resting place).
 pub struct Held {
@@ -71,6 +86,8 @@ pub struct Board {
     pub scene: Scene,
     pub pan: Live<[f32; 2]>,
     pub zoom: Live<f32>,
+    /// the paper's place: `lib.rs` moves it a hair to ask for a frame
+    pub nudge: Live<[f32; 2]>,
     pub held: Option<Held>,
     /// the note being written, and its field
     pub editing: Option<String>,
@@ -86,9 +103,9 @@ pub struct Board {
 }
 
 impl Board {
-    pub fn new(pan: Live<[f32; 2]>, zoom: Live<f32>) -> Self {
+    pub fn new(pan: Live<[f32; 2]>, zoom: Live<f32>, nudge: Live<[f32; 2]>) -> Self {
         Board {
-            scene: Scene::default(), pan, zoom, held: None, editing: None, edit: TextEdit::new(""), section_held: None, renaming: None,
+            scene: Scene::default(), pan, zoom, nudge, held: None, editing: None, edit: TextEdit::new(""), section_held: None, renaming: None,
             name_edit: TextEdit::new(""), resizing: None, cache: None, images: HashMap::new(),
         }
     }
@@ -165,7 +182,15 @@ impl Board {
     }
 }
 
+thread_local! {
+    /// How many times the view has run. A pan or a zoom shouldn't add any (the camera is two live
+    /// values), but Rune's frame step commits during them anyway: SPEC §7, and `e2e/rune-frames.spec.ts`
+    /// records the count.
+    pub static VIEWS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
 pub fn view(b: &Board, _: &mut Cx<Board>) -> El {
+    VIEWS.with(|v| v.set(v.get() + 1));
     let sc = &b.scene;
     let t = &sc.tokens;
     let v = &sc.view;
@@ -202,11 +227,13 @@ pub fn view(b: &Board, _: &mut Cx<Board>) -> El {
     let clip = el().key("floor").pin(Some(v.left), Some(v.top), Some(v.right), Some(0.0)).clip_rounded(0.0).child(world);
     // Every right-click is Rune's to answer, so the browser's own menu never opens over the board:
     // a section says which it was (the client opens its menu there), anything else has none.
-    let mut root = el().key("board").w_full().h_full().child(clip)
-        .on_secondary_press(|_: &mut Board, p: PointerPress, _: &mut Tx| emit(Event::Menu { id: None, x: p.x, y: p.y }));
+    let mut root = el().key("board").w_full().h_full();
     if sc.paper {
-        root = root.fill(color(t.void));
+        // the paper: its token colour, and over it the web paper's own shader (paper.rs)
+        root = root.fill(color(t.void)).child(effect(MARK_PAPER).key("paper").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).live_offset(&b.nudge).inert());
     }
+    let root = root.child(clip)
+        .on_secondary_press(|_: &mut Board, p: PointerPress, _: &mut Tx| emit(Event::Menu { id: None, x: p.x, y: p.y }));
     root
 }
 
@@ -395,6 +422,8 @@ fn section(s: &Section, b: &Board) -> El {
         .border(1.0, color(if s.active { t.dim } else { t.line_strong }))
         .shadow(1.0, 2.0, tint(t.frost, lift.0))
         .shadow(lift.2, lift.3, tint(t.frost, lift.1))
+        // App.css .section-body: the body's own dots, 28 px apart, frost at 13 %
+        .child(effect(MARK_DOTS).key("dots").absolute(0.0, SECTION_HEADER).size(s.w, (s.h - SECTION_HEADER).max(0.0)).effect_data([t.frost[0], t.frost[1], t.frost[2], t.frost[3] * 0.13]).inert())
         .child(header)
         .on_press_tx(move |b: &mut Board, _: &mut Tx| {
             b.end_edit();
@@ -453,7 +482,8 @@ fn card(c: &Card, b: &Board) -> El {
         .scale(c.s * if carried { LIFT } else { 1.0 }).radius(R_CARD).clip_rounded(R_CARD);
     // images rest bare; everything else is paper with a hairline (DESIGN.md §5 Card, Media card)
     if !bare_image {
-        frame = frame.fill(color(if c.kind == Kind::Note { t.abyss } else { t.raise })).border(1.0, color(t.line));
+        // App.css .frame-card: every card's paper is the raised one
+        frame = frame.fill(color(t.raise)).border(1.0, color(t.line));
         frame = if carried { frame.shadow(14.0, 44.0, tint(t.frost, 16.0)) } else { frame.shadow(1.0, 2.0, tint(t.frost, 5.0)) };
     }
     if c.active || editing {
@@ -553,9 +583,92 @@ fn card_chrome(mut frame: El, c: &Card, t: &Tokens) -> El {
     frame
 }
 
-/// A note at rest: its text on the card. (Markdown is drawn as typed for now: see the ledger.)
+/// App.css `.note-rendered`, as a style for Rune's kit: the body, the four headings, code, quotes,
+/// rules, links and lists in the web note's sizes and tokens.
+fn note_style(t: &Tokens) -> MarkdownStyle {
+    // the kit's defaults for what isn't set here (syntax colours, a task's box) come in two lights
+    let dark = t.void[0] + t.void[1] + t.void[2] < 1.5;
+    MarkdownStyle::neutral(dark)
+        .text(color(t.frost)).muted(color(t.mist))
+        .link(color(t.pulse)).link_underline(tint(t.pulse, 30.0)).link_hover(color(t.pulse))
+        .body_font(NOTE)
+        .heading_font(1, face(20.0, 700.0).tracking(-0.4).lh(20.0 * 1.55))
+        .heading_font(2, face(16.5, 700.0).tracking(-0.165).lh(16.5 * 1.55))
+        .heading_font(3, face(14.0, 700.0).lh(14.0 * 1.55))
+        .heading_font(4, face(13.0, 700.0).lh(13.0 * 1.55))
+        .strong_weight(700.0)
+        .inline_code_bg(tint(t.frost, 6.0)).inline_code_font(12.0 / 13.5, 400.0).inline_code_pad(5.0)
+        .code_block(tint(t.frost, 5.0), color(t.line)).code_block_padding(12.0, 10.0).code_margin(0.0, 0.0)
+        .code_block_font(TextStyle::new(12.0, 400.0).family(Family::Mono).lh(12.0 * 1.55)).code_block_text(color(t.frost)).syntax_highlight(false)
+        .quote(color(t.line_strong), 3.0, 12.0, color(t.mist))
+        .rule(color(t.line))
+        .list(20.0, 2.0)
+        .selection(tint(t.pulse, 24.0))
+}
+
+/// A top-level block of a note, and the margins App.css `.note-rendered` gives it (above, below).
+fn block_margins(tag: &Tag) -> (f32, f32) {
+    match tag {
+        Tag::Heading { level: HeadingLevel::H1, .. } => (8.0, 6.0),
+        Tag::Heading { level: HeadingLevel::H2, .. } => (8.0, 5.0),
+        Tag::Heading { .. } => (6.0, 4.0),
+        Tag::BlockQuote(_) | Tag::CodeBlock(_) | Tag::Table(_) => (6.0, 6.0),
+        _ => (4.0, 4.0),
+    }
+}
+
+thread_local! {
+    /// a note's text, cut into its top-level blocks (their byte ranges and margins): kept between views
+    static BLOCKS: RefCell<HashMap<String, Rc<Vec<(Range<usize>, f32, f32)>>>> = RefCell::new(HashMap::new());
+}
+
+/// The note's top-level blocks. Rune's kit spaces blocks for a reading page (28 above a heading,
+/// 12 below a paragraph); a note is tighter, so each block is rendered by the kit on its own and
+/// spaced here with the web note's margins, collapsing as CSS does.
+fn note_blocks(src: &str) -> Rc<Vec<(Range<usize>, f32, f32)>> {
+    BLOCKS.with_borrow_mut(|cache| {
+        if let Some(hit) = cache.get(src) {
+            return hit.clone();
+        }
+        // the kit's own parser options, so a block here is a block there
+        let opts = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS;
+        let mut blocks = Vec::new();
+        let mut depth = 0usize;
+        for (ev, range) in Parser::new_ext(src, opts).into_offset_iter() {
+            match ev {
+                MdEvent::Start(tag) => {
+                    if depth == 0 {
+                        let (above, below) = block_margins(&tag);
+                        blocks.push((range, above, below));
+                    }
+                    depth += 1;
+                }
+                MdEvent::End(_) => depth = depth.saturating_sub(1),
+                MdEvent::Rule if depth == 0 => blocks.push((range, 10.0, 10.0)),
+                _ => {}
+            }
+        }
+        if cache.len() > 512 {
+            cache.clear();
+        }
+        let blocks = Rc::new(blocks);
+        cache.insert(src.to_owned(), blocks.clone());
+        blocks
+    })
+}
+
+/// A note at rest: its markdown, rendered (headings, emphasis, lists, tasks, code, quotes, links,
+/// tables). A link says where it goes and the client opens it; a task's box doesn't tick here.
 fn note(c: &Card, t: &Tokens) -> El {
-    el().w_full().h_full().px(18.0).py(14.0).child(text(c.text.clone()).font(NOTE).color(color(t.frost)).wrap().w_full())
+    let style = note_style(t);
+    let mut body = col().key("md").w_full();
+    let mut below = None;
+    for (i, (range, above, next_below)) in note_blocks(&c.text).iter().enumerate() {
+        let block = Markdown::new(&c.text[range.clone()]).tasks_read_only().on_link(|_: &mut Board, url| emit(Event::Link { url })).render(&style);
+        body = body.child(block.key(format!("b{i}")).mt(below.map_or(*above, |b: f32| b.max(*above))));
+        below = Some(*next_below);
+    }
+    el().w_full().h_full().px(18.0).py(14.0).child(body)
 }
 
 /// A note being written: Rune's own field, in the code face like the web editor. It starts

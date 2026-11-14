@@ -34,6 +34,8 @@ pub enum Event<'a> {
     SectionDrag { id: &'a str, x: f32, y: f32, dx: f32, dy: f32, phase: &'a str },
     /// A card's size while its corner is dragged.
     Resize { id: &'a str, w: f32, h: f32 },
+    /// A link in a note was pressed.
+    Link { url: &'a str },
     /// A right-click on a section's paper, in window points (`None`: on the board, where there's no menu).
     Menu { id: Option<&'a str>, x: f32, y: f32 },
 }

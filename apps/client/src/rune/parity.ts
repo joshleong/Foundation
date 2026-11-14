@@ -28,7 +28,7 @@ export const PARITY: ParityGroup[] = [
   {
     name: "The grid",
     rows: [
-      { what: "Paper", status: "partial", note: "Flat, in the paper's token colour: no grain, dot grid or pointer light (Rune's canvas can't be see-through on the web yet)" },
+      { what: "Paper: grain, dot grid, the light that follows the pointer, vignette, night", status: "same", note: "The web paper's own shader, drawn inside Rune's frame (its canvas can't be see-through on the web); a section's dots too" },
       { what: "Camera: pan, wheel, pinch, throw, zoom keys, framing (0, F, arrows), double-click zoom", status: "same", note: "One camera for both engines: the same springs and the same code" },
       { what: "The floor: cards cut clean at a pane's edge and under the top bar", status: "partial", note: "The edge moves at once when a pane opens; the web's glides 0.42 s" },
       { what: "Grid frame, track labels", status: "same" },
@@ -57,7 +57,7 @@ export const PARITY: ParityGroup[] = [
   {
     name: "Cards",
     rows: [
-      { what: "Note at rest", status: "partial", note: "Markdown is drawn as typed, not rendered" },
+      { what: "Note at rest", status: "partial", note: "Markdown by Rune's kit, in the web note's sizes, tokens and margins. Bullets are smaller, a task's box doesn't tick, and code is IBM Plex Mono where the web's is the system's code face; tables and pictures in a note are unchecked" },
       { what: "Note: writing", status: "partial", note: "Rune's own field (caret, selection, undo, IME, clipboard), each keystroke to the board; no markdown highlighting, no shared carets" },
       { what: "Image", status: "partial", note: "Bare, at rest; no hover icons, no invert on dark. One Rune can't fetch by address (a hosted server's file) stays the web's" },
       { what: "Move within its section", status: "partial", note: "Lifts and follows; no lean, and it can't be carried to another section or tab" },
@@ -85,10 +85,11 @@ export const PARITY: ParityGroup[] = [
     name: "Everywhere",
     rows: [
       { what: "Tokens: every colour from tokens.css, day and night", status: "partial", note: "Night fades on Rune's colour spring, not the tokens' 1.4 s mix" },
-      { what: "Type: Hanken Grotesk", status: "partial", note: "Rune draws Inter until the face is handed to it" },
+      { what: "Type: Hanken Grotesk", status: "partial", note: "Latin and Latin Extended, upright and italic. Cyrillic and Vietnamese fall back to Inter, and so does everything for the moment before the face arrives" },
+      { what: "Speed", status: "partial", note: "On 300 notes the web renderer holds 60 fps and Rune doesn't: panning fitted, half its frames run long (p95 100 ms against 16.7). Level on a board of web content. Measured, not yet fixed" },
       { what: "View only", status: "same", note: "Nothing moves and nothing opens for writing" },
       { what: "Accessibility: the board to a screen reader", status: "missing", note: "Rune's web target mirrors only whole-page documents" },
-      { what: "Where it runs", status: "partial", note: "Chromium and the Windows desktop app (WebGPU); not yet checked in the Mac app, absent on Linux's webview" },
+      { what: "Where it runs", status: "partial", note: "Chromium (checked in Edge). A desktop build carries it where it was built with the Rust toolchain; the Windows and Mac apps with Rune on are unchecked, and Linux's webview has no WebGPU" },
     ],
   },
 ];

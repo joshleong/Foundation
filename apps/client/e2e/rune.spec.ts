@@ -439,3 +439,160 @@ test("a section's tools, rename, drag, right-click menu and remove; a note's bar
   await page.keyboard.press("Escape");
   await expect.poll(async () => (await full()).level).toBe(null);
 });
+
+/** what a screenshot holds, read in the page (the PNG decoded on a canvas) */
+async function pixels(page: Page, a: Buffer, b?: Buffer) {
+  return page.evaluate(
+    async ([x, y]) => {
+      const read = async (b64: string) => {
+        const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
+        const g = new OffscreenCanvas(img.width, img.height).getContext("2d")!;
+        g.drawImage(img, 0, 0);
+        return { w: img.width, h: img.height, d: g.getImageData(0, 0, img.width, img.height).data };
+      };
+      const A = await read(x!);
+      const n = A.w * A.h;
+      const mean = [0, 0, 0];
+      // ink: pixels far from the picture's most common colour (its paper)
+      const bins = new Map<number, number>();
+      for (let i = 0; i < n; i++) {
+        for (let k = 0; k < 3; k++) mean[k] += A.d[i * 4 + k];
+        const key = (A.d[i * 4] >> 2) | ((A.d[i * 4 + 1] >> 2) << 6) | ((A.d[i * 4 + 2] >> 2) << 12);
+        bins.set(key, (bins.get(key) ?? 0) + 1);
+      }
+      const paper = [...bins].sort((p, q) => q[1] - p[1])[0][0];
+      const base = [(paper & 63) << 2, ((paper >> 6) & 63) << 2, ((paper >> 12) & 63) << 2];
+      let ink = 0;
+      for (let i = 0; i < n; i++) {
+        if (Math.abs(A.d[i * 4] - base[0]) + Math.abs(A.d[i * 4 + 1] - base[1]) + Math.abs(A.d[i * 4 + 2] - base[2]) > 90) ink++;
+      }
+      let diff = -1;
+      let changed = -1;
+      if (y) {
+        const B = await read(y);
+        diff = 0;
+        changed = 0;
+        for (let i = 0; i < n * 4; i += 4) {
+          const d = Math.abs(A.d[i] - B.d[i]) + Math.abs(A.d[i + 1] - B.d[i + 1]) + Math.abs(A.d[i + 2] - B.d[i + 2]);
+          diff += d / 3;
+          if (d > 0) changed++;
+        }
+        diff /= n;
+        changed /= n;
+      }
+      return { mean: mean.map((v) => v / n), ink: ink / n, diff, changed };
+    },
+    [a.toString("base64"), b?.toString("base64")] as const,
+  );
+}
+
+const MARKDOWN = "# Paper and type\n\nThe body, with **strong**, *emphasis*, `code` and a [link](https://foundation.invalid/rune).\n\n## A list\n\n- one\n- two\n- three\n\n> A quoted line.\n\n```\nlet x = 1;\n```\n";
+
+test("the paper, the face and a note in markdown are the web renderer's own", async ({ page }) => {
+  test.setTimeout(120_000);
+  mkdirSync(OUT, { recursive: true });
+  // a link opens a window: nothing answers at .invalid, and the window goes
+  page.context().on("page", (p) => void p.close().catch(() => {}));
+  const fonts: string[] = [];
+  page.on("response", (r) => {
+    if (/\/rune\/fonts\/.+\.ttf/.test(r.url()) && r.ok()) fonts.push(r.url().split("/").pop()!);
+  });
+  // bare paper, clear of the grid, the bars and the pointer
+  const bare = { x: 40, y: 740, width: 260, height: 60 };
+  const shots: Record<string, { paper: Buffer; note: Buffer; clip: { x: number; y: number; width: number; height: number } }> = {};
+  let noteId = "";
+  // where the web note sets its link, from the note's corner
+  let link = { x: 0, y: 0 };
+  for (const engine of ["web", "rune"] as const) {
+    await open(page, engine);
+    await page.keyboard.press("0");
+    await settle(page, 1400);
+    // (the section check before this one renames Design)
+    const section = (await scene(page)).sections.find((s) => s.name === "Design" || s.name === "Studio work")!;
+    if (!noteId) noteId = await page.evaluate(([id, text]) => (window as unknown as { __foundationRune: Hook }).__foundationRune.addNote(id, text).id, [section.id, MARKDOWN] as const);
+    // (a new note is framed: back to the whole board)
+    await settle(page, 1500);
+    await page.keyboard.press("0");
+    await settle(page, 1500);
+    // away from the grid, so the light that follows the pointer is off
+    await page.mouse.move(700, 20);
+    await settle(page, 1500);
+    const paper = await page.screenshot({ clip: bare });
+    await page.screenshot({ path: `${OUT}/paper-${engine}-night.png` });
+    // the note, framed
+    const p = await cardPoint(page, noteId);
+    await page.mouse.dblclick(p.x, p.y);
+    await settle(page, 1600);
+    await page.keyboard.press("Escape");
+    await page.mouse.move(700, 20);
+    await settle(page, 900);
+    const card = (await scene(page)).cards.find((c) => c.id === noteId)!;
+    const cam = await camera(page);
+    const k = cam.scale * card.s;
+    const clip = { x: Math.round(cam.left + cam.x + card.x * cam.scale) + 2, y: Math.round(cam.top + cam.y + card.y * cam.scale) + 2, width: Math.round(card.w * k) - 4, height: Math.round(card.h * k) - 4 };
+    shots[engine] = { paper, note: await page.screenshot({ clip }), clip };
+    if (engine === "web") {
+      const a = (await page.locator('.note-rendered a[href*="foundation.invalid"]').boundingBox())!;
+      link = { x: a.x + a.width / 2 - clip.x, y: a.y + a.height / 2 - clip.y };
+    }
+    await page.screenshot({ path: `${OUT}/note-markdown-${engine}.png`, clip });
+  }
+  // (the page is Rune's from here.) The note is the same size on screen in both; where the framing rests may differ
+  expect([shots.rune.clip.width, shots.rune.clip.height]).toEqual([shots.web.clip.width, shots.web.clip.height]);
+
+  // the paper: the same colour as the web's, within grain
+  const web = await pixels(page, shots.web.paper);
+  const rune = await pixels(page, shots.rune.paper);
+  console.log(`paper: web ${web.mean.map((v) => v.toFixed(1))} rune ${rune.mean.map((v) => v.toFixed(1))}`);
+  for (let k = 0; k < 3; k++) expect(Math.abs(web.mean[k] - rune.mean[k]), `paper channel ${k}`).toBeLessThan(2.5);
+
+  // the face reached Rune
+  expect(fonts).toContain("HankenGrotesk-Latin.ttf");
+
+  // the note: about as much ink as the web note has
+  const noteWeb = await pixels(page, shots.web.note);
+  const noteRune = await pixels(page, shots.rune.note, shots.web.note);
+  console.log(`note markdown: ink web ${(noteWeb.ink * 100).toFixed(2)}% rune ${(noteRune.ink * 100).toFixed(2)}%; mean difference ${noteRune.diff.toFixed(2)}/255`);
+  expect(noteRune.ink / noteWeb.ink).toBeGreaterThan(0.75);
+  expect(noteRune.ink / noteWeb.ink).toBeLessThan(1.3);
+  // and pixel for pixel they differ by little (4/255 on average here: the faces' edges, the bullets, the code face)
+  expect(noteRune.diff).toBeLessThan(8);
+
+  // the link sits where the web note sets it, and a press says where it goes
+  await page.mouse.click(shots.rune.clip.x + link.x, shots.rune.clip.y + link.y);
+  await expect
+    .poll(() => page.evaluate(() => ((window as unknown as { __foundationRune: { events(): Array<{ t: string; url?: string }> } }).__foundationRune.events() ?? []).filter((e) => e.t === "link").map((e) => e.url)))
+    .toContain("https://foundation.invalid/rune");
+
+  // the grain steps twice a second though nothing else moves
+  await page.keyboard.press("0");
+  await settle(page, 1500);
+  await page.mouse.move(700, 20);
+  await settle(page, 1200);
+  const frames0 = await page.evaluate(() => (window as unknown as { __foundationRune: { paper(): number[] } }).__foundationRune.paper()[4]);
+  const g0 = await page.screenshot({ clip: bare });
+  await settle(page, 1300);
+  const g1 = await page.screenshot({ clip: bare });
+  const frames1 = await page.evaluate(() => (window as unknown as { __foundationRune: { paper(): number[] } }).__foundationRune.paper()[4]);
+  const grain = await pixels(page, g0, g1);
+  // and a board at rest draws for the grain alone: a few frames, not sixty a second
+  expect(frames1 - frames0).toBeGreaterThan(0);
+  expect(frames1 - frames0).toBeLessThan(12);
+  console.log(`grain: ${(grain.changed * 100).toFixed(0)}% of bare paper changed in 1.3 s`);
+  expect(grain.changed).toBeGreaterThan(0.2);
+
+  // the light that follows the pointer: the paper under it is brighter than it was
+  const spot = { x: bare.x + 90, y: bare.y - 10, width: 80, height: 80 };
+  const dark = await pixels(page, await page.screenshot({ clip: spot }));
+  await page.mouse.move(spot.x + 40, spot.y + 40, { steps: 4 });
+  await settle(page, 1500);
+  await page.screenshot({ path: `${OUT}/paper-light-rune.png`, clip: { x: 0, y: 560, width: 520, height: 300 } });
+  const lit = await pixels(page, await page.screenshot({ clip: spot }));
+  console.log(`pointer light: ${dark.mean.map((v) => v.toFixed(1))} -> ${lit.mean.map((v) => v.toFixed(1))}`);
+  expect(lit.mean[0] - dark.mean[0]).toBeGreaterThan(3);
+  // and it follows: with the pointer across the board, this paper is as it was
+  await page.mouse.move(1300, 120, { steps: 4 });
+  await settle(page, 1800);
+  const gone = await pixels(page, await page.screenshot({ clip: spot }));
+  expect(Math.abs(gone.mean[0] - dark.mean[0])).toBeLessThan(1.5);
+});

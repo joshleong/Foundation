@@ -24,7 +24,8 @@ cargo install wasm-bindgen-cli --version 0.2.129 --locked
 ```
 
 The first build compiles Rune and wgpu (about three minutes here); after that an edit rebuilds
-in about twenty seconds. Without a build the app says so and stays on the web renderer.
+in about twenty seconds. `npm run build:desktop` runs it first (`--if-able`: without the toolchain
+it says so and that build has no Rune). Without a build the app says so and stays on the web renderer.
 
 ## How it fits
 
@@ -46,6 +47,17 @@ camera.ts (one camera, both engines) ──▶ setCamera ──▶ two Live valu
   for both engines (`GridViewport.tsx`); it asks `hitWorld` what's under the pointer where the
   web renderer asks the DOM.
 - **Web layers stay web.** Wires, cursors and the chrome draw over the canvas.
+- **The paper is Rune's.** Rune's web canvas can't be see-through, so `paper.rs` draws the web
+  paper's own shader (`apps/client/src/gl/background.ts`, in WGSL) through Rune's compositor
+  hook, and a section's dots with it. The page tells it where the pointer is, whether it's
+  night, and the time twice a second (the grain); a frame is asked for by moving a live value
+  a hair (`lib.rs` `redraw`), because Rune's own clock only runs while it draws.
+- **The face is the app's.** `fonts/` holds Hanken Grotesk as TrueType (`scripts/rune-fonts.py`
+  unpacks the web bundle's WOFF2); the build copies it beside the wasm and Rune fetches it after
+  its first frame. Handed over before the first frame it would replace Rune's built-in faces,
+  the code face among them.
+- **A note's markdown is Rune's kit's** (`rune-kit`, `markdown`), one top-level block at a time,
+  so the blocks can be spaced with the web note's margins instead of the kit's reading-page ones.
 - **Web content stays web, as islands.** Apps, pages, machines, maps and video are the web
   renderer's own components, placed over the canvas in a shell of their section
   (`apps/client/src/rune/RuneIslands.tsx`). `isIsland` in `scene.ts` is the one rule: a card is
@@ -69,8 +81,10 @@ camera.ts (one camera, both engines) ──▶ setCamera ──▶ two Live valu
 
 ## Rune itself
 
-Pre-release: `Cargo.toml` pins a rev of Rune's `dev` branch, and the same rev for the four
-crates Rune patches (bump all five together). Rune's docs are `crates/rune/README.md` and
+Pre-release: `Cargo.toml` pins a rev of Rune's `dev` branch, the same rev for its kit and for the
+four crates Rune patches (bump all six together). Rune's docs are `crates/rune/README.md` and
 `WEB.md` in its repo. Found here, 2026-11-12: a web canvas asked to be transparent came out
-opaque (so Rune paints the paper), and the web host sets no cursors. Rune takes issues, not
+opaque (its web host never asks WebGPU for an alpha canvas, so Rune paints the paper), and the web
+host sets no cursors. Found 2026-11-13: Rune's frame step re-runs the view on many frames of a
+pan or a zoom though only live values moved (`e2e/rune-frames.spec.ts` counts them; SPEC §7). Rune takes issues, not
 pull requests.
