@@ -19,6 +19,14 @@
 //
 // Publishing is the approval: once the release is up, every installed Foundation offers it within a
 // launch (or six hours). `publish` refuses a release that already exists unless --replace is given.
+//
+// CI (2026-11-13, Josh: "all future improvements get installed … without having to be built by claude"):
+// .github/workflows/desktop-release.yml runs on every push to main and, once tests pass, runs
+//
+//   node scripts/release.mjs ci       stamp <major>.<minor>.<patch + run number>, notes from the commits
+//                                     since the last release, build, publish (a draft until complete)
+//
+// It commits nothing: the stamped version and docs/blog/<version>.md live only in that build.
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
@@ -27,7 +35,8 @@ import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const REPO = process.env.FOUNDATION_RELEASE_REPO ?? "Normal-AI-Vibe-Code/Foundation";
+// Josh, 2026-11-13: releases come from the repo main is pushed to (the org repo's main stopped on 2026-10-04)
+const REPO = process.env.FOUNDATION_RELEASE_REPO ?? "joshleong/Foundation";
 const TAURI = join(root, "apps/client/src-tauri");
 const BUNDLE = join(TAURI, "target/release/bundle");
 const OUT = join(root, "dist/release");
@@ -70,10 +79,8 @@ export function readNotes(version) {
 const assetUrl = (version, file) => `https://github.com/${REPO}/releases/download/v${version}/${encodeURIComponent(file)}`;
 
 // ------------------------------------------------------------------ bump
-function bump(version) {
-  if (!SEMVER.test(version ?? "")) die("usage: npm run release -- bump <x.y.z>");
-  if (git("status", "--porcelain")) die("the working tree isn't clean; commit or set aside your changes first");
-  const from = currentVersion();
+/** every version string the app is built from (the packages, tauri.conf.json, the crate and its lock) */
+function stamp(version) {
   for (const p of ["apps/client/package.json", "apps/server/package.json", "packages/protocol/package.json", "packages/ui/package.json"]) {
     const j = readJson(p);
     j.version = version;
@@ -86,6 +93,13 @@ function bump(version) {
   writeFileSync(cargo, readFileSync(cargo, "utf8").replace(/^version = "[^"]+"/m, `version = "${version}"`));
   const lock = join(TAURI, "Cargo.lock");
   writeFileSync(lock, readFileSync(lock, "utf8").replace(/(name = "tauri-app"\r?\nversion = ")[^"]+"/, `$1${version}"`));
+}
+
+function bump(version) {
+  if (!SEMVER.test(version ?? "")) die("usage: npm run release -- bump <x.y.z>");
+  if (git("status", "--porcelain")) die("the working tree isn't clean; commit or set aside your changes first");
+  const from = currentVersion();
+  stamp(version);
   run("npm", ["install", "--package-lock-only", "--no-audit", "--no-fund"]);
   git("add", "-A", "apps/client/package.json", "apps/server/package.json", "packages/protocol/package.json", "packages/ui/package.json", "apps/client/src-tauri/tauri.conf.json", "apps/client/src-tauri/Cargo.toml", "apps/client/src-tauri/Cargo.lock", "package-lock.json");
   git("commit", "-q", "-m", `Foundation ${version}\n\nVersions bump ${from} → ${version} (npm run release -- bump).`);
@@ -186,11 +200,77 @@ function publish() {
   console.log(`\n  Published ${tag}. The feed: https://github.com/${REPO}/releases/latest/download/latest.json\n`);
 }
 
-// run as a script (tests import feed() and readNotes() without running anything)
+// ------------------------------------------------------------------ ci
+/** the version CI publishes: the checked-in one with the run number added to its patch (0.3.0, run 7 → 0.3.7).
+ *  A person bumping to 0.4.0 moves CI on to 0.4.<run>, which is newer than any 0.3.x. */
+export function ciVersion(base, runNumber) {
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(base ?? "");
+  const n = Number(runNumber);
+  if (!m || !Number.isInteger(n) || n < 1) throw new Error(`no CI version from "${base}" and run "${runNumber}"`);
+  return `${m[1]}.${m[2]}.${Number(m[3]) + n}`;
+}
+
+/** docs/blog/<version>.md for a CI build: the commits since the last release, newest first, without the plan's syncs */
+export function ciNotes(version, subjects, date) {
+  const kept = subjects.map((s) => s.replace(/\s+/g, " ").trim()).filter((s) => s && !/^Plan: synced/.test(s));
+  const shown = kept.slice(0, 25);
+  const lines = shown.map((s) => `- ${s}`);
+  if (kept.length > shown.length) lines.push(`- and ${kept.length - shown.length} more changes`);
+  if (!lines.length) lines.push("- Small fixes.");
+  // the front-matter is one line per key, read up to the line's end: no quotes or newlines in the title
+  let title = (kept[0] ?? "Small fixes").replace(/["']/g, "");
+  if (title.length > 90) title = title.slice(0, 89).replace(/\s+\S*$/, "") + "…";
+  return `---\nversion: ${version}\ndate: ${date}\ntitle: ${title}\n---\n\n${lines.join("\n")}\n`;
+}
+
+const gh = (argv) => spawnSync("gh", argv, { cwd: root, encoding: "utf8" });
+
+function ci() {
+  const runNumber = args[0] ?? process.env.GITHUB_RUN_NUMBER;
+  const sha = process.env.GITHUB_SHA ?? git("rev-parse", "HEAD");
+  if (!process.env.TAURI_SIGNING_PRIVATE_KEY) die("ci: TAURI_SIGNING_PRIVATE_KEY isn't set (the repo's Actions secret)");
+  const version = ciVersion(currentVersion(), runNumber);
+  const tag = `v${version}`;
+
+  // a re-run of a published run has nothing to do; a draft left by a cancelled one is cleared
+  const existing = gh(["release", "view", tag, "-R", REPO, "--json", "isDraft"]);
+  if (existing.status === 0) {
+    if (!JSON.parse(existing.stdout).isDraft) {
+      console.log(`\n  ${tag} is already published; nothing to do.\n`);
+      return;
+    }
+    run("gh", ["release", "delete", tag, "-R", REPO, "--yes"]);
+  }
+
+  // the notes: a post a person wrote for this version, else the commits since the last release
+  if (!readNotes(version)) {
+    const prev = spawnSync("git", ["describe", "--tags", "--abbrev=0", "--match", "v*", `${sha}^`], { cwd: root, encoding: "utf8" });
+    const range = prev.status === 0 ? [`${prev.stdout.trim()}..${sha}`] : ["-15", sha];
+    const subjects = git("log", "--format=%s", ...range).split("\n");
+    const date = new Date().toISOString().slice(0, 10);
+    writeFileSync(join(root, "docs/blog", `${version}.md`), ciNotes(version, subjects, date));
+  }
+  stamp(version);
+  console.log(`\n  CI release ${tag} from ${sha.slice(0, 7)} (run ${runNumber})\n`);
+  build();
+
+  // a draft until every file is up, so the feed never names an installer that isn't there yet
+  const notes = readNotes(version);
+  const a = artifacts(version);
+  const files = [];
+  for (const art of Object.values(a)) if (art?.sig) files.push(art.path, art.sigPath);
+  files.push(join(OUT, "latest.json"));
+  run("gh", ["release", "create", tag, "-R", REPO, "--draft", "--target", sha, "--title", `Foundation ${version}: ${notes.title}`, "--notes-file", join(OUT, "notes.md"), ...files]);
+  run("gh", ["release", "edit", tag, "-R", REPO, "--draft=false", "--latest"]);
+  console.log(`\n  Published ${tag}. The feed: https://github.com/${REPO}/releases/latest/download/latest.json\n`);
+}
+
+// run as a script (tests import feed(), readNotes(), ciVersion() and ciNotes() without running anything)
 if (/release\.mjs$/.test(process.argv[1] ?? "")) {
   if (cmd === "bump") bump(args[0]);
   else if (cmd === "build") build();
   else if (cmd === "publish") publish();
+  else if (cmd === "ci") ci();
   else if (cmd === "notes") console.log(JSON.stringify(readNotes(args[0] ?? currentVersion()), null, 2));
-  else die("usage: npm run release -- bump <x.y.z> | build | publish [--replace] | notes [version]");
+  else die("usage: npm run release -- bump <x.y.z> | build | publish [--replace] | notes [version] | ci [run number]");
 }

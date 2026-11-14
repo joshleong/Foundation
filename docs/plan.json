@@ -1204,12 +1204,12 @@
     },
     {
       "id": "publish-first-release",
-      "title": "Publish the first desktop release to the org repo",
+      "title": "Desktop releases publish themselves on every push to main",
       "kind": "hookup",
       "milestone": "ship",
       "area": "desktop",
-      "status": "needs-you",
-      "body": "The update feed is a 404: no release was ever published, so an installed copy has nothing to update to. Decided 2026-11-12 (Josh): the feed lives on `Normal-AI-Vibe-Code/Foundation`; builds from here on ask it and `npm run release -- publish` targets it. What's left, and needs a person: (1) write access to that repo for whoever publishes (the `gh` account on Josh's PC has read only), and the release tag pushed there; (2) `npm run release -- bump <v>`, `build`, push the tag, `publish`; (3) install from that release on a second computer and watch it take the next one; (4) installed 0.3.0 copies still ask the fork: reinstall them once, or publish the first release to the fork too; (5) back up `~/.tauri/foundation-updater.key` and `.password` somewhere that isn't this PC. Also unrun: macOS, Linux, the MSI path; the Windows installer isn't code-signed.",
+      "status": "doing",
+      "body": "Decided 2026-11-13 (Josh): every push to `main` on `joshleong/Foundation` that passes tests and typecheck becomes a signed Windows release (`.github/workflows/desktop-release.yml`, `npm run release -- ci`, version 0.3.<run>), and the feed is the fork again (the org repo's main stopped on 2026-10-04). The signing key and password are the repo's Actions secrets. The installed 0.3.0 was uninstalled. Left: (1) watch the first CI run go green and its release appear; (2) install from that release, then see the next push arrive as an update card; (3) keep a copy of `~/.tauri/foundation-updater.key` and `.password` that isn't this PC. Also unrun: macOS, Linux, the MSI path; the Windows installer isn't code-signed.",
       "issue": 116
     },
     {
