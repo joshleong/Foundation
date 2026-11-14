@@ -5,6 +5,7 @@
 //   node drive-app.mjs text                   the page's visible text
 //   node drive-app.mjs eval "<js>"            evaluate an expression in the page, print JSON
 //   node drive-app.mjs click "<selector>"     click the first match
+//   node drive-app.mjs fill "<selector>" "<value>"
 import { chromium } from "@playwright/test";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +25,10 @@ try {
     console.log((await page.innerText("body")).slice(0, 4000));
   } else if (cmd === "eval") {
     console.log(JSON.stringify(await page.evaluate(arg), null, 2));
+  } else if (cmd === "fill") {
+    // fill "<selector>" "<value>"
+    await page.locator(arg).first().fill(process.argv[4] ?? "");
+    console.log("filled", arg);
   } else if (cmd === "click") {
     await page.locator(arg).first().click();
     await page.waitForTimeout(800);

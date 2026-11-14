@@ -1098,8 +1098,8 @@
       "kind": "plan",
       "milestone": "ship",
       "area": "desktop",
-      "status": "review",
-      "body": "Josh, 2026-11-13: \"an option button at the bottom right to start the local server or connect to the flowform server for local testing. have it expand to show both options\". A glass pill bottom right (the server in use and whether it answers) opens into This computer (Start runs Foundation's server from a checkout, C:\\Dev\\Foundation by default, on :4410; Stop; it goes when the app quits) and Remote server (an address, Flowform's server to begin with; Connect reloads onto it). Checked in the browser and on `#/design` day and night; the desktop Start is checked on the installed release CI builds from this. Flowform's server isn't a Foundation server, so Connect there signs nobody in until a hosted Foundation exists."
+      "status": "done",
+      "body": "Josh, 2026-11-13: \"an option button at the bottom right to start the local server or connect to the flowform server for local testing. have it expand to show both options\". A glass pill bottom right (the server in use and whether it answers) opens into This computer (Start runs Foundation's server from a checkout, C:\\Dev\\Foundation by default, on :4410; Stop; it goes when the app quits) and Remote server (an address, Flowform's server to begin with; Connect reloads onto it). Checked in the browser and on `#/design` day and night; on the installed 0.3.3 (taken as an update from CI's release): Start, Stop, and quitting the app stops a server it started. Flowform's server isn't a Foundation server, so Connect there signs nobody in until a hosted Foundation exists."
     },
     {
       "id": "desktop-starts-server",
@@ -1217,8 +1217,8 @@
       "kind": "hookup",
       "milestone": "ship",
       "area": "desktop",
-      "status": "doing",
-      "body": "Decided 2026-11-13 (Josh): every push to `main` on `joshleong/Foundation` that passes tests and typecheck becomes a signed Windows release (`.github/workflows/desktop-release.yml`, `npm run release -- ci`, version 0.3.<run>), and the feed is the fork again (the org repo's main stopped on 2026-10-04). The signing key and password are the repo's Actions secrets. The installed 0.3.0 was uninstalled. Left: (1) watch the first CI run go green and its release appear; (2) install from that release, then see the next push arrive as an update card; (3) keep a copy of `~/.tauri/foundation-updater.key` and `.password` that isn't this PC. Also unrun: macOS, Linux, the MSI path; the Windows installer isn't code-signed.",
+      "status": "done",
+      "body": "Decided 2026-11-13 (Josh): every push to `main` on `joshleong/Foundation` that passes tests and typecheck becomes a signed Windows release (`.github/workflows/desktop-release.yml`, `npm run release -- ci`, version 0.3.<run>), and the feed is the fork again (the org repo's main stopped on 2026-10-04). The signing key and password are the repo's Actions secrets. The installed 0.3.0 was uninstalled. Left: (1) watch the first CI run go green and its release appear; (2) install from that release, then see the next push arrive as an update card; (3) keep a copy of `~/.tauri/foundation-updater.key` and `.password` that isn't this PC. Also unrun: macOS, Linux, the MSI path; the Windows installer isn't code-signed. Done 2026-11-13: v0.3.2 and v0.3.3 published by CI; the installed 0.3.2 took 0.3.3 through its update card. Still open elsewhere: a backup of the key off this PC; macOS, Linux and the MSI path; code signing.",
       "issue": 116
     },
     {
