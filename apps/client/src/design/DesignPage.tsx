@@ -10,6 +10,8 @@ import { durations, easings, isNight, setNight, springs } from "@foundation/ui";
 import { initAsciiWind2 } from "../login/asciiWind2";
 import { Mark } from "../brand/Mark";
 import { UpdateCard } from "../update/UpdateCard";
+import { ServerSwitchView, type ServerSwitchViewProps } from "../server/ServerSwitch";
+import { FOLDER_DEFAULT } from "../server/model";
 import type { UpdatePhase } from "../update/updater";
 import { NightOrb } from "../shell/NightOrb";
 import { InfoGlyph } from "../shell/TopBar";
@@ -1001,6 +1003,10 @@ export function DesignPage() {
         <UpdateDemo />
       </Section>
 
+      <Section title="Server switch" note="Bottom right, wherever the app can point at another server (the desktop app, or a page on another site's server), over the sign-in page too: a glass pill with a dot for whether the server this app uses answers (green), is starting or being checked (amber, breathing) or can't be reached (red), and its address. Pressed, it opens upward into both ways to have a server, on paper: This computer, where Start the server is the one blue action (the desktop app runs Foundation's server from a checkout; once it answers, the app uses it and reloads), and a remote server by address, where Connect reloads onto it to sign in. The one in use is ringed and tagged. A server that won't start says why in its own words, in red. Esc or a press outside puts it away. The call chip and the upload tray move up while it's there.">
+        <ServerSwitchDemo />
+      </Section>
+
       <Section title="Release notes" note="Settings → Releases: docs/blog/<version>.md, newest first. The versions run down a sticky list on the left (the current one raised paper, the one this app is built as tagged in blue); the post reads on the right at 720 px: an eyebrow with the version and date, the title in display 24, the body in mist 14/1.6 with frost headings and bold. Under 720 px the list runs across the top.">
         <div className="design-releases">
           <ReleasesTab posts={DEMO_POSTS} route="" />
@@ -1558,6 +1564,52 @@ function UpdateDemo() {
             onClose={noop}
             {...d.extra}
           />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const SWITCH_BASE: ServerSwitchViewProps = {
+  open: true,
+  still: true,
+  current: "http://localhost:4410",
+  reach: "up",
+  desktop: true,
+  local: "running",
+  localListening: true,
+  localOurs: true,
+  folder: FOLDER_DEFAULT,
+  remote: "https://server.formresearch.ai",
+};
+const SWITCH_STATES: Array<{ label: string; props: Partial<ServerSwitchViewProps> }> = [
+  { label: "Closed · connected", props: { open: false } },
+  { label: "Closed · not running", props: { open: false, reach: "down", local: "stopped", localListening: false, localOurs: false } },
+  { label: "This computer, started here", props: {} },
+  { label: "Nothing running: Start", props: { reach: "down", local: "stopped", localListening: false, localOurs: false } },
+  { label: "Starting", props: { reach: "down", local: "starting", localListening: false, localOurs: false } },
+  {
+    label: "It didn't start",
+    props: {
+      reach: "down",
+      local: "failed",
+      localListening: false,
+      localOurs: false,
+      message: "Foundation's server needs Node 22.16 or newer (its search needs SQLite's FTS5), and this computer has v22.13.1. Install it with winget install OpenJS.NodeJS.LTS, then open Foundation again.",
+    },
+  },
+  { label: "On a remote server; this computer's is running too", props: { current: "https://server.formresearch.ai", localOurs: false } },
+  { label: "A remote address that isn't one", props: { current: "https://server.formresearch.ai", reach: "down", local: "stopped", localListening: false, localOurs: false, remote: "ftp://files", remoteError: "A server's address starts with https:// or http://." } },
+  { label: "In a browser on another site's server (can't start one)", props: { desktop: false, current: "https://server.formresearch.ai", local: "stopped", localListening: false, localOurs: false } },
+];
+
+function ServerSwitchDemo() {
+  return (
+    <div className="update-demo server-switch-demo">
+      {SWITCH_STATES.map((d, i) => (
+        <div key={i} style={{ width: 360 }}>
+          <div className="f-eyebrow update-demo-label">{d.label}</div>
+          <ServerSwitchView {...SWITCH_BASE} {...d.props} />
         </div>
       ))}
     </div>

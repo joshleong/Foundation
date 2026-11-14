@@ -11,8 +11,10 @@
 //! CORS already admits http://localhost:<port>. The bundled client still opens when
 //! the server is down, so the device's board copies keep working offline.
 
+mod local_server;
+
 use std::net::TcpListener;
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
 /// The packaged window's origin. Fixed, because the origin keys the device's offline
 /// board copies (IndexedDB) and localStorage: change it and they're left behind.
@@ -72,7 +74,14 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         // updates (SPEC: Desktop updates): the page asks the signed feed and a person presses Update
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init());
+        .plugin(tauri_plugin_process::init())
+        // the server switch, bottom right: a person can start Foundation's server from a checkout here
+        .manage(local_server::LocalServer::default())
+        .invoke_handler(tauri::generate_handler![
+            local_server::local_server_status,
+            local_server::start_local_server,
+            local_server::stop_local_server
+        ]);
     // the plugin's server panics on its own thread if it can't bind; check first and say why instead
     let port_free = dev || port_free(PORT);
     if !dev && port_free {
@@ -105,8 +114,14 @@ pub fn run() {
             win.build()?;
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Foundation");
+        .build(tauri::generate_context!())
+        .expect("error while building Foundation")
+        .run(|app, event| {
+            // a server this app started goes when it quits
+            if let RunEvent::Exit = event {
+                local_server::shutdown(app);
+            }
+        });
 }
 
 /// Shown when another program holds the window's port (or Windows has reserved it).

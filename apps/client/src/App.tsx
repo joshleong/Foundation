@@ -10,6 +10,7 @@ import { Privacy } from "./privacy/Privacy";
 import { SettingsPage } from "./settings/SettingsPage";
 import { Tip } from "./shell/Tip";
 import { WindowControls } from "./shell/WindowControls";
+import { ServerSwitch } from "./server/ServerSwitch";
 import { rememberMe, whoAmI } from "./lib/api";
 import { UpdateShelf } from "./update/UpdateCard";
 import { startUpdates } from "./update/updater";
@@ -86,6 +87,7 @@ function App() {
     return (
       <>
         <div className="boot" />
+        <ServerSwitch day />
         <WindowControls />
       </>
     );
@@ -95,6 +97,7 @@ function App() {
       <>
         <SettingsPage route={route} />
         <UpdateShelf />
+        <ServerSwitch />
         <WindowControls />
         <Tip />
       </>
@@ -122,6 +125,7 @@ function App() {
       )}
       {/* over the sign-in page (always day), the card wears day too */}
       <UpdateShelf day={preview || !user || veil} />
+      <ServerSwitch day={preview || !user || veil} />
       <WindowControls day={preview || !user || veil} />
       <Tip />
     </>

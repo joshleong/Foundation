@@ -1093,13 +1093,22 @@
       "issue": 102
     },
     {
+      "id": "server-switch",
+      "title": "A switch, bottom right: start this computer's server, or connect to a remote one",
+      "kind": "plan",
+      "milestone": "ship",
+      "area": "desktop",
+      "status": "review",
+      "body": "Josh, 2026-11-13: \"an option button at the bottom right to start the local server or connect to the flowform server for local testing. have it expand to show both options\". A glass pill bottom right (the server in use and whether it answers) opens into This computer (Start runs Foundation's server from a checkout, C:\\Dev\\Foundation by default, on :4410; Stop; it goes when the app quits) and Remote server (an address, Flowform's server to begin with; Connect reloads onto it). Checked in the browser and on `#/design` day and night; the desktop Start is checked on the installed release CI builds from this. Flowform's server isn't a Foundation server, so Connect there signs nobody in until a hosted Foundation exists."
+    },
+    {
       "id": "desktop-starts-server",
       "title": "The desktop app starts its own server",
       "kind": "plan",
       "milestone": "ship",
       "area": "desktop",
       "status": "next",
-      "body": "The installed app expects a server at http://localhost:4410 and starts none, so on its own nothing in it connects (2026-11-09). Bundle the server (a Node sidecar with FTS5, or a single executable) and start it with the window, on a port outside Windows' reserved ranges; keep `Server` on the sign-in page for a hosted one.",
+      "body": "The installed app expects a server at http://localhost:4410 and starts none, so on its own nothing in it connects (2026-11-09). Bundle the server (a Node sidecar with FTS5, or a single executable) and start it with the window, on a port outside Windows' reserved ranges; keep `Server` on the sign-in page for a hosted one. (2026-11-13: the server switch, bottom right, starts one from a checkout on this computer when a person presses Start; bundling a server is still the way for a computer without a checkout.)",
       "issue": 101
     },
     {
